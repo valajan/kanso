@@ -1,0 +1,20 @@
+# URL of the production site used as the main branch reference.
+base_url: https://perfbuddy.netlify.app/
+
+# Path to the file where the main branch reference score is persisted.
+score_reference_file: main-ref-score.json
+
+# Delay in seconds before running Lighthouse after a merge to main.
+# Should cover the time needed for the production deployment to complete.
+deploy_wait_seconds: 120
+
+# Performance budgets — hard limits that block a merge if exceeded.
+# A PR worse than these values triggers a ❌ regardless of the prod reference.
+# A PR within budget but worse than prod triggers a ⚠️.
+# Omit a metric to disable its budget check.
+performance_budget:
+  performance: 80   # minimum Lighthouse score (0–100)
+  lcp: 2.5          # maximum Largest Contentful Paint, in seconds
+  tbt: 300          # maximum Total Blocking Time, in milliseconds
+  cls: 0.1          # maximum Cumulative Layout Shift
+  fcp: 1.8          # maximum First Contentful Paint, in seconds
