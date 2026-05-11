@@ -22,6 +22,35 @@ export function truncatePatch(patch, maxLines = MAX_LINES_PER_FILE) {
   return lines.slice(0, maxLines).join('\n') + `\n... (${omitted} more lines truncated)`;
 }
 
+// Walks a unified-diff patch and returns the line numbers (on the new file side)
+// of every `+` line. These are the only positions a RIGHT-side PR review comment
+// can anchor on for code the PR introduced. Context and removed lines are not
+// candidates: pointing at context is rarely actionable, and `-` lines do not
+// exist on the new side at all.
+export function extractAddedLines(patch) {
+  if (!patch) return [];
+  const out = [];
+  let newLine = 0;
+  for (const raw of patch.split('\n')) {
+    if (raw.startsWith('@@')) {
+      const m = raw.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) newLine = parseInt(m[1], 10);
+      continue;
+    }
+    if (raw.startsWith('+++') || raw.startsWith('---') || raw.startsWith('\\')) continue;
+    if (raw.startsWith('+')) {
+      out.push(newLine);
+      newLine++;
+    } else if (raw.startsWith('-')) {
+      // removed line — does not consume a new-side line number
+    } else {
+      // context line (leading space, or our truncation marker) — advances cursor
+      newLine++;
+    }
+  }
+  return out;
+}
+
 export async function fetchRelevantDiff({ octokit, owner, repo, prNumber, log }) {
   log?.info?.('[ai-analysis] fetching PR file diff');
   const { data: files } = await octokit.request(
@@ -31,11 +60,15 @@ export async function fetchRelevantDiff({ octokit, owner, repo, prNumber, log })
 
   const filtered = files
     .filter((f) => isRelevantFile(f.filename))
-    .map((f) => ({
-      filename: f.filename,
-      status: f.status,
-      patch: truncatePatch(f.patch),
-    }))
+    .map((f) => {
+      const patch = truncatePatch(f.patch);
+      return {
+        filename: f.filename,
+        status: f.status,
+        patch,
+        addedLines: extractAddedLines(patch),
+      };
+    })
     .filter((f) => f.patch);
 
   // Hard cap on total payload sent to OpenAI, regardless of per-file truncation.
@@ -50,7 +83,8 @@ export async function fetchRelevantDiff({ octokit, owner, repo, prNumber, log })
     } else {
       const kept = lines.slice(0, remaining).join('\n');
       const omitted = lines.length - remaining;
-      capped.push({ ...f, patch: `${kept}\n... (${omitted} more lines truncated)` });
+      const truncatedPatch = `${kept}\n... (${omitted} more lines truncated)`;
+      capped.push({ ...f, patch: truncatedPatch, addedLines: extractAddedLines(truncatedPatch) });
       remaining = 0;
     }
   }

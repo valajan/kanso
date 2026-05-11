@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchRelevantDiff, isRelevantFile, truncatePatch } from '../diff-fetcher.js';
+import {
+  extractAddedLines,
+  fetchRelevantDiff,
+  isRelevantFile,
+  truncatePatch,
+} from '../diff-fetcher.js';
 
 test('isRelevantFile keeps frontend extensions', () => {
   assert.equal(isRelevantFile('src/foo.jsx'), true);
@@ -85,6 +90,64 @@ test('fetchRelevantDiff filters, truncates, and forwards octokit args', async ()
   assert.equal(result[0].filename, 'src/Hero.jsx');
   assert.equal(result[1].filename, 'styles/big.css');
   assert.match(result[1].patch, /more lines truncated/);
+});
+
+test('extractAddedLines returns new-side line numbers for + lines only', () => {
+  const patch = [
+    '@@ -10,3 +10,5 @@',
+    ' context A',
+    '-removed',
+    '+added at 11',
+    '+added at 12',
+    ' context B',
+  ].join('\n');
+  assert.deepEqual(extractAddedLines(patch), [11, 12]);
+});
+
+test('extractAddedLines handles multiple hunks and skips file headers', () => {
+  const patch = [
+    '@@ -1,1 +1,2 @@',
+    ' ctx',
+    '+ first add at 2',
+    '@@ -50,2 +60,3 @@',
+    ' ctx',
+    '-removed',
+    '+ second add at 61',
+    '+ third add at 62',
+  ].join('\n');
+  assert.deepEqual(extractAddedLines(patch), [2, 61, 62]);
+});
+
+test('extractAddedLines ignores "no newline at end of file" markers', () => {
+  const patch = [
+    '@@ -1,1 +1,1 @@',
+    '-old',
+    '+new',
+    '\\ No newline at end of file',
+  ].join('\n');
+  assert.deepEqual(extractAddedLines(patch), [1]);
+});
+
+test('extractAddedLines returns empty for null/empty patches', () => {
+  assert.deepEqual(extractAddedLines(null), []);
+  assert.deepEqual(extractAddedLines(''), []);
+});
+
+test('fetchRelevantDiff attaches addedLines to each returned file', async () => {
+  const patch = [
+    '@@ -1,2 +1,3 @@',
+    ' ctx',
+    '+ new line at 2',
+    ' ctx',
+  ].join('\n');
+  const octokit = {
+    request: async () => ({
+      data: [{ filename: 'src/a.js', status: 'modified', patch }],
+    }),
+  };
+  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0].addedLines, [2]);
 });
 
 test('fetchRelevantDiff drops files with empty patch after filtering', async () => {

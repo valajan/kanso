@@ -7,6 +7,7 @@ const sampleDiff = [
     filename: 'src/Hero.jsx',
     status: 'modified',
     patch: '+ <img src="huge-banner.png" />',
+    addedLines: [12],
   },
 ];
 
@@ -27,7 +28,7 @@ test('prompt contains metric label, values, and delta', () => {
   assert.match(prompt, /\+33\.3%/);
 });
 
-test('prompt embeds the filtered diff', () => {
+test('prompt embeds the filtered diff and lists anchorable lines', () => {
   const prompt = buildPrompt({
     metric: 'tbt',
     currentValue: 500,
@@ -40,9 +41,10 @@ test('prompt embeds the filtered diff', () => {
   assert.match(prompt, /src\/Hero\.jsx/);
   assert.match(prompt, /huge-banner\.png/);
   assert.match(prompt, /```diff/);
+  assert.match(prompt, /Anchorable lines.*12/);
 });
 
-test('prompt asks for cause, prioritized actions, and honesty about externals', () => {
+test('prompt requests JSON output with summary + comments schema', () => {
   const prompt = buildPrompt({
     metric: 'performance',
     currentValue: 60,
@@ -52,13 +54,17 @@ test('prompt asks for cause, prioritized actions, and honesty about externals', 
     diff: sampleDiff,
   });
 
-  assert.match(prompt, /Identify the most likely cause/);
-  assert.match(prompt, /prioritized actions/i);
+  assert.match(prompt, /JSON/);
+  assert.match(prompt, /"summary"/);
+  assert.match(prompt, /"comments"/);
+  assert.match(prompt, /"file"/);
+  assert.match(prompt, /"line"/);
+  assert.match(prompt, /"body"/);
   assert.match(prompt, /honest about uncertainty/i);
   assert.match(prompt, /external/i);
 });
 
-test('prompt handles negative delta sign', () => {
+test('prompt instructs the model not to invent file paths or line numbers', () => {
   const prompt = buildPrompt({
     metric: 'cls',
     currentValue: 0.3,
@@ -68,19 +74,21 @@ test('prompt handles negative delta sign', () => {
     diff: sampleDiff,
   });
 
+  assert.match(prompt, /Do not invent/i);
   assert.match(prompt, /\+500\.0%/);
 });
 
-test('prompt formats N/A when threshold or ref is missing', () => {
+test('prompt warns the model when a file has no anchorable lines', () => {
   const prompt = buildPrompt({
     metric: 'fcp',
     currentValue: 3.0,
     threshold: null,
     refValue: null,
     delta: 50,
-    diff: sampleDiff,
+    diff: [{ filename: 'src/Empty.jsx', status: 'modified', patch: ' context', addedLines: [] }],
   });
 
+  assert.match(prompt, /No added lines/);
   // Both threshold and ref render as N/A
   const naMatches = prompt.match(/N\/A/g) ?? [];
   assert.ok(naMatches.length >= 2, 'expected at least two N/A renderings');

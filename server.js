@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import Fastify from 'fastify';
 import { App } from '@octokit/app';
@@ -22,37 +22,47 @@ if (!APP_ID || !WEBHOOK_SECRET || !PRIVATE_KEY_PATH) {
   throw new Error('Missing env vars: GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, GITHUB_PRIVATE_KEY_PATH');
 }
 
-const config = yaml.load(readFileSync('./config.yml', 'utf8'));
+const staticConfig = yaml.load(readFileSync('./config.yml', 'utf8'));
 
-if (!config.base_url) throw new Error('Missing config: base_url');
-if (!config.score_reference_file) throw new Error('Missing config: score_reference_file');
+if (!staticConfig.base_url) throw new Error('Missing config: base_url');
 
-const MAIN_REF_URL = config.base_url;
-const MAIN_REF_FILE = config.score_reference_file;
-const DEPLOY_WAIT_MS = (config.deploy_wait_seconds ?? 120) * 1000;
-const PREVIEW_WAIT_MS = (config.preview_wait_seconds ?? 15) * 1000;
-const BUDGET = config.budgets ?? {};
-const AI_ANALYSIS_ENABLED = config.ai_analysis === true;
+// Deep-merge repo config on top of static defaults.
+// budgets keys are merged individually so a client can override just one metric.
+function mergeConfig(base, override) {
+  return {
+    ...base,
+    ...override,
+    budgets: { ...(base.budgets ?? {}), ...(override.budgets ?? {}) },
+  };
+}
+
+// Fetches .perfguard.yml from the client repo and merges with staticConfig.
+// Falls back to staticConfig silently if the file is absent.
+async function loadRepoConfig(octokit, owner, repo, log, ref) {
+  try {
+    const { data } = await octokit.request(
+      'GET /repos/{owner}/{repo}/contents/{path}',
+      { owner, repo, path: '.perfguard.yml', ...(ref ? { ref } : {}) }
+    );
+    const content = Buffer.from(data.content, 'base64').toString('utf8');
+    const repoConfig = yaml.load(content) ?? {};
+    return mergeConfig(staticConfig, repoConfig);
+  } catch (err) {
+    if (err.status === 404) return staticConfig;
+    // 403 = app lacks Contents read permission; fall back rather than crashing
+    if (err.status === 403) {
+      log?.warn({ owner, repo }, '[config] no Contents permission, using static config');
+      return staticConfig;
+    }
+    throw err;
+  }
+}
 
 const privateKey = readFileSync(PRIVATE_KEY_PATH, 'utf8');
 
 const githubApp = new App({ appId: APP_ID, privateKey });
 
-function loadMainRefScore() {
-  try {
-    return JSON.parse(readFileSync(MAIN_REF_FILE, 'utf8'));
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw err;
-  }
-}
 
-function persistMainRefScore(score) {
-  writeFileSync(MAIN_REF_FILE, JSON.stringify(score, null, 2));
-  mainRefScore = score;
-}
-
-let mainRefScore = loadMainRefScore();
 const previewUrls = new Map();
 const pendingPRs = new Map();
 const waitingComments = new Map();
@@ -85,13 +95,13 @@ function verifySignature(rawBody, signatureHeader) {
 // 'fail'  = PR violates the budget threshold → block merge
 // 'warn'  = PR is within budget but worse than prod ref → warning
 // 'pass'  = PR is at least as good as prod ref (or no ref available)
-function buildStatus(prVal, refVal, budgetVal, lowerIsBetter) {
+function buildStatus(prVal, refVal, budgetVal, lowerIsBetter, tolerance = 0) {
   if (budgetVal != null) {
     const failsBudget = lowerIsBetter ? prVal > budgetVal : prVal < budgetVal;
     if (failsBudget) return 'fail';
   }
   if (refVal != null) {
-    const worseThanRef = lowerIsBetter ? prVal > refVal : prVal < refVal;
+    const worseThanRef = lowerIsBetter ? prVal > refVal + tolerance : prVal < refVal - tolerance;
     if (worseThanRef) return 'warn';
   }
   return 'pass';
@@ -129,11 +139,11 @@ function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main
   const fmtRef = (val, decimals, unit) => val == null ? '—' : val.toFixed(decimals) + unit;
 
   const statuses = {
-    performance: buildStatus(prScore.performance, refPerf, budget.performance ?? null, false),
-    lcp: buildStatus(prScore.lcp, refLcp, budget.lcp ?? null, true),
-    tbt: buildStatus(prTbt, refTbt, budget.tbt ?? null, true),
-    cls: buildStatus(prScore.cls, refCls, budget.cls ?? null, true),
-    fcp: buildStatus(prScore.fcp, refFcp, budget.fcp ?? null, true),
+    performance: buildStatus(prScore.performance, refPerf, budget.performance ?? null, false, 0.5),
+    lcp: buildStatus(prScore.lcp, refLcp, budget.lcp ?? null, true, 0.05),
+    tbt: buildStatus(prTbt, refTbt, budget.tbt ?? null, true, 0.5),
+    cls: buildStatus(prScore.cls, refCls, budget.cls ?? null, true, 0.005),
+    fcp: buildStatus(prScore.fcp, refFcp, budget.fcp ?? null, true, 0.05),
   };
 
   const deltas = refScore != null ? {
@@ -198,11 +208,13 @@ async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, source, 
 
   if (pendingPRs.has(prNumber)) {
     pendingPRs.delete(prNumber);
-    await new Promise((resolve) => setTimeout(resolve, PREVIEW_WAIT_MS));
+    const repoConfig = await loadRepoConfig(octokit, owner, repo, log, sha);
+    const previewWaitMs = (repoConfig.preview_wait_seconds ?? 15) * 1000;
+    await new Promise((resolve) => setTimeout(resolve, previewWaitMs));
     await runAndPostReport({
       octokit, owner, repo, prNumber, sha,
       headRef: pr.head.ref, baseRef: pr.base.ref,
-      previewUrl: targetUrl, source, log,
+      previewUrl: targetUrl, source, log, repoConfig,
     });
   }
   return { ok: true, pr: prNumber, target_url: targetUrl };
@@ -225,25 +237,48 @@ async function postOrEditComment({ octokit, owner, repo, prNumber, body }) {
   return data.id;
 }
 
-async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, source, log }) {
+async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, source, log, repoConfig }) {
+  const budget = repoConfig.budgets ?? {};
+  const aiAnalysisEnabled = repoConfig.ai_analysis === true;
+  const baseUrl = repoConfig.base_url;
+
   let prScore;
-  try {
-    prScore = await runLighthouse(previewUrl);
-  } catch (err) {
-    log.error({ err, previewUrl }, 'lighthouse failed on PR');
+  let mainRefScore = null;
+
+  // Run sequentially: concurrent Lighthouse instances share Node's performance
+  // namespace (via marky) and corrupt each other's marks.
+  const prResult = await runLighthouse(previewUrl).then(
+    (v) => ({ status: 'fulfilled', value: v }),
+    (e) => ({ status: 'rejected', reason: e }),
+  );
+  const refResult = await runLighthouse(baseUrl).then(
+    (v) => ({ status: 'fulfilled', value: v }),
+    (e) => ({ status: 'rejected', reason: e }),
+  );
+
+  if (prResult.status === 'rejected') {
+    log.error({ err: prResult.reason, previewUrl }, 'lighthouse failed on PR preview');
     await postOrEditComment({
       octokit, owner, repo, prNumber,
-      body: `⚠️ PerfGuard — Lighthouse analysis failed: \`${err.message}\``,
+      body: `⚠️ PerfGuard — Lighthouse analysis failed: \`${prResult.reason.message}\``,
     });
-    return { ok: false, error: err.message };
+    return { ok: false, error: prResult.reason.message };
+  }
+
+  prScore = prResult.value;
+
+  if (refResult.status === 'fulfilled') {
+    mainRefScore = refResult.value;
+  } else {
+    log.warn({ err: refResult.reason, baseUrl }, 'lighthouse failed on base URL, comparison unavailable');
   }
 
   const statuses = {
-    performance: buildStatus(prScore.performance, mainRefScore?.performance ?? null, BUDGET.performance ?? null, false),
-    lcp: buildStatus(prScore.lcp, mainRefScore?.lcp ?? null, BUDGET.lcp ?? null, true),
-    tbt: buildStatus(Math.round(prScore.tbt), mainRefScore != null ? Math.round(mainRefScore.tbt) : null, BUDGET.tbt ?? null, true),
-    cls: buildStatus(prScore.cls, mainRefScore?.cls ?? null, BUDGET.cls ?? null, true),
-    fcp: buildStatus(prScore.fcp, mainRefScore?.fcp ?? null, BUDGET.fcp ?? null, true),
+    performance: buildStatus(prScore.performance, mainRefScore?.performance ?? null, budget.performance ?? null, false),
+    lcp: buildStatus(prScore.lcp, mainRefScore?.lcp ?? null, budget.lcp ?? null, true),
+    tbt: buildStatus(Math.round(prScore.tbt), mainRefScore != null ? Math.round(mainRefScore.tbt) : null, budget.tbt ?? null, true),
+    cls: buildStatus(prScore.cls, mainRefScore?.cls ?? null, budget.cls ?? null, true),
+    fcp: buildStatus(prScore.fcp, mainRefScore?.fcp ?? null, budget.fcp ?? null, true),
   };
 
   const baseBody = formatComment(prScore, mainRefScore, {
@@ -251,14 +286,14 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     headRef,
     baseRef,
     source,
-    budget: BUDGET,
+    budget,
   });
 
   const regressions = detectSignificantRegressions({
-    statuses, prScore, refScore: mainRefScore, budget: BUDGET,
+    statuses, prScore, refScore: mainRefScore, budget,
   });
 
-  const initialBody = AI_ANALYSIS_ENABLED && regressions.length > 0
+  const initialBody = aiAnalysisEnabled && regressions.length > 0
     ? baseBody + formatPendingNote(regressions.map((r) => r.metric))
     : baseBody;
 
@@ -274,18 +309,21 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     }).catch((err) => log.warn({ err }, 'failed to post commit status'));
   }
 
-  if (AI_ANALYSIS_ENABLED && regressions.length > 0) {
+  if (aiAnalysisEnabled && regressions.length > 0) {
     analyzePerformanceRegression({
-      octokit, owner, repo, prNumber, regressions, log,
+      octokit, owner, repo, prNumber, sha, regressions, log,
     })
-      .then(async (aiSection) => {
-        if (!aiSection) return;
-        const updatedBody = replaceAnalysisSection(initialBody, aiSection);
+      .then(async (result) => {
+        if (!result?.section) return;
+        const updatedBody = replaceAnalysisSection(initialBody, result.section);
         await octokit.request(
           'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
           { owner, repo, comment_id: commentId, body: updatedBody }
         );
-        log.info({ pr: prNumber, commentId }, '[ai-analysis] comment patched with analysis');
+        log.info(
+          { pr: prNumber, commentId, inlineComments: result.structured?.comments?.length ?? 0 },
+          '[ai-analysis] comment patched with analysis'
+        );
       })
       .catch((err) => log.warn({ err }, '[ai-analysis] background patch failed'));
   }
@@ -348,23 +386,9 @@ fastify.post('/webhook', async (req, reply) => {
   }
 
   const { action } = payload;
+  const owner = payload.repository.owner.login;
+  const repo = payload.repository.name;
   const baseRef = payload.pull_request?.base?.ref;
-  const merged = payload.pull_request?.merged === true;
-
-  if (action === 'closed' && merged && baseRef === 'main') {
-    req.log.info({ delaySeconds: config.deploy_wait_seconds }, 'PR merged to main, scheduling main ref update');
-    setTimeout(async () => {
-      fastify.log.info({ url: MAIN_REF_URL }, 'running Lighthouse on production');
-      try {
-        const newScore = await runLighthouse(MAIN_REF_URL);
-        persistMainRefScore(newScore);
-        fastify.log.info({ score: mainRefScore }, 'main reference updated');
-      } catch (err) {
-        fastify.log.error({ err }, 'lighthouse failed on main ref update');
-      }
-    }, DEPLOY_WAIT_MS);
-    return { ok: true, scheduled_ref_update: true };
-  }
 
   if (action !== 'opened' && action !== 'synchronize') {
     return { ok: true, ignored_action: action };
@@ -375,8 +399,6 @@ fastify.post('/webhook', async (req, reply) => {
     return reply.code(400).send({ error: 'missing installation id' });
   }
 
-  const owner = payload.repository.owner.login;
-  const repo = payload.repository.name;
   const prNumber = payload.pull_request.number;
   const headRef = payload.pull_request.head.ref;
   const sha = payload.pull_request.head.sha;
@@ -411,6 +433,7 @@ fastify.post('/webhook', async (req, reply) => {
   }
 
   const octokit = await githubApp.getInstallationOctokit(installationId);
+  const repoConfig = await loadRepoConfig(octokit, owner, repo, req.log, sha);
   await runAndPostReport({
     octokit,
     owner,
@@ -421,6 +444,7 @@ fastify.post('/webhook', async (req, reply) => {
     baseRef,
     previewUrl,
     log: req.log,
+    repoConfig,
   });
   return { ok: true };
 });
@@ -429,7 +453,7 @@ fastify
   .listen({ port: PORT, host: '0.0.0.0' })
   .then((address) => {
     fastify.log.info(
-      { mainRefScore, file: MAIN_REF_FILE, deployWaitSeconds: config.deploy_wait_seconds, budget: BUDGET },
+      { budget: staticConfig.budgets },
       `PerfGuard listening on ${address}`
     );
   })

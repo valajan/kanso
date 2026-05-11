@@ -23,8 +23,20 @@ function sanitizeModelOutput(text) {
     .replace(/<\/?[a-zA-Z][^>]*>/g, '');
 }
 
-export function formatAnalysis(analysis) {
-  return wrap(sanitizeModelOutput(analysis).trim());
+export function sanitize(text) {
+  return sanitizeModelOutput(text);
+}
+
+// Renders the validated {summary, comments} structure as a markdown section.
+// Inline findings are posted via the GitHub Reviews API on the relevant lines,
+// so the section body only carries the overall summary plus a pointer note.
+export function formatStructuredAnalysis({ summary, comments }) {
+  const parts = [summary.trim()];
+  if (comments.length > 0) {
+    const noun = comments.length === 1 ? 'comment' : 'comments';
+    parts.push(`_${comments.length} inline ${noun} posted on the diff — see the Files Changed tab._`);
+  }
+  return wrap(parts.join('\n\n'));
 }
 
 export function formatSkippedNote(reason) {

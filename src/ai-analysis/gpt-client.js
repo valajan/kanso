@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 
 const MODEL = 'gpt-5.4';
-const MAX_TOKENS = 1000;
+const MAX_TOKENS = 1500;
 const TIMEOUT_MS = 30_000;
 
 let cachedClient = null;
@@ -14,8 +14,8 @@ function getClient() {
   return cachedClient;
 }
 
-export async function requestAnalysis(prompt, { log } = {}) {
-  log?.info?.({ model: MODEL }, '[ai-analysis] calling OpenAI');
+export async function requestAnalysis(prompt, { log, json = false } = {}) {
+  log?.info?.({ model: MODEL, json }, '[ai-analysis] calling OpenAI');
   const client = getClient();
 
   try {
@@ -23,6 +23,7 @@ export async function requestAnalysis(prompt, { log } = {}) {
       model: MODEL,
       max_completion_tokens: MAX_TOKENS,
       messages: [{ role: 'user', content: prompt }],
+      ...(json ? { response_format: { type: 'json_object' } } : {}),
     });
 
     const content = completion.choices?.[0]?.message?.content;

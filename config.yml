@@ -1,12 +1,14 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Static fallback configuration for PerfGuard.
+#
+# Each client repository can override any of these values by adding a
+# .perfguard.yml file at the root of their repo. Missing keys fall back to
+# the values defined here. budgets are merged key-by-key, so a client can
+# override a single metric without restating the others.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # URL of the production site used as the main branch reference.
 base_url: https://perfbuddy.netlify.app/
-
-# Path to the file where the main branch reference score is persisted.
-score_reference_file: main-ref-score.json
-
-# Delay in seconds before running Lighthouse after a merge to main.
-# Should cover the time needed for the production deployment to complete.
-deploy_wait_seconds: 120
 
 # Delay in seconds before running Lighthouse on a PR preview.
 # Netlify marks a deployment as "success" before all assets are fully served,
