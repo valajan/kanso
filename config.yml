@@ -23,3 +23,6 @@ budgets:
   tbt: 300 # maximum Total Blocking Time, in milliseconds
   cls: 0.1 # maximum Cumulative Layout Shift
   fcp: 1.8 # maximum First Contentful Paint, in seconds
+
+# root-cause analysis on regressions
+ai_analysis: true

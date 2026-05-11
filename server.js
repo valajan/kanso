@@ -32,6 +32,7 @@ const MAIN_REF_FILE = config.score_reference_file;
 const DEPLOY_WAIT_MS = (config.deploy_wait_seconds ?? 120) * 1000;
 const PREVIEW_WAIT_MS = (config.preview_wait_seconds ?? 15) * 1000;
 const BUDGET = config.budgets ?? {};
+const AI_ANALYSIS_ENABLED = config.ai_analysis === true;
 
 const privateKey = readFileSync(PRIVATE_KEY_PATH, 'utf8');
 
@@ -257,7 +258,7 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     statuses, prScore, refScore: mainRefScore, budget: BUDGET,
   });
 
-  const initialBody = regressions.length > 0
+  const initialBody = AI_ANALYSIS_ENABLED && regressions.length > 0
     ? baseBody + formatPendingNote(regressions.map((r) => r.metric))
     : baseBody;
 
@@ -273,7 +274,7 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     }).catch((err) => log.warn({ err }, 'failed to post commit status'));
   }
 
-  if (regressions.length > 0) {
+  if (AI_ANALYSIS_ENABLED && regressions.length > 0) {
     analyzePerformanceRegression({
       octokit, owner, repo, prNumber, regressions, log,
     })
