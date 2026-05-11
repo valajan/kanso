@@ -5,6 +5,13 @@ import Fastify from 'fastify';
 import { App } from '@octokit/app';
 import yaml from 'js-yaml';
 import { runLighthouse } from './lighthouse.js';
+import {
+  analyzePerformanceRegression,
+  detectSignificantRegressions,
+  formatPendingNote,
+  replaceAnalysisSection,
+  metricLabels,
+} from './src/ai-analysis/index.js';
 
 const APP_ID = process.env.GITHUB_APP_ID;
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
@@ -23,7 +30,8 @@ if (!config.score_reference_file) throw new Error('Missing config: score_referen
 const MAIN_REF_URL = config.base_url;
 const MAIN_REF_FILE = config.score_reference_file;
 const DEPLOY_WAIT_MS = (config.deploy_wait_seconds ?? 120) * 1000;
-const BUDGET = config.performance_budget ?? {};
+const PREVIEW_WAIT_MS = (config.preview_wait_seconds ?? 15) * 1000;
+const BUDGET = config.budgets ?? {};
 
 const privateKey = readFileSync(PRIVATE_KEY_PATH, 'utf8');
 
@@ -157,20 +165,19 @@ ${table}
 }
 
 function commitStatusPayload(statuses) {
-  const failedEntry = Object.entries(statuses).find(([, s]) => s === 'fail');
+  const failedKeys = Object.entries(statuses).filter(([, s]) => s === 'fail').map(([k]) => k);
   const hasWarn = Object.values(statuses).some((s) => s === 'warn');
-  const METRIC_LABEL = { performance: 'Performance', lcp: 'LCP', tbt: 'TBT', cls: 'CLS', fcp: 'FCP' };
-  if (failedEntry) {
+  if (failedKeys.length > 0) {
     return {
       state: 'failure',
-      description: `Performance regression detected on ${METRIC_LABEL[failedEntry[0]]}`,
+      description: `Performance regression detected on ${metricLabels(failedKeys)}`,
     };
   }
   if (hasWarn) return { state: 'success', description: 'Minor regressions — review before merging' };
   return { state: 'success', description: 'All metrics within acceptable thresholds' };
 }
 
-async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, log }) {
+async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, source, log }) {
   const { data: prs } = await octokit.request(
     'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
     { owner, repo, commit_sha: sha }
@@ -190,10 +197,11 @@ async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, log }) {
 
   if (pendingPRs.has(prNumber)) {
     pendingPRs.delete(prNumber);
+    await new Promise((resolve) => setTimeout(resolve, PREVIEW_WAIT_MS));
     await runAndPostReport({
       octokit, owner, repo, prNumber, sha,
       headRef: pr.head.ref, baseRef: pr.base.ref,
-      previewUrl: targetUrl, log,
+      previewUrl: targetUrl, source, log,
     });
   }
   return { ok: true, pr: prNumber, target_url: targetUrl };
@@ -207,12 +215,13 @@ async function postOrEditComment({ octokit, owner, repo, prNumber, body }) {
       'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
       { owner, repo, comment_id: waitingCommentId, body }
     );
-    return;
+    return waitingCommentId;
   }
-  await octokit.request(
+  const { data } = await octokit.request(
     'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
     { owner, repo, issue_number: prNumber, body }
   );
+  return data.id;
 }
 
 async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, source, log }) {
@@ -228,7 +237,15 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     return { ok: false, error: err.message };
   }
 
-  const body = formatComment(prScore, mainRefScore, {
+  const statuses = {
+    performance: buildStatus(prScore.performance, mainRefScore?.performance ?? null, BUDGET.performance ?? null, false),
+    lcp: buildStatus(prScore.lcp, mainRefScore?.lcp ?? null, BUDGET.lcp ?? null, true),
+    tbt: buildStatus(Math.round(prScore.tbt), mainRefScore != null ? Math.round(mainRefScore.tbt) : null, BUDGET.tbt ?? null, true),
+    cls: buildStatus(prScore.cls, mainRefScore?.cls ?? null, BUDGET.cls ?? null, true),
+    fcp: buildStatus(prScore.fcp, mainRefScore?.fcp ?? null, BUDGET.fcp ?? null, true),
+  };
+
+  const baseBody = formatComment(prScore, mainRefScore, {
     previewUrl,
     headRef,
     baseRef,
@@ -236,16 +253,17 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     budget: BUDGET,
   });
 
-  await postOrEditComment({ octokit, owner, repo, prNumber, body });
+  const regressions = detectSignificantRegressions({
+    statuses, prScore, refScore: mainRefScore, budget: BUDGET,
+  });
+
+  const initialBody = regressions.length > 0
+    ? baseBody + formatPendingNote(regressions.map((r) => r.metric))
+    : baseBody;
+
+  const commentId = await postOrEditComment({ octokit, owner, repo, prNumber, body: initialBody });
 
   if (sha) {
-    const statuses = {
-      performance: buildStatus(prScore.performance, mainRefScore?.performance ?? null, BUDGET.performance ?? null, false),
-      lcp: buildStatus(prScore.lcp, mainRefScore?.lcp ?? null, BUDGET.lcp ?? null, true),
-      tbt: buildStatus(Math.round(prScore.tbt), mainRefScore != null ? Math.round(mainRefScore.tbt) : null, BUDGET.tbt ?? null, true),
-      cls: buildStatus(prScore.cls, mainRefScore?.cls ?? null, BUDGET.cls ?? null, true),
-      fcp: buildStatus(prScore.fcp, mainRefScore?.fcp ?? null, BUDGET.fcp ?? null, true),
-    };
     const { state, description } = commitStatusPayload(statuses);
     await octokit.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
       owner, repo, sha,
@@ -253,6 +271,22 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
       description,
       context: 'perfguard',
     }).catch((err) => log.warn({ err }, 'failed to post commit status'));
+  }
+
+  if (regressions.length > 0) {
+    analyzePerformanceRegression({
+      octokit, owner, repo, prNumber, regressions, log,
+    })
+      .then(async (aiSection) => {
+        if (!aiSection) return;
+        const updatedBody = replaceAnalysisSection(initialBody, aiSection);
+        await octokit.request(
+          'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
+          { owner, repo, comment_id: commentId, body: updatedBody }
+        );
+        log.info({ pr: prNumber, commentId }, '[ai-analysis] comment patched with analysis');
+      })
+      .catch((err) => log.warn({ err }, '[ai-analysis] background patch failed'));
   }
 
   log.info({ pr: prNumber, prScore, previewUrl }, 'perf report posted');

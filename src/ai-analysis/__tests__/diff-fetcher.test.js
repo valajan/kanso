@@ -1,0 +1,102 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fetchRelevantDiff, isRelevantFile, truncatePatch } from '../diff-fetcher.js';
+
+test('isRelevantFile keeps frontend extensions', () => {
+  assert.equal(isRelevantFile('src/foo.jsx'), true);
+  assert.equal(isRelevantFile('src/foo.tsx'), true);
+  assert.equal(isRelevantFile('styles/main.scss'), true);
+  assert.equal(isRelevantFile('app/Page.svelte'), true);
+  assert.equal(isRelevantFile('components/Card.vue'), true);
+  assert.equal(isRelevantFile('public/index.html'), true);
+});
+
+test('isRelevantFile rejects unrelated extensions', () => {
+  assert.equal(isRelevantFile('README.md'), false);
+  assert.equal(isRelevantFile('image.png'), false);
+  assert.equal(isRelevantFile('data.json'), false);
+  assert.equal(isRelevantFile(''), false);
+  assert.equal(isRelevantFile(null), false);
+});
+
+test('isRelevantFile rejects test, spec, config, and lockfiles', () => {
+  assert.equal(isRelevantFile('foo.test.js'), false);
+  assert.equal(isRelevantFile('src/foo.spec.ts'), false);
+  assert.equal(isRelevantFile('vite.config.js'), false);
+  assert.equal(isRelevantFile('jest.config.ts'), false);
+  assert.equal(isRelevantFile('package-lock.json'), false);
+  assert.equal(isRelevantFile('yarn.lock'), false);
+  assert.equal(isRelevantFile('pnpm-lock.yaml'), false);
+});
+
+test('truncatePatch caps to maxLines and signals truncation', () => {
+  const lines = Array.from({ length: 200 }, (_, i) => `+ line ${i}`).join('\n');
+  const out = truncatePatch(lines, 150);
+  const outLines = out.split('\n');
+  assert.equal(outLines.length, 151); // 150 kept + 1 truncation marker
+  assert.match(out, /50 more lines truncated/);
+});
+
+test('truncatePatch returns the patch unchanged when under the cap', () => {
+  const small = '+ a\n- b\n+ c';
+  assert.equal(truncatePatch(small, 150), small);
+});
+
+test('fetchRelevantDiff returns null when no relevant files', async () => {
+  const octokit = {
+    request: async () => ({
+      data: [
+        { filename: 'README.md', patch: '+ doc' },
+        { filename: 'image.png', patch: null },
+        { filename: 'package-lock.json', patch: '+ deps' },
+      ],
+    }),
+  };
+  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  assert.equal(result, null);
+});
+
+test('fetchRelevantDiff filters, truncates, and forwards octokit args', async () => {
+  const longPatch = Array.from({ length: 200 }, (_, i) => `+ line ${i}`).join('\n');
+  let received = null;
+
+  const octokit = {
+    request: async (route, params) => {
+      received = { route, params };
+      return {
+        data: [
+          { filename: 'src/Hero.jsx', status: 'modified', patch: '+ <img />' },
+          { filename: 'src/Hero.test.jsx', status: 'modified', patch: '+ test code' },
+          { filename: 'styles/big.css', status: 'modified', patch: longPatch },
+          { filename: 'docs/notes.md', status: 'added', patch: '+ note' },
+        ],
+      };
+    },
+  };
+
+  const result = await fetchRelevantDiff({
+    octokit, owner: 'acme', repo: 'site', prNumber: 42,
+  });
+
+  assert.equal(received.route, 'GET /repos/{owner}/{repo}/pulls/{pull_number}/files');
+  assert.deepEqual(received.params, { owner: 'acme', repo: 'site', pull_number: 42, per_page: 100 });
+
+  assert.equal(result.length, 2);
+  assert.equal(result[0].filename, 'src/Hero.jsx');
+  assert.equal(result[1].filename, 'styles/big.css');
+  assert.match(result[1].patch, /more lines truncated/);
+});
+
+test('fetchRelevantDiff drops files with empty patch after filtering', async () => {
+  const octokit = {
+    request: async () => ({
+      data: [
+        { filename: 'src/empty.js', status: 'renamed', patch: null },
+        { filename: 'src/real.js', status: 'modified', patch: '+ x' },
+      ],
+    }),
+  };
+  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].filename, 'src/real.js');
+});

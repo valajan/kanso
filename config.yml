@@ -8,13 +8,18 @@ score_reference_file: main-ref-score.json
 # Should cover the time needed for the production deployment to complete.
 deploy_wait_seconds: 120
 
+# Delay in seconds before running Lighthouse on a PR preview.
+# Netlify marks a deployment as "success" before all assets are fully served,
+# so a small buffer avoids auditing a partially stale preview.
+preview_wait_seconds: 15
+
 # Performance budgets — hard limits that block a merge if exceeded.
 # A PR worse than these values triggers a ❌ regardless of the prod reference.
 # A PR within budget but worse than prod triggers a ⚠️.
 # Omit a metric to disable its budget check.
-performance_budget:
-  performance: 80   # minimum Lighthouse score (0–100)
-  lcp: 2.5          # maximum Largest Contentful Paint, in seconds
-  tbt: 300          # maximum Total Blocking Time, in milliseconds
-  cls: 0.1          # maximum Cumulative Layout Shift
-  fcp: 1.8          # maximum First Contentful Paint, in seconds
+budgets:
+  performance: 80 # minimum Lighthouse score (0–100)
+  lcp: 2.5 # maximum Largest Contentful Paint, in seconds
+  tbt: 300 # maximum Total Blocking Time, in milliseconds
+  cls: 0.1 # maximum Cumulative Layout Shift
+  fcp: 1.8 # maximum First Contentful Paint, in seconds
