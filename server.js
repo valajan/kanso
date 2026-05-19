@@ -415,9 +415,13 @@ fastify.post('/webhook', async (req, reply) => {
     const checkRun = payload.check_run;
     const appName = (checkRun?.app?.name ?? '').toLowerCase();
     const appSlug = (checkRun?.app?.slug ?? '').toLowerCase();
+    const checkName = (checkRun?.name ?? '').toLowerCase();
 
-    if (!appName.includes('cloudflare') && !appSlug.includes('cloudflare')) {
-      return { ok: true, ignored: 'check_run not from cloudflare' };
+    const isCloudflare = appName.includes('cloudflare') || appSlug.includes('cloudflare');
+    const isAmplify = checkName.includes('amplify') || appName.includes('amplify');
+
+    if (!isCloudflare && !isAmplify) {
+      return { ok: true, ignored: 'check_run not from cloudflare or amplify' };
     }
     if (checkRun.status !== 'completed' || checkRun.conclusion !== 'success') {
       return { ok: true, ignored_conclusion: checkRun.conclusion };
@@ -427,10 +431,21 @@ fastify.post('/webhook', async (req, reply) => {
     }
     seenCheckRuns.add(checkRun.id);
 
-    const targetUrl = extractCloudflarePreviewUrl(checkRun.output?.summary);
-    if (!targetUrl) {
-      req.log.warn('Cloudflare Pages check_run: no preview URL (.pages.dev / .workers.dev) found in summary');
-      return { ok: true, ignored: 'no cloudflare preview URL in check_run summary' };
+    let targetUrl, source;
+    if (isCloudflare) {
+      targetUrl = extractCloudflarePreviewUrl(checkRun.output?.summary);
+      source = 'Cloudflare Pages';
+      if (!targetUrl) {
+        req.log.warn('Cloudflare Pages check_run: no preview URL (.pages.dev / .workers.dev) found in summary');
+        return { ok: true, ignored: 'no cloudflare preview URL in check_run summary' };
+      }
+    } else {
+      targetUrl = checkRun.details_url;
+      source = 'AWS Amplify';
+      if (!targetUrl?.includes('.amplifyapp.com')) {
+        req.log.warn('AWS Amplify check_run: no .amplifyapp.com URL found in details_url');
+        return { ok: true, ignored: 'no amplify preview URL in check_run details_url' };
+      }
     }
 
     const sha = checkRun.head_sha;
@@ -446,7 +461,7 @@ fastify.post('/webhook', async (req, reply) => {
       repo: payload.repository.name,
       sha,
       targetUrl,
-      source: 'Cloudflare Pages',
+      source,
       log: req.log,
     });
   }
