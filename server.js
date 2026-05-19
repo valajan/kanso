@@ -64,6 +64,7 @@ const previewUrls = new Map();
 const pendingPRs = new Map();
 const waitingComments = new Map();
 const seenCheckRuns = new Set();
+const seenRailwayDeployments = new Set();
 
 const fastify = Fastify({
   disableRequestLogging: true,
@@ -123,11 +124,12 @@ function formatDelta(delta, { unit = '', decimals = 0 } = {}) {
   return (delta >= 0 ? '+' : '') + delta.toFixed(decimals) + unit;
 }
 
-function detectSource(context) {
+function detectSource(context, targetUrl) {
   const ctx = (context ?? '').toLowerCase();
   if (ctx.includes('cloudflare')) return 'Cloudflare Pages';
   if (ctx.includes('vercel')) return 'Vercel Preview';
   if (ctx.includes('netlify')) return 'Netlify Preview';
+  if ((targetUrl ?? '').includes('.onrender.com')) return 'Render Preview';
   return 'Preview';
 }
 
@@ -376,7 +378,9 @@ fastify.post('/webhook', async (req, reply) => {
   if (event === 'status' || event === 'deployment_status') {
     const isStatus = event === 'status';
     const state = isStatus ? payload.state : payload.deployment_status?.state;
-    const targetUrl = isStatus ? payload.target_url : payload.deployment_status?.target_url;
+    const targetUrl = isStatus
+      ? payload.target_url
+      : (payload.deployment_status?.environment_url || payload.deployment_status?.target_url);
     const sha = isStatus ? payload.sha : payload.deployment?.sha;
     const context = isStatus ? (payload.context ?? '') : (payload.deployment?.environment ?? '');
 
@@ -385,6 +389,9 @@ fastify.post('/webhook', async (req, reply) => {
     }
     if (state !== 'success' || !targetUrl || !sha) {
       return { ok: true, ignored_state: state };
+    }
+    if (!isStatus && (targetUrl ?? '').includes('railway.com')) {
+      return { ok: true, ignored: 'railway deployment_status (target is dashboard, not preview)' };
     }
 
     const installationId = payload.installation?.id;
@@ -399,7 +406,7 @@ fastify.post('/webhook', async (req, reply) => {
       repo: payload.repository.name,
       sha,
       targetUrl,
-      source: detectSource(context),
+      source: detectSource(context, targetUrl),
       log: req.log,
     });
   }
@@ -440,6 +447,52 @@ fastify.post('/webhook', async (req, reply) => {
       sha,
       targetUrl,
       source: 'Cloudflare Pages',
+      log: req.log,
+    });
+  }
+
+  if (event === 'issue_comment') {
+    if (payload.action !== 'created' && payload.action !== 'edited') return { ok: true, ignored_action: payload.action };
+    if (!payload.issue?.pull_request) return { ok: true, ignored: 'not a PR comment' };
+
+    const commenter = (payload.comment?.user?.login ?? '').toLowerCase();
+    if (!commenter.includes('railway')) return { ok: true, ignored: 'not railway bot' };
+
+    const body = payload.comment?.body ?? '';
+    if (!body.includes('✅')) return { ok: true, ignored: 'railway deployment not yet successful' };
+
+    const match = body.match(/https:\/\/[^\s)>\]"]+\.up\.railway\.app\b[^\s)>\]"]*/);
+    if (!match) {
+      req.log.warn('Railway bot comment: no .up.railway.app URL found');
+      return { ok: true, ignored: 'no railway preview URL in comment' };
+    }
+
+    const targetUrl = match[0];
+    const prNumber = payload.issue.number;
+    const installationId = payload.installation?.id;
+    if (!installationId) return reply.code(400).send({ error: 'missing installation id' });
+
+    const octokit = await githubApp.getInstallationOctokit(installationId);
+    const { data: pr } = await octokit.request(
+      'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+      { owner: payload.repository.owner.login, repo: payload.repository.name, pull_number: prNumber }
+    );
+    if (pr.state !== 'open') return { ok: true, ignored: 'PR not open' };
+
+    const deploymentKey = `${prNumber}-${pr.head.sha}`;
+    if (seenRailwayDeployments.has(deploymentKey)) {
+      return { ok: true, ignored: 'duplicate railway deployment' };
+    }
+    seenRailwayDeployments.add(deploymentKey);
+
+    req.log.info(`PR #${prNumber} — Railway bot posted preview: ${targetUrl}`);
+    return handlePreviewUrl({
+      octokit,
+      owner: payload.repository.owner.login,
+      repo: payload.repository.name,
+      sha: pr.head.sha,
+      targetUrl,
+      source: 'Railway',
       log: req.log,
     });
   }
