@@ -5,4 +5,4 @@ node_modules/
 *.pem
 .DS_Store
 npm-debug.log*
-main-ref-score.json
+workflows

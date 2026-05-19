@@ -51,7 +51,7 @@ async function loadRepoConfig(octokit, owner, repo, log, ref) {
     if (err.status === 404) return staticConfig;
     // 403 = app lacks Contents read permission; fall back rather than crashing
     if (err.status === 403) {
-      log?.warn({ owner, repo }, '[config] no Contents permission, using static config');
+      log?.warn(`${owner}/${repo} — no Contents permission, using default config`);
       return staticConfig;
     }
     throw err;
@@ -59,15 +59,27 @@ async function loadRepoConfig(octokit, owner, repo, log, ref) {
 }
 
 const privateKey = readFileSync(PRIVATE_KEY_PATH, 'utf8');
-
 const githubApp = new App({ appId: APP_ID, privateKey });
-
-
 const previewUrls = new Map();
 const pendingPRs = new Map();
 const waitingComments = new Map();
+const seenCheckRuns = new Set();
 
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({
+  disableRequestLogging: true,
+  logger: {
+    level: 'info',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:HH:MM:ss',
+        ignore: 'pid,hostname',
+        messageFormat: '{msg}',
+      },
+    },
+  },
+});
 
 fastify.addContentTypeParser(
   'application/json',
@@ -93,17 +105,15 @@ function verifySignature(rawBody, signatureHeader) {
 }
 
 // 'fail'  = PR violates the budget threshold → block merge
-// 'warn'  = PR is within budget but worse than prod ref → warning
-// 'pass'  = PR is at least as good as prod ref (or no ref available)
-function buildStatus(prVal, refVal, budgetVal, lowerIsBetter, tolerance = 0) {
+// 'warn'  = PR is in Lighthouse "needs improvement" zone (outside the green band)
+// 'pass'  = PR is in Lighthouse "good" zone
+function buildStatus(prVal, budgetVal, lowerIsBetter, warnThreshold) {
   if (budgetVal != null) {
     const failsBudget = lowerIsBetter ? prVal > budgetVal : prVal < budgetVal;
     if (failsBudget) return 'fail';
   }
-  if (refVal != null) {
-    const worseThanRef = lowerIsBetter ? prVal > refVal + tolerance : prVal < refVal - tolerance;
-    if (worseThanRef) return 'warn';
-  }
+  const inOrangeZone = lowerIsBetter ? prVal > warnThreshold : prVal < warnThreshold;
+  if (inOrangeZone) return 'warn';
   return 'pass';
 }
 
@@ -115,9 +125,16 @@ function formatDelta(delta, { unit = '', decimals = 0 } = {}) {
 
 function detectSource(context) {
   const ctx = (context ?? '').toLowerCase();
+  if (ctx.includes('cloudflare')) return 'Cloudflare Pages';
   if (ctx.includes('vercel')) return 'Vercel Preview';
   if (ctx.includes('netlify')) return 'Netlify Preview';
   return 'Preview';
+}
+
+// Extracts a Cloudflare preview URL (*.pages.dev or *.workers.dev) from a check_run summary.
+function extractCloudflarePreviewUrl(summary) {
+  const match = (summary ?? '').match(/https:\/\/[^\s)>\]"]+\.(?:pages|workers)\.dev\b[^\s)>\]"]*/);
+  return match?.[0] ?? null;
 }
 
 function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {} } = {}) {
@@ -139,11 +156,11 @@ function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main
   const fmtRef = (val, decimals, unit) => val == null ? '—' : val.toFixed(decimals) + unit;
 
   const statuses = {
-    performance: buildStatus(prScore.performance, refPerf, budget.performance ?? null, false, 0.5),
-    lcp: buildStatus(prScore.lcp, refLcp, budget.lcp ?? null, true, 0.05),
-    tbt: buildStatus(prTbt, refTbt, budget.tbt ?? null, true, 0.5),
-    cls: buildStatus(prScore.cls, refCls, budget.cls ?? null, true, 0.005),
-    fcp: buildStatus(prScore.fcp, refFcp, budget.fcp ?? null, true, 0.05),
+    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90),
+    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5),
+    tbt: buildStatus(prTbt, budget.tbt ?? null, true, 200),
+    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1),
+    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8),
   };
 
   const deltas = refScore != null ? {
@@ -199,17 +216,19 @@ async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, source, 
   // Netlify's target_url is build-specific, so a late-arriving status event for
   // a superseded commit would otherwise make us run Lighthouse against the old build.
   if (pr.head.sha !== sha) {
-    log.info({ pr: pr.number, eventSha: sha, headSha: pr.head.sha }, 'ignoring stale deployment event');
+    log.info(`PR #${pr.number} — stale deployment ignored (${sha.slice(0, 7)} ≠ HEAD ${pr.head.sha.slice(0, 7)})`);
     return { ok: true, ignored: 'sha is not PR head' };
   }
 
   const prNumber = pr.number;
   previewUrls.set(prNumber, targetUrl);
+  log.info(`PR #${prNumber} — ${source} preview ready: ${targetUrl}`);
 
   if (pendingPRs.has(prNumber)) {
     pendingPRs.delete(prNumber);
     const repoConfig = await loadRepoConfig(octokit, owner, repo, log, sha);
     const previewWaitMs = (repoConfig.preview_wait_seconds ?? 15) * 1000;
+    log.info(`PR #${prNumber} — waiting ${previewWaitMs / 1000}s for assets to stabilize...`);
     await new Promise((resolve) => setTimeout(resolve, previewWaitMs));
     await runAndPostReport({
       octokit, owner, repo, prNumber, sha,
@@ -247,17 +266,19 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
 
   // Run sequentially: concurrent Lighthouse instances share Node's performance
   // namespace (via marky) and corrupt each other's marks.
+  log.info(`PR #${prNumber} — Lighthouse auditing preview...`);
   const prResult = await runLighthouse(previewUrl).then(
     (v) => ({ status: 'fulfilled', value: v }),
     (e) => ({ status: 'rejected', reason: e }),
   );
+  log.info(`PR #${prNumber} — Lighthouse auditing production reference...`);
   const refResult = await runLighthouse(baseUrl).then(
     (v) => ({ status: 'fulfilled', value: v }),
     (e) => ({ status: 'rejected', reason: e }),
   );
 
   if (prResult.status === 'rejected') {
-    log.error({ err: prResult.reason, previewUrl }, 'lighthouse failed on PR preview');
+    log.error(`PR #${prNumber} — Lighthouse failed on preview: ${prResult.reason.message}`);
     await postOrEditComment({
       octokit, owner, repo, prNumber,
       body: `⚠️ PerfGuard — Lighthouse analysis failed: \`${prResult.reason.message}\``,
@@ -270,15 +291,15 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
   if (refResult.status === 'fulfilled') {
     mainRefScore = refResult.value;
   } else {
-    log.warn({ err: refResult.reason, baseUrl }, 'lighthouse failed on base URL, comparison unavailable');
+    log.warn(`PR #${prNumber} — Lighthouse failed on production reference, comparison unavailable: ${refResult.reason.message}`);
   }
 
   const statuses = {
-    performance: buildStatus(prScore.performance, mainRefScore?.performance ?? null, budget.performance ?? null, false),
-    lcp: buildStatus(prScore.lcp, mainRefScore?.lcp ?? null, budget.lcp ?? null, true),
-    tbt: buildStatus(Math.round(prScore.tbt), mainRefScore != null ? Math.round(mainRefScore.tbt) : null, budget.tbt ?? null, true),
-    cls: buildStatus(prScore.cls, mainRefScore?.cls ?? null, budget.cls ?? null, true),
-    fcp: buildStatus(prScore.fcp, mainRefScore?.fcp ?? null, budget.fcp ?? null, true),
+    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90),
+    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5),
+    tbt: buildStatus(Math.round(prScore.tbt), budget.tbt ?? null, true, 200),
+    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1),
+    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8),
   };
 
   const baseBody = formatComment(prScore, mainRefScore, {
@@ -306,7 +327,7 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
       state,
       description,
       context: 'perfguard',
-    }).catch((err) => log.warn({ err }, 'failed to post commit status'));
+    }).catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
   }
 
   if (aiAnalysisEnabled && regressions.length > 0) {
@@ -320,15 +341,17 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
           'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
           { owner, repo, comment_id: commentId, body: updatedBody }
         );
-        log.info(
-          { pr: prNumber, commentId, inlineComments: result.structured?.comments?.length ?? 0 },
-          '[ai-analysis] comment patched with analysis'
-        );
+        const n = result.structured?.comments?.length ?? 0;
+        log.info(`PR #${prNumber} — AI analysis posted (${n} inline comment${n !== 1 ? 's' : ''})`);
       })
-      .catch((err) => log.warn({ err }, '[ai-analysis] background patch failed'));
+      .catch((err) => log.warn(`PR #${prNumber} — AI analysis failed: ${err.message}`));
   }
 
-  log.info({ pr: prNumber, prScore, previewUrl }, 'perf report posted');
+  const icon = Object.values(statuses).includes('fail') ? '❌' : Object.values(statuses).includes('warn') ? '⚠️' : '✅';
+  log.info(
+    `PR #${prNumber} ${icon} report posted — ` +
+    `perf: ${prScore.performance} | LCP: ${prScore.lcp.toFixed(1)}s | TBT: ${Math.round(prScore.tbt)}ms | CLS: ${prScore.cls.toFixed(2)} | FCP: ${prScore.fcp.toFixed(1)}s`
+  );
   return { ok: true, prScore };
 }
 
@@ -340,7 +363,7 @@ fastify.post('/webhook', async (req, reply) => {
   const delivery = req.headers['x-github-delivery'];
 
   if (!verifySignature(req.rawBody, signature)) {
-    req.log.warn({ delivery, event }, 'invalid signature');
+    req.log.warn(`Webhook rejected — invalid signature [${event} delivery:${delivery}]`);
     return reply.code(401).send({ error: 'invalid signature' });
   }
 
@@ -381,6 +404,46 @@ fastify.post('/webhook', async (req, reply) => {
     });
   }
 
+  if (event === 'check_run') {
+    const checkRun = payload.check_run;
+    const appName = (checkRun?.app?.name ?? '').toLowerCase();
+    const appSlug = (checkRun?.app?.slug ?? '').toLowerCase();
+
+    if (!appName.includes('cloudflare') && !appSlug.includes('cloudflare')) {
+      return { ok: true, ignored: 'check_run not from cloudflare' };
+    }
+    if (checkRun.status !== 'completed' || checkRun.conclusion !== 'success') {
+      return { ok: true, ignored_conclusion: checkRun.conclusion };
+    }
+    if (seenCheckRuns.has(checkRun.id)) {
+      return { ok: true, ignored: 'duplicate check_run' };
+    }
+    seenCheckRuns.add(checkRun.id);
+
+    const targetUrl = extractCloudflarePreviewUrl(checkRun.output?.summary);
+    if (!targetUrl) {
+      req.log.warn('Cloudflare Pages check_run: no preview URL (.pages.dev / .workers.dev) found in summary');
+      return { ok: true, ignored: 'no cloudflare preview URL in check_run summary' };
+    }
+
+    const sha = checkRun.head_sha;
+    const installationId = payload.installation?.id;
+    if (!installationId) {
+      return reply.code(400).send({ error: 'missing installation id' });
+    }
+
+    const octokit = await githubApp.getInstallationOctokit(installationId);
+    return handlePreviewUrl({
+      octokit,
+      owner: payload.repository.owner.login,
+      repo: payload.repository.name,
+      sha,
+      targetUrl,
+      source: 'Cloudflare Pages',
+      log: req.log,
+    });
+  }
+
   if (event !== 'pull_request') {
     return { ok: true, ignored_event: event };
   }
@@ -407,10 +470,12 @@ fastify.post('/webhook', async (req, reply) => {
     // New commit: invalidate the stale preview URL and wait for the new deployment
     previewUrls.delete(prNumber);
     pendingPRs.set(prNumber, { owner, repo, installationId });
+    req.log.info(`PR #${prNumber} — new commit on ${headRef}, awaiting new preview deployment...`);
     return { ok: true, awaiting_new_deployment: true };
   }
 
   // action === 'opened'
+  req.log.info(`PR #${prNumber} opened — ${owner}/${repo} (${headRef} → ${baseRef})`);
   const previewUrl = previewUrls.get(prNumber);
 
   if (!previewUrl) {
@@ -428,8 +493,9 @@ fastify.post('/webhook', async (req, reply) => {
         }
       );
       waitingComments.set(prNumber, comment.id);
+      req.log.info(`PR #${prNumber} — no preview yet, posted placeholder comment`);
     }
-    return { ok: true, pending_netlify: true };
+    return { ok: true, pending_deployment: true };
   }
 
   const octokit = await githubApp.getInstallationOctokit(installationId);
@@ -452,9 +518,10 @@ fastify.post('/webhook', async (req, reply) => {
 fastify
   .listen({ port: PORT, host: '0.0.0.0' })
   .then((address) => {
+    const b = staticConfig.budgets ?? {};
+    fastify.log.info(`PerfGuard ready on ${address}`);
     fastify.log.info(
-      { budget: staticConfig.budgets },
-      `PerfGuard listening on ${address}`
+      `Budgets — perf≥${b.performance ?? '—'} | LCP≤${b.lcp ?? '—'}s | TBT≤${b.tbt ?? '—'}ms | CLS≤${b.cls ?? '—'} | FCP≤${b.fcp ?? '—'}s`
     );
   })
   .catch((err) => {
