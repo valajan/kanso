@@ -135,7 +135,7 @@ function detectSource(context, targetUrl) {
 
 // Extracts a Cloudflare preview URL (*.pages.dev or *.workers.dev) from a check_run summary.
 function extractCloudflarePreviewUrl(summary) {
-  const match = (summary ?? '').match(/https:\/\/[^\s)>\]"]+\.(?:pages|workers)\.dev\b[^\s)>\]"]*/);
+  const match = (summary ?? '').match(/https:\/\/[^\s)>\]"']+\.(?:pages|workers)\.dev\b[^\s)>\]"']*/);
   return match?.[0] ?? null;
 }
 
