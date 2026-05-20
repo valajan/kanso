@@ -16,11 +16,20 @@ function wrap(content) {
 
 // The model output is posted to GitHub by the bot, so we must neutralize:
 // - our own section markers, to keep replaceAnalysisSection idempotent
-// - HTML tags, which GitHub renders in comments and could be used for clickjacking
+// - HTML tags outside code blocks, which GitHub renders and could be used for clickjacking
+// We preserve content inside fenced code blocks (``` ... ```) so that suggestion
+// blocks containing SVG, template HTML, or other markup are posted intact.
 function sanitizeModelOutput(text) {
-  return text
+  const FENCE = /^```[\s\S]*?^```/gm;
+  const fences = [];
+  const placeholder = text.replace(FENCE, (match) => {
+    fences.push(match);
+    return `\x00FENCE${fences.length - 1}\x00`;
+  });
+  const sanitized = placeholder
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<\/?[a-zA-Z][^>]*>/g, '');
+  return sanitized.replace(/\x00FENCE(\d+)\x00/g, (_, i) => fences[Number(i)]);
 }
 
 export function sanitize(text) {

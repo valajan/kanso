@@ -105,16 +105,15 @@ function verifySignature(rawBody, signatureHeader) {
   return timingSafeEqual(sig, exp);
 }
 
-// 'fail'  = PR violates the budget threshold → block merge
-// 'warn'  = PR is in Lighthouse "needs improvement" zone (outside the green band)
-// 'pass'  = PR is in Lighthouse "good" zone
-function buildStatus(prVal, budgetVal, lowerIsBetter, warnThreshold) {
-  if (budgetVal != null) {
-    const failsBudget = lowerIsBetter ? prVal > budgetVal : prVal < budgetVal;
-    if (failsBudget) return 'fail';
-  }
-  const inOrangeZone = lowerIsBetter ? prVal > warnThreshold : prVal < warnThreshold;
-  if (inOrangeZone) return 'warn';
+// 'fail'  = PR exceeds the budget (if set) or the Lighthouse "poor" threshold → block merge
+// 'warn'  = PR is in the Lighthouse "needs improvement" zone (between good and the fail threshold)
+// 'pass'  = PR is in the Lighthouse "good" zone
+// goodThreshold: Lighthouse "good/needs-improvement" boundary (fixed per metric)
+// poorThreshold: Lighthouse "poor" boundary — used as fail threshold when no budget is set
+function buildStatus(prVal, budgetVal, lowerIsBetter, goodThreshold, poorThreshold) {
+  const failThreshold = budgetVal ?? poorThreshold;
+  if (lowerIsBetter ? prVal > failThreshold : prVal < failThreshold) return 'fail';
+  if (lowerIsBetter ? prVal > goodThreshold : prVal < goodThreshold) return 'warn';
   return 'pass';
 }
 
@@ -158,11 +157,11 @@ function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main
   const fmtRef = (val, decimals, unit) => val == null ? '—' : val.toFixed(decimals) + unit;
 
   const statuses = {
-    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90),
-    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5),
-    tbt: buildStatus(prTbt, budget.tbt ?? null, true, 200),
-    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1),
-    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8),
+    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90, 49),
+    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5, 4.0),
+    tbt: buildStatus(prTbt, budget.tbt ?? null, true, 200, 600),
+    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1, 0.25),
+    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8, 3.0),
   };
 
   const deltas = refScore != null ? {
@@ -297,11 +296,11 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
   }
 
   const statuses = {
-    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90),
-    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5),
-    tbt: buildStatus(Math.round(prScore.tbt), budget.tbt ?? null, true, 200),
-    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1),
-    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8),
+    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90, 49),
+    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5, 4.0),
+    tbt: buildStatus(Math.round(prScore.tbt), budget.tbt ?? null, true, 200, 600),
+    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1, 0.25),
+    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8, 3.0),
   };
 
   const baseBody = formatComment(prScore, mainRefScore, {
@@ -589,7 +588,7 @@ fastify
     const b = staticConfig.budgets ?? {};
     fastify.log.info(`PerfGuard ready on ${address}`);
     fastify.log.info(
-      `Budgets — perf≥${b.performance ?? '—'} | LCP≤${b.lcp ?? '—'}s | TBT≤${b.tbt ?? '—'}ms | CLS≤${b.cls ?? '—'} | FCP≤${b.fcp ?? '—'}s`
+      `Budgets (fail) — perf≥${b.performance ?? '—'} | LCP≤${b.lcp ?? '—'}s | TBT≤${b.tbt ?? '—'}ms | CLS≤${b.cls ?? '—'} | FCP≤${b.fcp ?? '—'}s`
     );
   })
   .catch((err) => {

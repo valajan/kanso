@@ -15,16 +15,17 @@ base_url: https://perfbuddy.netlify.app/
 # so a small buffer avoids auditing a partially stale preview.
 preview_wait_seconds: 15
 
-# Performance budgets — hard limits that block a merge if exceeded.
-# A PR worse than these values triggers a ❌ regardless of the prod reference.
-# A PR within budget but worse than prod triggers a ⚠️.
-# Omit a metric to disable its budget check.
+# Performance budgets — hard limits that block a merge if exceeded (❌).
+# Values between the Lighthouse "good" threshold and this budget trigger a warning (⚠️).
+# Defaults are set to Lighthouse "poor" zone boundaries so that green/orange/red
+# matches the Lighthouse colour scale out of the box. Override in .perfguard.yml
+# to enforce stricter project-specific limits.
 budgets:
-  performance: 80 # minimum Lighthouse score (0–100)
-  lcp: 2.5 # maximum Largest Contentful Paint, in seconds
-  tbt: 300 # maximum Total Blocking Time, in milliseconds
-  cls: 0.1 # maximum Cumulative Layout Shift
-  fcp: 1.8 # maximum First Contentful Paint, in seconds
+  performance: 49  # minimum Lighthouse score — below 50 is Lighthouse "poor"
+  lcp: 4.0         # maximum LCP in seconds — above 4.0s is Lighthouse "poor"
+  tbt: 600         # maximum TBT in milliseconds — above 600ms is Lighthouse "poor"
+  cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
+  fcp: 3.0         # maximum FCP in seconds — above 3.0s is Lighthouse "poor"
 
 # root-cause analysis on regressions
 ai_analysis: true

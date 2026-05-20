@@ -93,10 +93,9 @@ export async function analyzePerformanceRegression({
       return null;
     }
 
-    const worst = regressions[0];
     log?.info?.(
-      { metric: worst.metric, delta: worst.delta.toFixed(1) + '%' },
-      '[ai-analysis] running analysis on worst metric'
+      { metrics: regressions.map((r) => r.metric), count: regressions.length },
+      '[ai-analysis] running analysis on all regressed metrics'
     );
 
     const diff = await fetchRelevantDiff({ octokit, owner, repo, prNumber, log });
@@ -105,14 +104,7 @@ export async function analyzePerformanceRegression({
       return { section: formatSkippedNote('no relevant files in the PR diff'), structured: null };
     }
 
-    const prompt = buildPrompt({
-      metric: worst.metric,
-      currentValue: worst.prVal,
-      threshold: worst.threshold,
-      refValue: worst.refVal,
-      delta: worst.delta,
-      diff,
-    });
+    const prompt = buildPrompt({ regressions, diff });
 
     const rawJson = await requestAnalysis(prompt, { log, json: true });
     log?.info?.('[ai-analysis] analysis received');

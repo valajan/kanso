@@ -34,20 +34,21 @@ ${file.patch}
 \`\`\``;
 }
 
-export function buildPrompt({ metric, currentValue, threshold, refValue, delta, diff }) {
+function renderRegression({ metric, prVal, threshold, refVal, delta }) {
   const label = METRIC_LABELS[metric] ?? metric;
-  const diffSection = diff.map(renderFile).join('\n\n');
   const deltaStr = `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`;
+  return `- **${label}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}`;
+}
+
+export function buildPrompt({ regressions, diff }) {
+  const diffSection = diff.map(renderFile).join('\n\n');
+  const regressionSection = regressions.map(renderRegression).join('\n');
 
   return `You are a senior web performance engineer reviewing a Pull Request that triggered a Lighthouse regression. Your output will be parsed as JSON and used to post review comments on GitHub.
 
-## Regression detected
+## Regressions detected
 
-- Metric: **${label}**
-- Current PR value: **${formatValue(metric, currentValue)}**
-- Critical threshold (budget): **${formatValue(metric, threshold)}**
-- Main branch reference: **${formatValue(metric, refValue)}**
-- Regression vs main: **${deltaStr}**
+${regressionSection}
 
 ## Pull Request diff (filtered to performance-relevant files)
 
@@ -63,12 +64,12 @@ Return a single JSON object — and nothing else, no prose, no markdown fences �
 
 \`\`\`
 {
-  "summary": string,           // markdown, under 250 words, bulleted. Identify the most likely cause of the regression and 2-3 prioritized fixes. Be honest about uncertainty: if the cause is not visible in the diff (third-party script, asset, CDN, server response, network) say so explicitly and suggest where to investigate next. Do not repeat the metric numbers above.
+  "summary": string,           // markdown, under 300 words, bulleted. Cover all regressed metrics above — group metrics that share the same root cause, call out separately any metric that appears to have a distinct cause. Identify the most likely causes and 2-3 prioritized fixes. Be honest about uncertainty: if a cause is not visible in the diff (third-party script, asset, CDN, server response, network) say so explicitly and suggest where to investigate next. Do not repeat the metric numbers above.
   "comments": [                // optional; omit or use [] if no specific line is responsible
     {
       "file": string,          // MUST exactly match one of the filenames above
       "line": integer,         // MUST be one of that file's Anchorable lines
-      "body": string           // 1-3 sentences in markdown, pinpointing why this line contributes to the regression. When you can propose a concrete replacement, include a \`\`\`suggestion ... \`\`\` block.
+      "body": string           // 1-3 sentences in markdown, pinpointing why this line contributes to the regression. For mechanical fixes (URL swap, attribute change, removing a directive, replacing a data structure) you MUST include a \`\`\`suggestion\`\`\` block containing the exact replacement lines — multi-line suggestions are allowed and preferred over vague descriptions.
     }
   ]
 }

@@ -7,7 +7,9 @@
       "WebFetch(domain:station.railway.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs.github.com)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(gh api *)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
