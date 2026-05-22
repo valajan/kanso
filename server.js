@@ -123,6 +123,17 @@ function formatDelta(delta, { unit = '', decimals = 0 } = {}) {
   return (delta >= 0 ? '+' : '') + delta.toFixed(decimals) + unit;
 }
 
+function roundScoreToDisplay(score) {
+  if (score == null) return null;
+  return {
+    performance: score.performance,
+    lcp: parseFloat(score.lcp.toFixed(1)),
+    tbt: Math.round(score.tbt),
+    cls: parseFloat(score.cls.toFixed(2)),
+    fcp: parseFloat(score.fcp.toFixed(1)),
+  };
+}
+
 function detectSource(context, targetUrl) {
   const ctx = (context ?? '').toLowerCase();
   if (ctx.includes('cloudflare')) return 'Cloudflare Pages';
@@ -139,12 +150,8 @@ function extractCloudflarePreviewUrl(summary) {
 }
 
 function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {} } = {}) {
-  const refPerf = refScore?.performance ?? null;
-  const refLcp = refScore?.lcp ?? null;
-  const refTbt = refScore != null ? Math.round(refScore.tbt) : null;
-  const refCls = refScore?.cls ?? null;
-  const refFcp = refScore?.fcp ?? null;
-  const prTbt = Math.round(prScore.tbt);
+  const pr = roundScoreToDisplay(prScore);
+  const ref = roundScoreToDisplay(refScore);
 
   const headerLine = headRef
     ? `\`${headRef}\` → \`${baseRef}\` · ${source} detected automatically`
@@ -157,32 +164,48 @@ function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main
   const fmtRef = (val, decimals, unit) => val == null ? '—' : val.toFixed(decimals) + unit;
 
   const statuses = {
-    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90, 49),
-    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5, 4.0),
-    tbt: buildStatus(prTbt, budget.tbt ?? null, true, 200, 600),
-    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1, 0.25),
-    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8, 3.0),
+    performance: buildStatus(pr.performance, budget.performance ?? null, false, 90, 49),
+    lcp: buildStatus(pr.lcp, budget.lcp ?? null, true, 2.5, 4.0),
+    tbt: buildStatus(pr.tbt, budget.tbt ?? null, true, 200, 600),
+    cls: buildStatus(pr.cls, budget.cls ?? null, true, 0.1, 0.25),
+    fcp: buildStatus(pr.fcp, budget.fcp ?? null, true, 1.8, 3.0),
   };
 
-  const deltas = refScore != null ? {
-    performance: formatDelta(prScore.performance - refPerf, { decimals: 0 }),
-    lcp: formatDelta(prScore.lcp - refLcp, { unit: 's', decimals: 1 }),
-    tbt: formatDelta(prTbt - refTbt, { unit: 'ms', decimals: 0 }),
-    cls: formatDelta(prScore.cls - refCls, { decimals: 2 }),
-    fcp: formatDelta(prScore.fcp - refFcp, { unit: 's', decimals: 1 }),
+  const lowerIsBetter = { performance: false, lcp: true, tbt: true, cls: true, fcp: true };
+
+  const rawDeltas = ref != null ? {
+    performance: pr.performance - ref.performance,
+    lcp: pr.lcp - ref.lcp,
+    tbt: pr.tbt - ref.tbt,
+    cls: pr.cls - ref.cls,
+    fcp: pr.fcp - ref.fcp,
+  } : null;
+
+  const deltas = rawDeltas != null ? {
+    performance: formatDelta(rawDeltas.performance, { decimals: 0 }),
+    lcp: formatDelta(rawDeltas.lcp, { unit: 's', decimals: 1 }),
+    tbt: formatDelta(rawDeltas.tbt, { unit: 'ms', decimals: 0 }),
+    cls: formatDelta(rawDeltas.cls, { decimals: 2 }),
+    fcp: formatDelta(rawDeltas.fcp, { unit: 's', decimals: 1 }),
   } : null;
 
   const deltaCell = (key) => deltas?.[key] ?? '—';
-  const iconCell = (key) => STATUS_ICON[statuses[key]];
+  const iconCell = (key) => {
+    if (rawDeltas != null) {
+      const d = rawDeltas[key];
+      if (lowerIsBetter[key] ? d < 0 : d > 0) return '🎉';
+    }
+    return STATUS_ICON[statuses[key]];
+  };
 
   const table = [
     '| Metric | main | PR | Δ | |',
     '|---|---|---|---|---|',
-    `| Performance | ${fmtRef(refPerf, 0, '')} | ${prScore.performance} | ${deltaCell('performance')} | ${iconCell('performance')} |`,
-    `| LCP | ${fmtRef(refLcp, 1, 's')} | ${prScore.lcp.toFixed(1)}s | ${deltaCell('lcp')} | ${iconCell('lcp')} |`,
-    `| TBT | ${fmtRef(refTbt, 0, 'ms')} | ${prTbt}ms | ${deltaCell('tbt')} | ${iconCell('tbt')} |`,
-    `| CLS | ${fmtRef(refCls, 2, '')} | ${prScore.cls.toFixed(2)} | ${deltaCell('cls')} | ${iconCell('cls')} |`,
-    `| FCP | ${fmtRef(refFcp, 1, 's')} | ${prScore.fcp.toFixed(1)}s | ${deltaCell('fcp')} | ${iconCell('fcp')} |`,
+    `| Performance | ${fmtRef(ref?.performance, 0, '')} | ${pr.performance} | ${deltaCell('performance')} | ${iconCell('performance')} |`,
+    `| LCP | ${fmtRef(ref?.lcp, 1, 's')} | ${pr.lcp.toFixed(1)}s | ${deltaCell('lcp')} | ${iconCell('lcp')} |`,
+    `| TBT | ${fmtRef(ref?.tbt, 0, 'ms')} | ${pr.tbt}ms | ${deltaCell('tbt')} | ${iconCell('tbt')} |`,
+    `| CLS | ${fmtRef(ref?.cls, 2, '')} | ${pr.cls.toFixed(2)} | ${deltaCell('cls')} | ${iconCell('cls')} |`,
+    `| FCP | ${fmtRef(ref?.fcp, 1, 's')} | ${pr.fcp.toFixed(1)}s | ${deltaCell('fcp')} | ${iconCell('fcp')} |`,
   ].join('\n');
 
   return `## PerfGuard | Performance Report
@@ -295,12 +318,13 @@ async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, 
     log.warn(`PR #${prNumber} — Lighthouse failed on production reference, comparison unavailable: ${refResult.reason.message}`);
   }
 
+  const prRounded = roundScoreToDisplay(prScore);
   const statuses = {
-    performance: buildStatus(prScore.performance, budget.performance ?? null, false, 90, 49),
-    lcp: buildStatus(prScore.lcp, budget.lcp ?? null, true, 2.5, 4.0),
-    tbt: buildStatus(Math.round(prScore.tbt), budget.tbt ?? null, true, 200, 600),
-    cls: buildStatus(prScore.cls, budget.cls ?? null, true, 0.1, 0.25),
-    fcp: buildStatus(prScore.fcp, budget.fcp ?? null, true, 1.8, 3.0),
+    performance: buildStatus(prRounded.performance, budget.performance ?? null, false, 90, 49),
+    lcp: buildStatus(prRounded.lcp, budget.lcp ?? null, true, 2.5, 4.0),
+    tbt: buildStatus(prRounded.tbt, budget.tbt ?? null, true, 200, 600),
+    cls: buildStatus(prRounded.cls, budget.cls ?? null, true, 0.1, 0.25),
+    fcp: buildStatus(prRounded.fcp, budget.fcp ?? null, true, 1.8, 3.0),
   };
 
   const baseBody = formatComment(prScore, mainRefScore, {
@@ -520,7 +544,7 @@ fastify.post('/webhook', async (req, reply) => {
   const repo = payload.repository.name;
   const baseRef = payload.pull_request?.base?.ref;
 
-  if (action !== 'opened' && action !== 'synchronize') {
+  if (action !== 'opened' && action !== 'reopened' && action !== 'synchronize') {
     return { ok: true, ignored_action: action };
   }
 
@@ -541,8 +565,8 @@ fastify.post('/webhook', async (req, reply) => {
     return { ok: true, awaiting_new_deployment: true };
   }
 
-  // action === 'opened'
-  req.log.info(`PR #${prNumber} opened — ${owner}/${repo} (${headRef} → ${baseRef})`);
+  // action === 'opened' or 'reopened'
+  req.log.info(`PR #${prNumber} ${action} — ${owner}/${repo} (${headRef} → ${baseRef})`);
   const previewUrl = previewUrls.get(prNumber);
 
   if (!previewUrl) {
