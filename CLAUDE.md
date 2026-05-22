@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node 20+ built-in test runner)
-node --test src/ai-analysis/__tests__/validator.test.js  # Run a single test file
+node --test src/metrics/__tests__/status.test.js  # Run a single test file
 ```
 
 Requires Node.js >=20. No build step — all files are run directly with Node.
@@ -17,12 +17,22 @@ Requires Node.js >=20. No build step — all files are run directly with Node.
 
 PerfGuard is a GitHub App that automatically audits web performance on pull requests and posts results as GitHub comments.
 
-**Entry point:** `server.js` — Fastify HTTP server receiving GitHub webhooks at `POST /webhook`. Signature-verified with HMAC-SHA256.
+**Entry point:** `server.js` — a thin bootstrap that loads config, wires dependencies, and starts the server. All application logic lives under `src/`.
+
+**Module layout (`src/`):**
+- `app.js` — Fastify factory: logger, raw-body JSON parser, `/health` and `/webhook` routes
+- `config/` — `env.js` (env validation), `static-config.js` (config.yml), `repo-config.js` (`.perfguard.yml` merge)
+- `metrics/` — `registry.js` is the single source of truth for the five metrics (labels, units, thresholds); `status.js` derives `pass`/`warn`/`fail`
+- `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage), `provider-dispatcher.js`, `pull-request-handler.js`
+- `providers/` — one module per preview host (Netlify, Vercel/Render, Cloudflare, Amplify, Railway), registered in `index.js`. Each exposes `resolve(payload, ctx)` and reacts to one webhook event. **Adding a host = adding a module + one line in `index.js`.**
+- `pipeline/` — `state.js` (`PreviewStore`, the in-memory webhook coordination state) and `orchestrator.js` (the audit-and-report pipeline)
+- `report/` — `comment.js` (PR comment) and `commit-status.js` (GitHub commit status)
+- `lighthouse/runner.js` — runs a single Lighthouse audit
 
 **Main flow:**
-1. Webhook fires on `pull_request` (opened/synchronize) or `deployment_status` (Netlify/Vercel preview ready)
-2. In-memory maps (`previewUrls`, `pendingPRs`, `waitingComments`) coordinate async state between these two event streams
-3. `lighthouse.js` runs sequential Lighthouse audits on the PR preview URL and a production reference URL — sequential because parallel runs corrupt Node's `performance` namespace
+1. A webhook fires on `pull_request` (opened/reopened/synchronize) or a preview-provider event (`status`, `deployment_status`, `check_run`, `issue_comment`)
+2. `PreviewStore` coordinates async state between the PR lifecycle and the preview-ready events
+3. `lighthouse/runner.js` runs sequential Lighthouse audits on the PR preview URL and a production reference URL — sequential because parallel runs corrupt Node's `performance` namespace
 4. Metrics (score, LCP, TBT, CLS, FCP) are compared against per-repo budgets; status is `pass` / `warn` / `fail`
 5. Results post to GitHub as a PR comment (badge + table)
 6. If any metric regresses >10% and `ai_analysis: true`, the `src/ai-analysis/` module runs

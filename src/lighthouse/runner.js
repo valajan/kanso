@@ -1,6 +1,10 @@
 import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
 
+// Runs a single headless-Chrome Lighthouse performance audit on `url` and
+// returns the metrics PerfGuard tracks. Callers must run audits sequentially:
+// concurrent Lighthouse instances share Node's performance namespace (via marky)
+// and corrupt each other's marks.
 export async function runLighthouse(url) {
   const chrome = await chromeLauncher.launch({
     chromeFlags: ['--headless=new', '--no-sandbox'],

@@ -9,7 +9,9 @@
       "WebFetch(domain:docs.github.com)",
       "Bash(gh pr *)",
       "Bash(gh api *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(npm test *)",
+      "Bash(node *)"
     ]
   }
 }
