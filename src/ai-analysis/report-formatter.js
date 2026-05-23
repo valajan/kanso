@@ -1,6 +1,6 @@
 const SECTION_HEADER = '## 🤖 AI Analysis';
-const MARKER_START = '<!-- perfguard-ai-analysis -->';
-const MARKER_END = '<!-- /perfguard-ai-analysis -->';
+const MARKER_START = '<!-- kanso-ai-analysis -->';
+const MARKER_END = '<!-- /kanso-ai-analysis -->';
 
 const METRIC_LABELS = {
   performance: 'Performance',

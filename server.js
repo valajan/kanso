@@ -21,7 +21,7 @@ app
   .listen({ port: env.port, host: '0.0.0.0' })
   .then((address) => {
     const b = staticConfig.budgets ?? {};
-    app.log.info(`PerfGuard ready on ${address}`);
+    app.log.info(`Kanso ready on ${address}`);
     app.log.info(
       `Budgets (fail) — perf≥${b.performance ?? '—'} | LCP≤${b.lcp ?? '—'}s | TBT≤${b.tbt ?? '—'}ms | CLS≤${b.cls ?? '—'} | FCP≤${b.fcp ?? '—'}s`
     );

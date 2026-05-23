@@ -1,4 +1,4 @@
-// Single source of truth for the five Lighthouse metrics PerfGuard tracks.
+// Single source of truth for the five Lighthouse metrics Kanso tracks.
 //
 // Each descriptor carries everything the rest of the codebase needs to know
 // about a metric, so thresholds, labels and formatting rules live in exactly
@@ -10,11 +10,11 @@
 // - unit / decimals: display formatting
 // - round: normalizes a raw Lighthouse value to its displayed precision
 export const METRICS = [
-  { key: 'performance', label: 'Performance', unit: '',   lowerIsBetter: false, good: 90,  poor: 49,   decimals: 0, round: (v) => v },
-  { key: 'lcp',         label: 'LCP',         unit: 's',  lowerIsBetter: true,  good: 2.5, poor: 4.0,  decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
-  { key: 'tbt',         label: 'TBT',         unit: 'ms', lowerIsBetter: true,  good: 200, poor: 600,  decimals: 0, round: (v) => Math.round(v) },
-  { key: 'cls',         label: 'CLS',         unit: '',   lowerIsBetter: true,  good: 0.1, poor: 0.25, decimals: 2, round: (v) => parseFloat(v.toFixed(2)) },
-  { key: 'fcp',         label: 'FCP',         unit: 's',  lowerIsBetter: true,  good: 1.8, poor: 3.0,  decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
+  { key: 'performance', label: 'Performance', unit: '', lowerIsBetter: false, good: 90, poor: 49, decimals: 0, round: (v) => v },
+  { key: 'lcp', label: 'LCP', unit: 's', lowerIsBetter: true, good: 2.5, poor: 4.0, decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
+  { key: 'tbt', label: 'TBT', unit: 'ms', lowerIsBetter: true, good: 200, poor: 600, decimals: 0, round: (v) => Math.round(v) },
+  { key: 'cls', label: 'CLS', unit: '', lowerIsBetter: true, good: 0.1, poor: 0.25, decimals: 2, round: (v) => parseFloat(v.toFixed(2)) },
+  { key: 'fcp', label: 'FCP', unit: 's', lowerIsBetter: true, good: 1.8, poor: 3.0, decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
 ];
 
 export const METRIC_KEYS = METRICS.map((m) => m.key);

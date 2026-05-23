@@ -44,7 +44,7 @@ export function formatComment(prScore, refScore, { previewUrl, headRef, baseRef 
 
   const table = ['| Metric | main | PR | Δ | |', '|---|---|---|---|---|', ...rows].join('\n');
 
-  return `## PerfGuard | Performance Report
+  return `## Kanso | Performance Report
 
 ${headerLine}
 ${note}

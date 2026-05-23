@@ -34,10 +34,19 @@ ${file.patch}
 \`\`\``;
 }
 
+const METRIC_ANTIPATTERNS = {
+  lcp: 'Never suggest lazy-loading, async-loading, or moving the LCP candidate image lower in the DOM. The LCP image must be present in the HTML and eagerly loaded — ideally with fetchpriority="high". Async/lazy loading delays browser discovery and directly worsens LCP.',
+  tbt: 'Never suggest deferring or async-loading scripts that are already deferred. Focus on reducing main-thread work: splitting long tasks, removing unused JS, or replacing synchronous third-party scripts.',
+  cls: 'Never suggest removing explicit dimensions. CLS fixes require stable layout: set explicit width/height on images and embeds, use CSS aspect-ratio, avoid inserting DOM above existing content.',
+  fcp: 'Never suggest lazy-loading or deferring render-blocking resources that appear above the fold. FCP requires the critical path to be as short as possible.',
+  performance: 'Address the most impactful bottlenecks. Never suggest changes that trade one metric for another (e.g. eager-loading everything to fix FCP at the cost of TBT).',
+};
+
 function renderRegression({ metric, prVal, threshold, refVal, delta }) {
   const label = METRIC_LABELS[metric] ?? metric;
   const deltaStr = `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`;
-  return `- **${label}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}`;
+  const antipattern = METRIC_ANTIPATTERNS[metric] ? `\n  ⚠ ${METRIC_ANTIPATTERNS[metric]}` : '';
+  return `- **${label}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}${antipattern}`;
 }
 
 export function buildPrompt({ regressions, diff }) {

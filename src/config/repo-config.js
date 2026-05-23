@@ -10,13 +10,13 @@ export function mergeConfig(base, override) {
   };
 }
 
-// Fetches .perfguard.yml from the client repo and merges it with staticConfig.
+// Fetches .kanso.yml from the client repo and merges it with staticConfig.
 // Falls back to staticConfig silently if the file is absent or unreadable.
 export async function loadRepoConfig({ octokit, owner, repo, staticConfig, ref, log }) {
   try {
     const { data } = await octokit.request(
       'GET /repos/{owner}/{repo}/contents/{path}',
-      { owner, repo, path: '.perfguard.yml', ...(ref ? { ref } : {}) }
+      { owner, repo, path: '.kanso.yml', ...(ref ? { ref } : {}) }
     );
     const content = Buffer.from(data.content, 'base64').toString('utf8');
     const repoConfig = yaml.load(content) ?? {};

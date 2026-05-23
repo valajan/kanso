@@ -58,7 +58,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
       log.error(`PR #${prNumber} — Lighthouse failed on preview: ${prResult.reason.message}`);
       await postOrEditComment({
         octokit, owner, repo, prNumber,
-        body: `⚠️ PerfGuard — Lighthouse analysis failed: \`${prResult.reason.message}\``,
+        body: `⚠️ Kanso — Lighthouse analysis failed: \`${prResult.reason.message}\``,
       });
       return { ok: false, error: prResult.reason.message };
     }
@@ -90,7 +90,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
     if (sha) {
       const { state, description } = commitStatusPayload(statuses);
       await octokit.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-        owner, repo, sha, state, description, context: 'perfguard',
+        owner, repo, sha, state, description, context: 'kanso',
       }).catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
     }
 

@@ -15,13 +15,14 @@ Requires Node.js >=20. No build step — all files are run directly with Node.
 
 ## Architecture
 
-PerfGuard is a GitHub App that automatically audits web performance on pull requests and posts results as GitHub comments.
+Kanso is a GitHub App that automatically audits web performance on pull requests and posts results as GitHub comments.
 
 **Entry point:** `server.js` — a thin bootstrap that loads config, wires dependencies, and starts the server. All application logic lives under `src/`.
 
 **Module layout (`src/`):**
+
 - `app.js` — Fastify factory: logger, raw-body JSON parser, `/health` and `/webhook` routes
-- `config/` — `env.js` (env validation), `static-config.js` (config.yml), `repo-config.js` (`.perfguard.yml` merge)
+- `config/` — `env.js` (env validation), `static-config.js` (config.yml), `repo-config.js` (`.kanso.yml` merge)
 - `metrics/` — `registry.js` is the single source of truth for the five metrics (labels, units, thresholds); `status.js` derives `pass`/`warn`/`fail`
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage), `provider-dispatcher.js`, `pull-request-handler.js`
 - `providers/` — one module per preview host (Netlify, Vercel/Render, Cloudflare, Amplify, Railway), registered in `index.js`. Each exposes `resolve(payload, ctx)` and reacts to one webhook event. **Adding a host = adding a module + one line in `index.js`.**
@@ -30,6 +31,7 @@ PerfGuard is a GitHub App that automatically audits web performance on pull requ
 - `lighthouse/runner.js` — runs a single Lighthouse audit
 
 **Main flow:**
+
 1. A webhook fires on `pull_request` (opened/reopened/synchronize) or a preview-provider event (`status`, `deployment_status`, `check_run`, `issue_comment`)
 2. `PreviewStore` coordinates async state between the PR lifecycle and the preview-ready events
 3. `lighthouse/runner.js` runs sequential Lighthouse audits on the PR preview URL and a production reference URL — sequential because parallel runs corrupt Node's `performance` namespace
@@ -38,12 +40,13 @@ PerfGuard is a GitHub App that automatically audits web performance on pull requ
 6. If any metric regresses >10% and `ai_analysis: true`, the `src/ai-analysis/` module runs
 
 **AI analysis module (`src/ai-analysis/`):**
+
 - `index.js` — orchestrator
 - `diff-fetcher.js` — fetches relevant GitHub diffs (skips lockfiles, tests, etc.)
 - `prompt-builder.js` — builds structured OpenAI prompts with metric context and diff
 - `validator.js` — validates and sanitizes LLM JSON output
 - `report-formatter.js` — formats results as inline GitHub review comments
 
-**Configuration:** `config.yml` is the static base config. Repos can override with a `.perfguard.yml` in the repo root, which is merged per-metric (partial overrides are allowed). Config controls budgets, reference URLs, and whether AI analysis is enabled.
+**Configuration:** `config.yml` is the static base config. Repos can override with a `.kanso.yml` in the repo root, which is merged per-metric (partial overrides are allowed). Config controls budgets, reference URLs, and whether AI analysis is enabled.
 
 **Required environment variables** (see `.env.example`): `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_PRIVATE_KEY_PATH`, `OPENAI_API_KEY`, `PORT`.

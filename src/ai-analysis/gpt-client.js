@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 
 const MODEL = 'gpt-5.4';
-const MAX_TOKENS = 1500;
+const MAX_TOKENS = 4000;
 const TIMEOUT_MS = 30_000;
 
 let cachedClient = null;

@@ -1,9 +1,9 @@
 {
-  "name": "perfguard-api",
+  "name": "kanso-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PerfGuard GitHub App — webhook receiver POC",
+  "description": "Kanso GitHub App — webhook receiver POC",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
