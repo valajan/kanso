@@ -1,41 +1,30 @@
-import lighthouse from 'lighthouse';
-import * as chromeLauncher from 'chrome-launcher';
+import { Worker } from 'node:worker_threads';
 
-// Runs a single headless-Chrome Lighthouse performance audit on `url` and
-// returns the metrics Kanso tracks. Callers must run audits sequentially:
-// concurrent Lighthouse instances share Node's performance namespace (via marky)
-// and corrupt each other's marks.
-export async function runLighthouse(url) {
-  const chrome = await chromeLauncher.launch({
-    chromeFlags: ['--headless=new', '--no-sandbox'],
+const WORKER_URL = new URL('./runner.worker.js', import.meta.url);
+
+// Runs a single headless-Chrome Lighthouse performance audit on `url` in an
+// isolated worker thread, returning the metrics Kanso tracks.
+//
+// Each audit lives in its own worker so concurrent runs don't share Node's
+// performance namespace (used by Lighthouse via marky); without isolation,
+// parallel audits corrupt each other's marks.
+//
+// formFactor: 'mobile' (default, matches Lighthouse defaults) or 'desktop'
+// (uses Lighthouse's standard desktop preset — wider viewport, no throttling).
+export function runLighthouse(url, { formFactor = 'mobile' } = {}) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(WORKER_URL, {
+      workerData: { url, formFactor },
+    });
+
+    worker.once('message', (msg) => {
+      if (msg.ok) resolve(msg.score);
+      else reject(new Error(msg.error));
+    });
+
+    worker.once('error', reject);
+    worker.once('exit', (code) => {
+      if (code !== 0) reject(new Error(`lighthouse worker exited with code ${code}`));
+    });
   });
-
-  try {
-    const result = await lighthouse(
-      url,
-      {
-        port: chrome.port,
-        output: 'json',
-        logLevel: 'error',
-        onlyCategories: ['performance'],
-      }
-    );
-
-    const lhr = result.lhr;
-    const perfScore = Math.round((lhr.categories.performance.score ?? 0) * 100);
-    const lcpMs = lhr.audits['largest-contentful-paint'].numericValue ?? 0;
-    const tbtMs = lhr.audits['total-blocking-time'].numericValue ?? 0;
-    const cls = lhr.audits['cumulative-layout-shift'].numericValue ?? 0;
-    const fcp = lhr.audits['first-contentful-paint'].numericValue ?? 0;
-
-    return {
-      performance: perfScore,
-      lcp: lcpMs / 1000,
-      tbt: tbtMs,
-      cls,
-      fcp: fcp / 1000,
-    };
-  } finally {
-    await chrome.kill();
-  }
 }

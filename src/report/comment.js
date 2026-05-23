@@ -3,6 +3,11 @@ import { evaluateStatuses } from '../metrics/status.js';
 
 const STATUS_ICON = { pass: '✅', warn: '⚠️', fail: '❌' };
 
+const FORM_FACTOR_LABELS = {
+  mobile:  { icon: '📱', label: 'Mobile' },
+  desktop: { icon: '💻', label: 'Desktop' },
+};
+
 function formatValue(metric, value) {
   return value.toFixed(metric.decimals) + metric.unit;
 }
@@ -15,20 +20,18 @@ function formatDelta(metric, delta) {
   return (delta >= 0 ? '+' : '') + delta.toFixed(metric.decimals) + metric.unit;
 }
 
-// Builds the PR comment body: a header line plus the per-metric comparison table
+// Renders one form-factor section: heading + per-metric comparison table
 // (main reference vs. PR, with delta and a pass/warn/fail/improvement icon).
-export function formatComment(prScore, refScore, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {} } = {}) {
+function renderSection(formFactor, prScore, refScore, budget) {
+  const { icon, label } = FORM_FACTOR_LABELS[formFactor];
+
+  if (prScore == null) {
+    return `### ${icon} ${label}\n\n_Lighthouse audit failed — no results to report._\n`;
+  }
+
   const pr = roundScore(prScore);
   const ref = roundScore(refScore);
   const statuses = evaluateStatuses(pr, budget);
-
-  const headerLine = headRef
-    ? `\`${headRef}\` → \`${baseRef}\` · ${source} detected automatically`
-    : `🔗 URL: ${previewUrl}`;
-
-  const note = refScore == null && Object.keys(budget).length === 0
-    ? '\n_No reference score for main yet — diff will appear once a PR is merged to main._\n'
-    : '';
 
   const rows = METRICS.map((metric) => {
     const prVal = pr[metric.key];
@@ -44,10 +47,29 @@ export function formatComment(prScore, refScore, { previewUrl, headRef, baseRef 
 
   const table = ['| Metric | main | PR | Δ | |', '|---|---|---|---|---|', ...rows].join('\n');
 
+  return `### ${icon} ${label}\n\n${table}\n`;
+}
+
+// Builds the PR comment body: a header line plus one comparison table per form
+// factor (mobile + desktop). scores has the shape { mobile: { pr, ref }, desktop: { pr, ref } }.
+export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {} } = {}) {
+  const headerLine = headRef
+    ? `\`${headRef}\` → \`${baseRef}\` · ${source} detected automatically`
+    : `🔗 URL: ${previewUrl}`;
+
+  const hasAnyRef = scores.mobile?.ref != null || scores.desktop?.ref != null;
+  const note = !hasAnyRef && Object.keys(budget).length === 0
+    ? '\n_No reference score for main yet — diff will appear once a PR is merged to main._\n'
+    : '';
+
+  const sections = [
+    renderSection('mobile',  scores.mobile?.pr  ?? null, scores.mobile?.ref  ?? null, budget),
+    renderSection('desktop', scores.desktop?.pr ?? null, scores.desktop?.ref ?? null, budget),
+  ].join('\n');
+
   return `## Kanso | Performance Report
 
 ${headerLine}
 ${note}
-${table}
-`;
+${sections}`;
 }

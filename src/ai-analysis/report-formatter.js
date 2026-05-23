@@ -57,7 +57,8 @@ export function metricLabels(metrics) {
 }
 
 export function formatPendingNote(metrics) {
-  return wrap(`_Regression detected for metrics: **${metricLabels(metrics)}**. Agent analysis in progress…_`);
+  const unique = [...new Set(metrics)];
+  return wrap(`_Regression detected for metrics: **${metricLabels(unique)}**. Agent analysis in progress…_`);
 }
 
 function escapeRegex(s) {

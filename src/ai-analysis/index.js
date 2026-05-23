@@ -27,7 +27,7 @@ function degradationPct(metric, prValue, refValue) {
     : ((prValue - refValue) / refValue) * 100;
 }
 
-export function detectSignificantRegressions({ statuses, prScore, refScore, budget }) {
+export function detectSignificantRegressions({ statuses, prScore, refScore, budget, formFactor }) {
   const failed = Object.entries(statuses)
     .filter(([, s]) => s === 'fail')
     .map(([k]) => k);
@@ -38,7 +38,7 @@ export function detectSignificantRegressions({ statuses, prScore, refScore, budg
     const refVal = refScore == null ? null : normalize(metric, refScore[metric]);
     const delta = degradationPct(metric, prVal, refVal);
     if (delta == null || delta <= SIGNIFICANT_DEGRADATION_PCT) continue;
-    out.push({ metric, prVal, refVal, delta, threshold: budget?.[metric] ?? null });
+    out.push({ metric, formFactor, prVal, refVal, delta, threshold: budget?.[metric] ?? null });
   }
   return out.sort((a, b) => b.delta - a.delta);
 }

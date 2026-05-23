@@ -42,11 +42,14 @@ const METRIC_ANTIPATTERNS = {
   performance: 'Address the most impactful bottlenecks. Never suggest changes that trade one metric for another (e.g. eager-loading everything to fix FCP at the cost of TBT).',
 };
 
-function renderRegression({ metric, prVal, threshold, refVal, delta }) {
+const FORM_FACTOR_LABELS = { mobile: '📱 mobile', desktop: '💻 desktop' };
+
+function renderRegression({ metric, formFactor, prVal, threshold, refVal, delta }) {
   const label = METRIC_LABELS[metric] ?? metric;
+  const ffSuffix = formFactor ? ` — ${FORM_FACTOR_LABELS[formFactor] ?? formFactor}` : '';
   const deltaStr = `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`;
   const antipattern = METRIC_ANTIPATTERNS[metric] ? `\n  ⚠ ${METRIC_ANTIPATTERNS[metric]}` : '';
-  return `- **${label}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}${antipattern}`;
+  return `- **${label}${ffSuffix}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}${antipattern}`;
 }
 
 export function buildPrompt({ regressions, diff }) {
@@ -73,7 +76,7 @@ Return a single JSON object — and nothing else, no prose, no markdown fences �
 
 \`\`\`
 {
-  "summary": string,           // markdown, under 300 words, bulleted. Cover all regressed metrics above — group metrics that share the same root cause, call out separately any metric that appears to have a distinct cause. Identify the most likely causes and 2-3 prioritized fixes. Be honest about uncertainty: if a cause is not visible in the diff (third-party script, asset, CDN, server response, network) say so explicitly and suggest where to investigate next. Do not repeat the metric numbers above.
+  "summary": string,           // markdown, under 300 words, bulleted. Cover all regressed metrics above — group metrics that share the same root cause, call out separately any metric that appears to have a distinct cause. The same metric may appear twice (once per form factor); if it regresses on both mobile and desktop, the cause is likely shared, whereas a form-factor-specific regression often points to responsive CSS, conditional JS, or device-specific assets. Identify the most likely causes and 2-3 prioritized fixes. Be honest about uncertainty: if a cause is not visible in the diff (third-party script, asset, CDN, server response, network) say so explicitly and suggest where to investigate next. Do not repeat the metric numbers above.
   "comments": [                // optional; omit or use [] if no specific line is responsible
     {
       "file": string,          // MUST exactly match one of the filenames above
