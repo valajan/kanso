@@ -11,10 +11,10 @@
 // - round: normalizes a raw Lighthouse value to its displayed precision
 export const METRICS = [
   { key: 'performance', label: 'Performance', unit: '', lowerIsBetter: false, good: 90, poor: 49, decimals: 0, round: (v) => v },
-  { key: 'lcp', label: 'LCP', unit: 's', lowerIsBetter: true, good: 2.5, poor: 4.0, decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
+  { key: 'lcp', label: 'LCP', unit: 'ms', lowerIsBetter: true, good: 2500, poor: 4000, decimals: 0, round: (v) => Math.round(v) },
   { key: 'tbt', label: 'TBT', unit: 'ms', lowerIsBetter: true, good: 200, poor: 600, decimals: 0, round: (v) => Math.round(v) },
   { key: 'cls', label: 'CLS', unit: '', lowerIsBetter: true, good: 0.1, poor: 0.25, decimals: 2, round: (v) => parseFloat(v.toFixed(2)) },
-  { key: 'fcp', label: 'FCP', unit: 's', lowerIsBetter: true, good: 1.8, poor: 3.0, decimals: 1, round: (v) => parseFloat(v.toFixed(1)) },
+  { key: 'fcp', label: 'FCP', unit: 'ms', lowerIsBetter: true, good: 1800, poor: 3000, decimals: 0, round: (v) => Math.round(v) },
 ];
 
 export const METRIC_KEYS = METRICS.map((m) => m.key);
@@ -39,4 +39,10 @@ export function roundScore(score) {
 // Joins metric keys into a human-readable label list (e.g. "LCP, TBT").
 export function metricLabels(keys) {
   return keys.map((key) => BY_KEY.get(key)?.label ?? key).join(', ');
+}
+
+// Returns true when every tracked metric has an explicit budget value, meaning
+// a production reference audit is unnecessary for pass/fail evaluation.
+export function allBudgetsDefined(budget = {}) {
+  return METRIC_KEYS.every((key) => budget[key] != null);
 }

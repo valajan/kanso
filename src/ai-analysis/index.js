@@ -61,6 +61,7 @@ async function postInlineReview({ octokit, owner, repo, prNumber, sha, comments,
         line: c.line,
         side: 'RIGHT',
         body: c.body,
+        ...(c.startLine != null ? { start_line: c.startLine, start_side: 'RIGHT' } : {}),
       })),
     });
     log?.info?.({ posted: comments.length }, '[ai-analysis] inline review posted');

@@ -20,12 +20,13 @@ preview_wait_seconds: 15
 # Defaults are set to Lighthouse "poor" zone boundaries so that green/orange/red
 # matches the Lighthouse colour scale out of the box. Override in .kanso.yml
 # to enforce stricter project-specific limits.
+# All time-based metrics are in milliseconds.
 budgets:
-  performance: 49 # minimum Lighthouse score — below 50 is Lighthouse "poor"
-  lcp: 4.0 # maximum LCP in seconds — above 4.0s is Lighthouse "poor"
-  tbt: 600 # maximum TBT in milliseconds — above 600ms is Lighthouse "poor"
-  cls: 0.25 # maximum CLS — above 0.25 is Lighthouse "poor"
-  fcp: 3.0 # maximum FCP in seconds — above 3.0s is Lighthouse "poor"
+  performance: 49  # minimum Lighthouse score — below 50 is Lighthouse "poor"
+  lcp: 4000        # maximum LCP in ms — above 4000ms is Lighthouse "poor"
+  tbt: 600         # maximum TBT in ms — above 600ms is Lighthouse "poor"
+  cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
+  fcp: 3000        # maximum FCP in ms — above 3000ms is Lighthouse "poor"
 
 # root-cause analysis on regressions
 ai_analysis: true

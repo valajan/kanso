@@ -43,7 +43,7 @@ export function formatStructuredAnalysis({ summary, comments }) {
   const parts = [summary.trim()];
   if (comments.length > 0) {
     const noun = comments.length === 1 ? 'comment' : 'comments';
-    parts.push(`_${comments.length} inline ${noun} posted on the diff — see the Files Changed tab._`);
+    parts.push(`---\n> 💬 ${comments.length} inline ${noun} posted — check the **Files changed** tab for annotated fix suggestions.`);
   }
   return wrap(parts.join('\n\n'));
 }

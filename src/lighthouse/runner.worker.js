@@ -42,14 +42,14 @@ async function audit({ url, formFactor }) {
     const lcpMs = lhr.audits['largest-contentful-paint'].numericValue ?? 0;
     const tbtMs = lhr.audits['total-blocking-time'].numericValue ?? 0;
     const cls = lhr.audits['cumulative-layout-shift'].numericValue ?? 0;
-    const fcp = lhr.audits['first-contentful-paint'].numericValue ?? 0;
+    const fcpMs = lhr.audits['first-contentful-paint'].numericValue ?? 0;
 
     return {
       performance: perfScore,
-      lcp: lcpMs / 1000,
+      lcp: lcpMs,
       tbt: tbtMs,
       cls,
-      fcp: fcp / 1000,
+      fcp: fcpMs,
     };
   } finally {
     await chrome.kill();

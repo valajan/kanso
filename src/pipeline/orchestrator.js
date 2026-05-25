@@ -1,5 +1,5 @@
 import { loadRepoConfig } from '../config/repo-config.js';
-import { roundScore } from '../metrics/registry.js';
+import { roundScore, allBudgetsDefined } from '../metrics/registry.js';
 import { evaluateStatuses, hasStatus } from '../metrics/status.js';
 import { formatComment } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
@@ -45,13 +45,29 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
     const aiAnalysisEnabled = repoConfig.ai_analysis === true;
     const baseUrl = repoConfig.base_url;
 
-    log.info(`PR #${prNumber} — Lighthouse auditing preview & prod (mobile + desktop) in parallel...`);
-    const [previewMobile, previewDesktop, refMobile, refDesktop] = await Promise.allSettled([
+    const skipProd = allBudgetsDefined(budget);
+    if (skipProd) {
+      log.info(`PR #${prNumber} — Lighthouse auditing preview only (all budgets defined, skipping prod)`);
+    } else {
+      log.info(`PR #${prNumber} — Lighthouse auditing preview & prod (mobile + desktop) in parallel...`);
+    }
+
+    const auditTargets = [
       runLighthouse(previewUrl, { formFactor: 'mobile' }),
       runLighthouse(previewUrl, { formFactor: 'desktop' }),
-      runLighthouse(baseUrl,    { formFactor: 'mobile' }),
-      runLighthouse(baseUrl,    { formFactor: 'desktop' }),
-    ]);
+      ...(skipProd ? [] : [
+        runLighthouse(baseUrl, { formFactor: 'mobile' }),
+        runLighthouse(baseUrl, { formFactor: 'desktop' }),
+      ]),
+    ];
+
+    const settled = await Promise.allSettled(auditTargets);
+    const [previewMobile, previewDesktop] = settled;
+    // When all budgets are defined, use budget values as the reference so the
+    // comment shows a meaningful delta (PR score vs. configured threshold).
+    const budgetRef = skipProd ? budget : null;
+    const refMobile  = skipProd ? { status: 'fulfilled', value: budgetRef } : settled[2];
+    const refDesktop = skipProd ? { status: 'fulfilled', value: budgetRef } : settled[3];
 
     // If both preview audits fail, we have nothing meaningful to report.
     if (previewMobile.status === 'rejected' && previewDesktop.status === 'rejected') {
@@ -79,12 +95,11 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
     const softFailures = [
       ['mobile preview',  previewMobile],
       ['desktop preview', previewDesktop],
-      ['mobile prod',     refMobile],
-      ['desktop prod',    refDesktop],
+      ...(!skipProd ? [['mobile prod', refMobile], ['desktop prod', refDesktop]] : []),
     ];
-    for (const [label, settled] of softFailures) {
-      if (settled.status === 'rejected') {
-        log.warn(`PR #${prNumber} — Lighthouse failed on ${label}: ${settled.reason.message}`);
+    for (const [label, result] of softFailures) {
+      if (result.status === 'rejected') {
+        log.warn(`PR #${prNumber} — Lighthouse failed on ${label}: ${result.reason.message}`);
       }
     }
 
@@ -110,6 +125,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
 
     const baseBody = formatComment(scores, {
       previewUrl, headRef, baseRef, source, budget,
+      ...(skipProd ? { refLabel: 'budgets' } : {}),
     });
 
     const initialBody = aiAnalysisEnabled && regressions.length > 0
@@ -213,7 +229,7 @@ function summarizePerf(scores) {
   for (const ff of FORM_FACTORS) {
     const icon = ff === 'mobile' ? '📱' : '💻';
     const pr = scores[ff].pr;
-    parts.push(pr ? `${icon} perf ${pr.performance} · LCP ${pr.lcp.toFixed(1)}s · TBT ${Math.round(pr.tbt)}ms` : `${icon} —`);
+    parts.push(pr ? `${icon} perf ${pr.performance} · LCP ${Math.round(pr.lcp)}ms · TBT ${Math.round(pr.tbt)}ms` : `${icon} —`);
   }
   return parts.join(' | ');
 }

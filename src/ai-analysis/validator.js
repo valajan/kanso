@@ -35,6 +35,7 @@ export function validateAnalysis(rawJson, diff, { sanitize, log } = {}) {
   const dropped = [];
   const rawComments = Array.isArray(parsed.comments) ? parsed.comments : [];
   const comments = [];
+  const seen = new Set();
 
   for (const c of rawComments) {
     if (typeof c?.file !== 'string') { dropped.push({ reason: 'missing file', c }); continue; }
@@ -46,11 +47,24 @@ export function validateAnalysis(rawJson, diff, { sanitize, log } = {}) {
     const valid = linesByFile.get(c.file);
     if (!valid) { dropped.push({ reason: 'unknown file', file: c.file }); continue; }
     if (!valid.has(c.line)) { dropped.push({ reason: 'line not in added lines', file: c.file, line: c.line }); continue; }
-    comments.push({
-      file: c.file,
-      line: c.line,
-      body: safeSanitize(c.body.trim()),
-    });
+
+    let startLine;
+    if (c.start_line != null) {
+      if (!isInt(c.start_line)) { dropped.push({ reason: 'start_line is not an integer', file: c.file, line: c.line }); continue; }
+      if (c.start_line > c.line) { dropped.push({ reason: 'start_line > line', file: c.file, line: c.line }); continue; }
+      if (!valid.has(c.start_line)) { dropped.push({ reason: 'start_line not in added lines', file: c.file, line: c.start_line }); continue; }
+      if (c.start_line !== c.line) startLine = c.start_line;
+    }
+
+    const key = `${c.file}:${c.line}`;
+    if (seen.has(key)) {
+      dropped.push({ reason: 'duplicate (file, line) — keeping first', file: c.file, line: c.line });
+      continue;
+    }
+    seen.add(key);
+    const comment = { file: c.file, line: c.line, body: safeSanitize(c.body.trim()) };
+    if (startLine != null) comment.startLine = startLine;
+    comments.push(comment);
   }
 
   if (dropped.length > 0) {

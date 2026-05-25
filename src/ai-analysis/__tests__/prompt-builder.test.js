@@ -12,21 +12,21 @@ const sampleDiff = [
 ];
 
 const singleRegression = [
-  { metric: 'lcp', prVal: 3.2, threshold: 2.5, refVal: 2.4, delta: 33.3 },
+  { metric: 'lcp', prVal: 3200, threshold: 2500, refVal: 2400, delta: 33.3 },
 ];
 
 const multiRegressions = [
-  { metric: 'lcp', prVal: 3.2, threshold: 2.5, refVal: 2.4, delta: 33.3 },
-  { metric: 'fcp', prVal: 2.8, threshold: 2.0, refVal: 1.5, delta: 86.7 },
+  { metric: 'lcp', prVal: 3200, threshold: 2500, refVal: 2400, delta: 33.3 },
+  { metric: 'fcp', prVal: 2800, threshold: 2000, refVal: 1500, delta: 86.7 },
 ];
 
 test('prompt contains metric label, values, and delta', () => {
   const prompt = buildPrompt({ regressions: singleRegression, diff: sampleDiff });
 
   assert.match(prompt, /Largest Contentful Paint/);
-  assert.match(prompt, /3\.2s/);
-  assert.match(prompt, /2\.5s/);
-  assert.match(prompt, /2\.4s/);
+  assert.match(prompt, /3200ms/);
+  assert.match(prompt, /2500ms/);
+  assert.match(prompt, /2400ms/);
   assert.match(prompt, /\+33\.3%/);
 });
 
@@ -70,7 +70,7 @@ test('prompt instructs the model not to invent file paths or line numbers', () =
 
 test('prompt warns the model when a file has no anchorable lines', () => {
   const prompt = buildPrompt({
-    regressions: [{ metric: 'fcp', prVal: 3.0, threshold: null, refVal: null, delta: 50 }],
+    regressions: [{ metric: 'fcp', prVal: 3000, threshold: null, refVal: null, delta: 50 }],
     diff: [{ filename: 'src/Empty.jsx', status: 'modified', patch: ' context', addedLines: [] }],
   });
 
