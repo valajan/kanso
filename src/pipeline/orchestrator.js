@@ -45,9 +45,10 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
     const aiAnalysisEnabled = repoConfig.ai_analysis === true;
     const baseUrl = repoConfig.base_url;
 
-    const skipProd = allBudgetsDefined(budget);
+    const skipProd = !baseUrl || allBudgetsDefined(budget);
     if (skipProd) {
-      log.info(`PR #${prNumber} — Lighthouse auditing preview only (all budgets defined, skipping prod)`);
+      const reason = !baseUrl ? 'no base_url configured' : 'all budgets defined';
+      log.info(`PR #${prNumber} — Lighthouse auditing preview only (${reason}, skipping prod)`);
     } else {
       log.info(`PR #${prNumber} — Lighthouse auditing preview & prod (mobile + desktop) in parallel...`);
     }

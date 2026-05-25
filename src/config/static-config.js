@@ -4,7 +4,5 @@ import yaml from 'js-yaml';
 // Loads the static fallback configuration (config.yml). Repo-level overrides
 // from a .kanso.yml are layered on top later — see config/repo-config.js.
 export function loadStaticConfig(path = './config.yml') {
-  const config = yaml.load(readFileSync(path, 'utf8'));
-  if (!config?.base_url) throw new Error('Missing config: base_url');
-  return config;
+  return yaml.load(readFileSync(path, 'utf8'));
 }

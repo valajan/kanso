@@ -7,9 +7,6 @@
 # override a single metric without restating the others.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# URL of the production site used as the main branch reference.
-base_url: https://perfbuddy.netlify.app/
-
 # Delay in seconds before running Lighthouse on a PR preview.
 # Netlify marks a deployment as "success" before all assets are fully served,
 # so a small buffer avoids auditing a partially stale preview.
