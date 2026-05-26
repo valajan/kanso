@@ -5,20 +5,23 @@ import { routeWebhookEvent } from './webhook/router.js';
 // Builds the configured Fastify instance: logging, the raw-body JSON parser
 // (needed for HMAC verification), and the /health and /webhook routes.
 export function buildApp({ env, githubApp, store, orchestrator }) {
+  const isDev = process.env.NODE_ENV !== 'production';
   const fastify = Fastify({
     disableRequestLogging: true,
-    logger: {
-      level: 'info',
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:HH:MM:ss',
-          ignore: 'pid,hostname',
-          messageFormat: '{msg}',
-        },
-      },
-    },
+    logger: isDev
+      ? {
+          level: 'info',
+          transport: {
+            target: 'pino-pretty',
+            options: {
+              colorize: true,
+              translateTime: 'SYS:HH:MM:ss',
+              ignore: 'pid,hostname',
+              messageFormat: '{msg}',
+            },
+          },
+        }
+      : { level: 'info' },
   });
 
   // Keep the raw body around: webhook signature verification must hash the
