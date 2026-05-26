@@ -118,6 +118,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
         refScore: scores[formFactor].ref,
         budget,
         formFactor,
+        isBudgetRef: skipProd,
       }));
     }
 

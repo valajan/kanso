@@ -27,7 +27,7 @@ function degradationPct(metric, prValue, refValue) {
     : ((prValue - refValue) / refValue) * 100;
 }
 
-export function detectSignificantRegressions({ statuses, prScore, refScore, budget, formFactor }) {
+export function detectSignificantRegressions({ statuses, prScore, refScore, budget, formFactor, isBudgetRef = false }) {
   const failed = Object.entries(statuses)
     .filter(([, s]) => s === 'fail')
     .map(([k]) => k);
@@ -37,10 +37,12 @@ export function detectSignificantRegressions({ statuses, prScore, refScore, budg
     const prVal = normalize(metric, prScore[metric]);
     const refVal = refScore == null ? null : normalize(metric, refScore[metric]);
     const delta = degradationPct(metric, prVal, refVal);
-    if (delta == null || delta <= SIGNIFICANT_DEGRADATION_PCT) continue;
+    // When comparing against budget thresholds (no prod), any fail warrants analysis.
+    // When comparing against live prod, require >10% degradation to avoid noise.
+    if (!isBudgetRef && (delta == null || delta <= SIGNIFICANT_DEGRADATION_PCT)) continue;
     out.push({ metric, formFactor, prVal, refVal, delta, threshold: budget?.[metric] ?? null });
   }
-  return out.sort((a, b) => b.delta - a.delta);
+  return out.sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0));
 }
 
 // Posts a single PR review carrying every inline finding as a line-anchored
