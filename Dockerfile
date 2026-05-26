@@ -1,17 +1,9 @@
-# Kanso API — Cloud Run image.
+# Kanso API — Docker image.
 #
-# Bundles Node 20 + Chromium so the four Lighthouse worker threads (mobile +
-# desktop × preview + prod) can each launch their own headless Chrome in
-# parallel. Sized for a 4 vCPU / 4Gb Cloud Run service: every worker gets a
-# dedicated thread and ~1Gb of headroom.
-#
-# Deploy:
-#   gcloud run deploy kanso-api \
-#     --source . \
-#     --region <region> \
-#     --cpu 4 --memory 4Gi \
-#     --port 8080 \
-#     --set-env-vars NODE_ENV=production
+# Bundles Node 20 + Chromium so Lighthouse worker threads can each launch
+# their own headless Chrome in parallel. Sized for 2 vCPU / 2 GB with
+# LIGHTHOUSE_CONCURRENCY=3 (~400 MB per Chrome + Node overhead).
+# Scale to 4 vCPU / 4 GB to run 4 concurrent audits without throttling.
 FROM node:20-slim
 
 # Chromium + the system libs Lighthouse's headless Chrome needs at runtime.
