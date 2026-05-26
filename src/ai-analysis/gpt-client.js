@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 
-const MODEL = 'gpt-5.4';
+const MODEL = 'gpt-5.5';
 const MAX_TOKENS = 4000;
 const TIMEOUT_MS = 30_000;
 
