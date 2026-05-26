@@ -62,7 +62,7 @@ test('fetchRelevantDiff returns null when no relevant files', async () => {
 });
 
 test('fetchRelevantDiff filters, truncates, and forwards octokit args', async () => {
-  const longPatch = Array.from({ length: 200 }, (_, i) => `+ line ${i}`).join('\n');
+  const longPatch = Array.from({ length: 1100 }, (_, i) => `+ line ${i}`).join('\n');
   let received = null;
 
   const octokit = {
@@ -92,7 +92,7 @@ test('fetchRelevantDiff filters, truncates, and forwards octokit args', async ()
   assert.match(result[1].patch, /more lines truncated/);
 });
 
-test('extractAddedLines returns new-side line numbers for + lines only', () => {
+test('extractAddedLines returns new-side line numbers for + and context lines', () => {
   const patch = [
     '@@ -10,3 +10,5 @@',
     ' context A',
@@ -101,7 +101,7 @@ test('extractAddedLines returns new-side line numbers for + lines only', () => {
     '+added at 12',
     ' context B',
   ].join('\n');
-  assert.deepEqual(extractAddedLines(patch), [11, 12]);
+  assert.deepEqual(extractAddedLines(patch), [10, 11, 12, 13]);
 });
 
 test('extractAddedLines handles multiple hunks and skips file headers', () => {
@@ -115,7 +115,7 @@ test('extractAddedLines handles multiple hunks and skips file headers', () => {
     '+ second add at 61',
     '+ third add at 62',
   ].join('\n');
-  assert.deepEqual(extractAddedLines(patch), [2, 61, 62]);
+  assert.deepEqual(extractAddedLines(patch), [1, 2, 60, 61, 62]);
 });
 
 test('extractAddedLines ignores "no newline at end of file" markers', () => {
@@ -147,7 +147,7 @@ test('fetchRelevantDiff attaches addedLines to each returned file', async () => 
   };
   const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
   assert.equal(result.length, 1);
-  assert.deepEqual(result[0].addedLines, [2]);
+  assert.deepEqual(result[0].addedLines, [1, 2, 3]);
 });
 
 test('fetchRelevantDiff drops files with empty patch after filtering', async () => {

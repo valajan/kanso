@@ -1,8 +1,8 @@
 const RELEVANT_EXTENSIONS = [
   '.css', '.scss', '.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.html',
 ];
-const MAX_LINES_PER_FILE = 150;
-const MAX_TOTAL_LINES = 1500;
+const MAX_LINES_PER_FILE = 1000;
+const MAX_TOTAL_LINES = 6000;
 const LOCKFILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'npm-shrinkwrap.json']);
 
 export function isRelevantFile(filename) {
@@ -23,10 +23,11 @@ export function truncatePatch(patch, maxLines = MAX_LINES_PER_FILE) {
 }
 
 // Walks a unified-diff patch and returns the line numbers (on the new file side)
-// of every `+` line. These are the only positions a RIGHT-side PR review comment
-// can anchor on for code the PR introduced. Context and removed lines are not
-// candidates: pointing at context is rarely actionable, and `-` lines do not
-// exist on the new side at all.
+// of every `+` line and every context line visible in a hunk. Both are valid
+// anchors for a RIGHT-side GitHub review comment: `+` lines for newly introduced
+// code, context lines for existing code the LLM wants to annotate in relation to
+// the surrounding changes. Removed (`-`) lines are excluded — they don't exist
+// on the new side.
 export function extractAddedLines(patch) {
   if (!patch) return [];
   const out = [];
@@ -38,13 +39,11 @@ export function extractAddedLines(patch) {
       continue;
     }
     if (raw.startsWith('+++') || raw.startsWith('---') || raw.startsWith('\\')) continue;
-    if (raw.startsWith('+')) {
-      out.push(newLine);
-      newLine++;
-    } else if (raw.startsWith('-')) {
+    if (raw.startsWith('-')) {
       // removed line — does not consume a new-side line number
     } else {
-      // context line (leading space, or our truncation marker) — advances cursor
+      // `+` line or context line — both are valid RIGHT-side comment positions
+      out.push(newLine);
       newLine++;
     }
   }
