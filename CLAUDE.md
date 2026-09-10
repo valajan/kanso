@@ -41,7 +41,8 @@ Kanso is a GitHub App that automatically audits web performance on pull requests
 
 **AI analysis module (`src/ai-analysis/`):**
 
-- `index.js` — orchestrator
+- `index.js` — orchestrator; takes the `gptClient` injected from `server.js`
+- `gpt-client.js` — `createGptClient(env.ai)` factory; returns `null` when no API key is set, which disables the analysis pipeline-wide
 - `diff-fetcher.js` — fetches relevant GitHub diffs (skips lockfiles, tests, etc.)
 - `prompt-builder.js` — builds structured OpenAI prompts with metric context and diff
 - `validator.js` — validates and sanitizes LLM JSON output
@@ -49,4 +50,10 @@ Kanso is a GitHub App that automatically audits web performance on pull requests
 
 **Configuration:** `config.yml` is the static base config. Repos can override with a `.kanso.yml` in the repo root, which is merged per-metric (partial overrides are allowed). Config controls budgets, reference URLs, and whether AI analysis is enabled.
 
-**Required environment variables** (see `.env.example`): `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_PRIVATE_KEY_PATH`, `OPENAI_API_KEY`, `PORT`.
+**Environment variables** (see `.env.example`, validated in `src/config/env.js`):
+
+- Required: `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, and one of `GITHUB_PRIVATE_KEY` / `GITHUB_PRIVATE_KEY_PATH`
+- Optional: `PORT` (3000), `LIGHTHOUSE_CONCURRENCY` (3)
+- AI analysis, all optional: `OPENAI_API_KEY` (unset ⇒ analysis disabled), `OPENAI_BASE_URL` (any OpenAI-compatible endpoint: OpenRouter, Groq, Ollama…), `KANSO_AI_MODEL`, `KANSO_AI_MAX_TOKENS`, `KANSO_AI_TIMEOUT_MS`, `KANSO_AI_MAX_RETRIES`
+
+Provider settings live in the environment rather than `config.yml` on purpose: `config.yml` keys are overridable by each client repo's `.kanso.yml`, and the model/token budget spend the operator's own API credits. The credential and endpoint keep the ecosystem-standard `OPENAI_*` names — in the OpenAI-compatible ecosystem they denote the protocol, not the vendor — while Kanso's own knobs are prefixed `KANSO_AI_`.

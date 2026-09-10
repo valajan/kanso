@@ -1,44 +1,49 @@
 import OpenAI from 'openai';
 
-const MODEL = 'gpt-5.5';
-const MAX_TOKENS = 4000;
-const TIMEOUT_MS = 30_000;
+// Builds the chat client used by the analysis module. Model, limits and
+// endpoint all come from the environment (see src/config/env.js) so an
+// operator can switch model or provider without touching the code — any
+// OpenAI-compatible API works through baseUrl.
+//
+// Returns null when no API key is configured; the caller treats that as
+// "AI analysis disabled" rather than as an error.
+export function createGptClient({ apiKey, baseUrl, model, maxTokens, timeoutMs, maxRetries } = {}) {
+  if (!apiKey) return null;
 
-let cachedClient = null;
+  const client = new OpenAI({
+    apiKey,
+    ...(baseUrl ? { baseURL: baseUrl } : {}),
+    timeout: timeoutMs,
+    maxRetries,
+  });
 
-function getClient() {
-  if (cachedClient) return cachedClient;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
-  cachedClient = new OpenAI({ apiKey, timeout: TIMEOUT_MS });
-  return cachedClient;
-}
+  async function requestAnalysis(prompt, { log, json = false } = {}) {
+    log?.info?.({ model, json }, '[ai-analysis] calling AI provider');
 
-export async function requestAnalysis(prompt, { log, json = false } = {}) {
-  log?.info?.({ model: MODEL, json }, '[ai-analysis] calling OpenAI');
-  const client = getClient();
+    try {
+      const completion = await client.chat.completions.create({
+        model,
+        max_completion_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+        ...(json ? { response_format: { type: 'json_object' } } : {}),
+      });
 
-  try {
-    const completion = await client.chat.completions.create({
-      model: MODEL,
-      max_completion_tokens: MAX_TOKENS,
-      messages: [{ role: 'user', content: prompt }],
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
-    });
-
-    const content = completion.choices?.[0]?.message?.content;
-    if (!content) throw new Error('OpenAI response missing content');
-    return content.trim();
-  } catch (err) {
-    if (err?.status === 429) {
-      throw new Error(`OpenAI rate limit: ${err.message}`);
+      const content = completion.choices?.[0]?.message?.content;
+      if (!content) throw new Error('AI provider returned no content');
+      return content.trim();
+    } catch (err) {
+      if (err?.status === 429) {
+        throw new Error(`AI provider rate limit: ${err.message}`);
+      }
+      if (err?.name === 'APIConnectionTimeoutError' || err?.code === 'ETIMEDOUT') {
+        throw new Error('AI request timed out');
+      }
+      if (err?.status) {
+        throw new Error(`AI request failed (${err.status}): ${err.message}`);
+      }
+      throw err;
     }
-    if (err?.name === 'APIConnectionTimeoutError' || err?.code === 'ETIMEDOUT') {
-      throw new Error('OpenAI request timed out');
-    }
-    if (err?.status) {
-      throw new Error(`OpenAI request failed (${err.status}): ${err.message}`);
-    }
-    throw err;
   }
+
+  return { model, baseUrl, requestAnalysis };
 }

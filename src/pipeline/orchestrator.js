@@ -17,7 +17,8 @@ const FORM_FACTORS = ['mobile', 'desktop'];
 // - store:         PreviewStore coordinating webhook state
 // - staticConfig:  parsed config.yml, the base for per-repo config merges
 // - runLighthouse: the audit runner (one URL → metrics), accepts { formFactor }
-export function createOrchestrator({ store, staticConfig, runLighthouse }) {
+// - gptClient:     the AI analysis client, or null when none is configured
+export function createOrchestrator({ store, staticConfig, runLighthouse, gptClient = null }) {
   // Posts the report, reusing the "waiting for preview" placeholder comment if
   // one was left for this PR; otherwise creates a fresh comment.
   async function postOrEditComment({ octokit, owner, repo, prNumber, body }) {
@@ -42,7 +43,9 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
   // real regression.
   async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, source, log, repoConfig }) {
     const budget = repoConfig.budgets ?? {};
-    const aiAnalysisEnabled = repoConfig.ai_analysis === true;
+    // A repo can ask for AI analysis, but it only runs if the deployment has a
+    // provider configured — otherwise we'd promise a section we cannot deliver.
+    const aiAnalysisEnabled = repoConfig.ai_analysis === true && gptClient != null;
     const baseUrl = repoConfig.base_url;
 
     const skipProd = !baseUrl || allBudgetsDefined(budget);
@@ -144,7 +147,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse }) {
     }
 
     if (aiAnalysisEnabled && regressions.length > 0) {
-      analyzePerformanceRegression({ octokit, owner, repo, prNumber, sha, regressions, log })
+      analyzePerformanceRegression({ octokit, owner, repo, prNumber, sha, regressions, gptClient, log })
         .then(async (result) => {
           if (!result?.section) return;
           const updatedBody = replaceAnalysisSection(initialBody, result.section);

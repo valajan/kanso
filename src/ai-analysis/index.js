@@ -1,6 +1,5 @@
 import { fetchRelevantDiff } from './diff-fetcher.js';
 import { buildPrompt } from './prompt-builder.js';
-import { requestAnalysis } from './gpt-client.js';
 import {
   formatStructuredAnalysis,
   formatSkippedNote,
@@ -77,6 +76,7 @@ async function postInlineReview({ octokit, owner, repo, prNumber, sha, comments,
   }
 }
 
+// Runs the analysis with the injected `gptClient` (src/ai-analysis/gpt-client.js).
 // Returns { section, structured } where:
 // - section: the markdown block to splice into the PR comment (summary only —
 //   inline findings are now delivered as native review comments).
@@ -88,11 +88,18 @@ export async function analyzePerformanceRegression({
   prNumber,
   sha,
   regressions,
+  gptClient,
   log,
 }) {
   try {
     if (!regressions || regressions.length === 0) {
       log?.info?.('[ai-analysis] no regressions to analyze');
+      return null;
+    }
+    // The orchestrator already gates on a configured client; this guards the
+    // module against being called directly without one.
+    if (!gptClient) {
+      log?.info?.('[ai-analysis] no AI provider configured — skipping');
       return null;
     }
 
@@ -109,7 +116,7 @@ export async function analyzePerformanceRegression({
 
     const prompt = buildPrompt({ regressions, diff });
 
-    const rawJson = await requestAnalysis(prompt, { log, json: true });
+    const rawJson = await gptClient.requestAnalysis(prompt, { log, json: true });
     log?.info?.('[ai-analysis] analysis received');
 
     const structured = validateAnalysis(rawJson, diff, { sanitize, log });

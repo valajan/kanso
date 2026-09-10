@@ -26,6 +26,43 @@ export function loadEnv() {
     webhookSecret,
     privateKeyPath,
     privateKey,
-    port: Number(process.env.PORT ?? 3000),
+    port: num(process.env.PORT, 3000),
+    ai: loadAiEnv(),
   };
+}
+
+// AI provider settings for src/ai-analysis. These are operator-level knobs —
+// they spend the deployment's own API credits — so they live in the
+// environment rather than in config.yml, which client repos can override
+// through their .kanso.yml.
+//
+// Naming follows the split used by most open-source LLM tooling (aider,
+// LiteLLM, Open WebUI): the credential and the endpoint keep the vendor
+// names the SDKs read natively — in the OpenAI-compatible ecosystem
+// OPENAI_API_KEY / OPENAI_BASE_URL denote the protocol rather than the
+// vendor, and Ollama, vLLM, Groq and OpenRouter all document them for their
+// own endpoints — while Kanso's own knobs take a KANSO_ prefix so they can't
+// collide with another service sharing the container.
+//
+// Every key is optional: without an API key the analysis module is skipped
+// and the rest of the pipeline runs untouched. Point OPENAI_BASE_URL at any
+// OpenAI-compatible endpoint to run the analysis on another provider.
+function loadAiEnv() {
+  return {
+    apiKey: process.env.OPENAI_API_KEY,
+    baseUrl: process.env.OPENAI_BASE_URL,
+    model: process.env.KANSO_AI_MODEL ?? 'gpt-5.5',
+    maxTokens: num(process.env.KANSO_AI_MAX_TOKENS, 4000),
+    timeoutMs: num(process.env.KANSO_AI_TIMEOUT_MS, 30_000),
+    maxRetries: num(process.env.KANSO_AI_MAX_RETRIES, 2),
+  };
+}
+
+// Coerces an env string to a number, falling back when it is unset or
+// malformed — Number('') is 0 and Number('4o') is NaN, both of which would
+// otherwise reach the API client silently.
+function num(value, fallback) {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
