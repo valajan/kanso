@@ -155,6 +155,71 @@ test('one form factor failing still reports the other', async () => {
   assert.match(out, /the desktop page load failed: desktop died/);
 });
 
+
+// --- findings ---------------------------------------------------------------
+
+// A page's accessibility findings, as the accessibility module extracts them.
+function findings(...rules) {
+  return { findings: rules.map(([rule, impact, count = 1]) => ({
+    rule, impact, count, title: `${rule} is broken`,
+    nodes: Array.from({ length: count }, (_, i) => ({ selector: `p.${rule}-${i}`, snippet: '<p>' })),
+  })) };
+}
+
+function auditingBoth(byUrl) {
+  return async (url, { modules }) => {
+    const page = byUrl[url];
+    if (page === undefined) throw new Error(`unexpected audit target ${url}`);
+    return Object.fromEntries(modules.map((m) => [m.id, page[m.id] ?? null]));
+  };
+}
+
+test('a finding over the impact threshold fails the audit and names the elements', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: findings(['image-alt', 'critical', 2]) },
+  });
+
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.equal(code, 1);
+  assert.match(out, /Accessibility\s+fail/);
+  assert.match(out, /image-alt\s+critical\s+2 elements\s+fail/);
+  assert.match(out, /p\.image-alt-0/);
+  assert.match(out, /failing from serious up/);
+  assert.match(out, /fail · image-alt/);
+});
+
+// The whole point of the baseline: a page's existing debt is reported, and only
+// what the change added is held against it.
+test('a finding the baseline already has does not fail the audit', async () => {
+  const inherited = findings(['color-contrast', 'serious', 3]);
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: inherited },
+    'https://example.com/': { performance: GOOD, accessibility: inherited },
+  });
+
+  const { code, out } = await run(
+    ['audit', 'http://localhost:3000', '--baseline', 'https://example.com'],
+    { runLighthouse }
+  );
+
+  assert.equal(code, 0);
+  assert.match(out, /color-contrast\s+serious\s+3 elements\s+inherited\s+pass/);
+  assert.match(out, /1 already in the baseline · 0 fixed/);
+});
+
+test('a page breaking no rule says so', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: findings() },
+  });
+
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.equal(code, 0);
+  assert.match(out, /Accessibility\s+pass/);
+  assert.match(out, /no findings/);
+});
+
 // --- invocation mistakes ----------------------------------------------------
 
 test('a mistake in the command line exits 2 and points at the help', async () => {

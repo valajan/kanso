@@ -1,5 +1,5 @@
 import { combineLevels } from '../../core/levels.js';
-import { allBudgetsDefined, roundScore } from './metrics.js';
+import { allBudgetsDefined, METRICS, roundScore } from './metrics.js';
 import { medianScores } from './median.js';
 import { detectSignificantRegressions } from './regressions.js';
 import { evaluateStatuses } from './status.js';
@@ -10,6 +10,7 @@ export default {
   id: 'performance',
   label: 'Performance',
   categories: ['performance'],
+  checkLabels: Object.fromEntries(METRICS.map((m) => [m.key, m.label])),
 
   extract(lhr) {
     return {

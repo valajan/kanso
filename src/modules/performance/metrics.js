@@ -43,11 +43,6 @@ export function roundScore(score) {
   return out;
 }
 
-// Joins metric keys into a human-readable label list (e.g. "LCP, TBT").
-export function metricLabels(keys) {
-  return keys.map((key) => BY_KEY.get(key)?.label ?? key).join(', ');
-}
-
 // Returns true when every tracked metric has an explicit budget value, meaning
 // a production reference audit is unnecessary for pass/fail evaluation.
 export function allBudgetsDefined(budget = {}) {

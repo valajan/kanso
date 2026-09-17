@@ -1,6 +1,7 @@
 import { audit, FORM_FACTORS } from '../core/audit.js';
 import { loadRepoConfig } from '../config/repo-config.js';
-import { formatComment, REPORT_MARKER } from '../report/comment.js';
+import { moduleConfig } from '../config/module-config.js';
+import { formatComment, REPORT_MARKER, REPORT_TITLE } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
 import {
   analyzePerformanceRegression,
@@ -48,7 +49,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
   // posts the report comment and commit status, and triggers AI analysis on a
   // real regression. Returns the conclusion so a CI caller can fail its build on it.
   async function runAndPostReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected = true, log, repoConfig, commentId }) {
-    const budget = repoConfig.budgets ?? {};
+    const budget = moduleConfig(repoConfig, 'performance').budgets ?? {};
     // A repo can ask for AI analysis, but it only runs if the deployment has a
     // provider configured — otherwise we'd promise a section we cannot deliver.
     const aiAnalysisEnabled = repoConfig.ai_analysis === true && gptClient != null;
@@ -64,7 +65,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
       log.warn(`PR #${prNumber} — ${err.message}`);
       await postOrEditComment({
         forge, prNumber, commentId,
-        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ ${err.message}`,
+        body: `${REPORT_MARKER}\n## ${REPORT_TITLE}\n\n⚠️ ${err.message}`,
       });
       return { ok: false, conclusion: 'error', error: err.message };
     }
@@ -92,7 +93,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
       log.error(`PR #${prNumber} — Lighthouse failed on preview (mobile + desktop): ${result.error}`);
       await postOrEditComment({
         forge, prNumber, commentId,
-        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ Lighthouse analysis failed: \`${result.error}\``,
+        body: `${REPORT_MARKER}\n## ${REPORT_TITLE}\n\n⚠️ Lighthouse analysis failed: \`${result.error}\``,
       });
       if (sha) {
         await forge
@@ -113,8 +114,8 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     const { regressions } = perf;
 
     const baseBody = formatComment(scores, {
-      previewUrl, headRef, baseRef, source, budget, detected,
-      ...(perf.referenceKind === 'budgets' ? { refLabel: 'budgets' } : {}),
+      previewUrl, headRef, baseRef, source, budget, detected, modules: result.modules,
+      ...(perf.referenceKind === 'budgets' ? { refLabel: 'budgets' } : { refLabel: baseRef ?? 'main' }),
     });
 
     const initialBody = aiAnalysisEnabled && regressions.length > 0
@@ -124,7 +125,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     const reportCommentId = await postOrEditComment({ forge, prNumber, body: initialBody, commentId });
 
     if (sha) {
-      const { state, description } = commitStatusPayload(perf.levels);
+      const { state, description } = commitStatusPayload(result.modules);
       await forge
         .setStatus({ sha, state, description })
         .catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
@@ -147,7 +148,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     const { conclusion } = result;
     const icon = conclusion === 'fail' ? '❌' : conclusion === 'warn' ? '⚠️' : '✅';
     log.info(`PR #${prNumber} ${icon} report posted — ${summarizePerf(scores)}`);
-    return { ok: true, conclusion, statuses: perf.levels, scores, commentId: reportCommentId };
+    return { ok: true, conclusion, statuses: perf.levels, modules: result.modules, scores, commentId: reportCommentId };
   }
 
   // Handles a preview-ready provider event: maps the deployment SHA to its open

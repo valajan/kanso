@@ -3,8 +3,13 @@
 #
 # Each client repository can override any of these values by adding a
 # .kanso.yml file at the root of their repo. Missing keys fall back to
-# the values defined here. budgets are merged key-by-key, so a client can
-# override a single metric without restating the others.
+# the values defined here, key by key at any depth, so a client can override a
+# single budget or a single module setting without restating the others.
+#
+# Each audit module reads the section carrying its name — `accessibility:`
+# below, and `performance:` if you prefer stating the budgets there. Performance
+# came first and its `budgets:` still live at the root, where every .kanso.yml
+# written so far keeps them; both forms work and the section wins.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Delay in seconds before running Lighthouse on a PR preview.
@@ -25,10 +30,25 @@ budgets:
   cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
   fcp: 3000        # maximum FCP in ms — above 3000ms is Lighthouse "poor"
 
+# Accessibility — the axe rules Lighthouse runs on the page.
+#
+# fail_on is the impact from which a finding fails the audit: minor, moderate,
+# serious or critical. Anything below it is reported as a warning.
+#
+# A finding the reference page already has, on as many elements, is reported but
+# never held against the change: with a reference, Kanso judges what the change
+# did; without one — a local `kanso audit` with no --baseline — it judges the
+# page as it stands, and every finding counts.
+accessibility:
+  fail_on: serious
+
 # Number of Lighthouse runs per target, per form factor; the per-metric median
 # is reported. A single run swings by 20-30% on TBT, which is enough on its own
 # to fail a good PR or trigger an AI analysis of a regression that never
 # happened. 3 is the usual remedy; the cost is 3x the audit time. Max 5.
+#
+# It counts page loads, and one load feeds every module, so it belongs to the
+# audit rather than to any module in it — hence the root, not a section.
 runs: 1
 
 # Reference deployment every PR preview is compared against.

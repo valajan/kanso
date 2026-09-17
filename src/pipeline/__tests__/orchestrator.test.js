@@ -87,7 +87,7 @@ test('the commit status goes pending before the audits and settles afterwards', 
   await orchestrator.runReport(baseArgs(forge));
 
   assert.deepEqual(forge.statuses.map((s) => s.state), ['pending', 'success']);
-  assert.equal(forge.statuses[1].description, 'All metrics within acceptable thresholds');
+  assert.equal(forge.statuses[1].description, 'All checks within acceptable thresholds');
 });
 
 // The commit status has to reflect the harshest outcome, not an average.
@@ -222,8 +222,9 @@ test('a request-supplied reference overrides the configured one', async () => {
 });
 
 // With every budget set there is nothing a reference audit can add to the
-// verdict, so it is skipped and the budgets become the comparison column.
-test('a complete budget set skips the reference audit entirely', async () => {
+// performance verdict, so the budgets become its comparison column — and the
+// reference is only loaded for the modules that still have a use for it.
+test('a complete budget set drops performance from the reference audit', async () => {
   const runLighthouse = fakeRunner({ 'https://preview.example': GOOD });
   const forge = fakeForge();
   const orchestrator = build({
@@ -236,7 +237,8 @@ test('a complete budget set skips the reference audit entirely', async () => {
 
   await orchestrator.runReport(baseArgs(forge));
 
-  assert.equal(runLighthouse.calls.length, 2);
+  const reference = runLighthouse.calls.filter((c) => c.url === 'https://prod.example');
+  assert.ok(reference.every((c) => !c.modules.some((m) => m.id === 'performance')));
   assert.match(forge.posted[0], /\| Metric \| budgets \| PR \|/);
 });
 

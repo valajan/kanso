@@ -159,6 +159,9 @@ export function registerAuditRoutes(fastify, { orchestrator, queue, rateLimiter,
       conclusion: job.result?.conclusion ?? null,
       scores: job.result?.scores ?? null,
       statuses: job.result?.statuses ?? null,
+      // Per-module levels and detail: `statuses` is performance's alone, and an
+      // audit now has more than one module to answer for.
+      modules: job.result?.modules ?? null,
       commentId: job.result?.commentId ?? null,
       error: job.error ?? job.result?.error ?? null,
       queuedMs: job.startedAt ? job.startedAt - job.createdAt : null,

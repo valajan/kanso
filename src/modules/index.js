@@ -1,3 +1,4 @@
+import accessibility from './accessibility/index.js';
 import performance from './performance/index.js';
 
 // Audit modules: one per concern Kanso checks on a page. Adding one = a folder
@@ -5,9 +6,11 @@ import performance from './performance/index.js';
 //
 // A module is a plain object:
 //
-//   id          names the module in results and configuration
+//   id          names the module in results and in its .kanso.yml section
 //   label       display name
 //   categories  the Lighthouse categories it reads
+//   checkLabels optional { [check]: label } for the names `levels` uses, when
+//               the check's own name does not read well in a report
 //
 //   extract(lhr) → sample
 //     Runs inside the audit worker, once per page load. The sample crosses a
@@ -25,9 +28,29 @@ import performance from './performance/index.js';
 //     Judges the combined data. `formFactors` maps each form factor to
 //     { current, baseline }, either side null when its load failed.
 //     `levels` maps each check to 'pass' | 'warn' | 'fail', and the module's
-//     conclusion is the worst of them. Anything else returned is the module's
-//     own detail, passed through to whoever reports it.
-export const MODULES = [performance];
+//     conclusion is the worst of them. `config` is the module's own section of
+//     the resolved .kanso.yml (src/config/module-config.js).
+//
+// Whatever else `evaluate` returns is the module's own detail, passed through
+// to whoever reports it. Two shapes of detail are understood by every surface —
+// a module returns either, both or neither:
+//
+//   scores    { [formFactor]: { current, reference } }
+//             Measures: a number per check, read against a reference. They are
+//             noisy, they need several runs and a median, and they are rendered
+//             as a table with a delta column.
+//
+//   findings  [{ rule, title, impact, count, nodes, state, level, formFactors }]
+//             Findings: a rule broken on a set of elements. They are
+//             deterministic, one load settles them, and they are rendered as a
+//             list, worst first. `state` is 'new' | 'worse' | 'inherited' when
+//             a baseline was compared, and null when there was none.
+//             null — rather than [] — means no load produced a result.
+//
+// Performance produces the first, accessibility the second; a module that
+// produces neither still reports through `levels`, which is the only part of
+// the contract the core itself relies on.
+export const MODULES = [performance, accessibility];
 
 const BY_ID = new Map(MODULES.map((m) => [m.id, m]));
 
@@ -35,4 +58,11 @@ export function getModule(id) {
   const mod = BY_ID.get(id);
   if (!mod) throw new Error(`Unknown audit module: ${id}`);
   return mod;
+}
+
+// How a check is named in a report. A module's checks are its own vocabulary:
+// performance's are metric keys, and reading "LCP" beats reading "lcp";
+// accessibility's are axe rule ids, which are already the name to read.
+export function checkLabel(moduleId, check) {
+  return BY_ID.get(moduleId)?.checkLabels?.[check] ?? check;
 }

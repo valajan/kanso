@@ -62,6 +62,7 @@ test('a module that can judge from its config alone skips the baseline load', as
     url: 'http://localhost:3000/',
     baseline: 'http://localhost:4000/',
     config: { budgets: ALL_BUDGETS },
+    modules: [performance],
     runLighthouse,
   });
 
@@ -71,6 +72,23 @@ test('a module that can judge from its config alone skips the baseline load', as
 
 // A baseline named in the config is a hint the core may ignore; one the caller
 // asked for is an instruction, and the comparison column is the point of it.
+// One page load feeds every module — the worker asks Lighthouse for the union
+// of their categories and hands each the same report. A second concern
+// therefore costs a category, not a load, which is the whole bet of the module
+// interface.
+test('a second module costs no extra page load', async () => {
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': { performance: GOOD, links: { broken: 0 } } });
+
+  const alone = await audit({ url: 'http://localhost:3000/', runLighthouse, modules: [performance] });
+  const loadsAlone = runLighthouse.calls.length;
+  const together = await audit({ url: 'http://localhost:3000/', runLighthouse, modules: [performance, links] });
+
+  assert.equal(alone.ok, true);
+  assert.equal(together.ok, true);
+  assert.equal(runLighthouse.calls.length - loadsAlone, loadsAlone);
+  assert.deepEqual(runLighthouse.calls.at(-1).modules, ['performance', 'links']);
+});
+
 test('alwaysCompare loads the baseline even when no module needs it', async () => {
   const runLighthouse = fakeRunner({
     'http://localhost:3000/': { performance: GOOD },

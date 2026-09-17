@@ -16,7 +16,10 @@ npm run test:acceptance  # End-to-end suite against ../kanso-frontend (needs Chr
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
 kanso-frontend landing page, injects known regressions (TBT, CLS, LCP) into the
 build, and asserts Kanso fails each one on the right metric while the unchanged
-page passes. Chrome, Lighthouse, the Kanso server and the CI client are real;
+page passes. Every push is audited against the unchanged build as its reference,
+the way a PR is judged against its base — which is also what proves the axe
+findings that page already carries are reported without failing a push that did
+not add them. Chrome, Lighthouse, the Kanso server and the CI client are real;
 GitHub is faked (`test/acceptance/fake-github.mjs`), so no PR is touched. It runs
 in CI through `.github/workflows/acceptance.yml`, which needs the
 `FRONTEND_REPO_TOKEN` secret to check out the private frontend repo. Set
@@ -51,7 +54,8 @@ application logic lives under `src/`.
 - `app.js` — Fastify factory: logger, raw-body JSON parser, body limit, and the
   `/health`, `/webhook` and `/v1/audit` routes
 - `config/` — `env.js` (env validation), `static-config.js` (config.yml),
-  `repo-config.js` (`.kanso.yml` merge, from the forge or supplied inline)
+  `repo-config.js` (`.kanso.yml` merge, from the forge or supplied inline),
+  `module-config.js` (the section of it a given module reads), `merge.js`
 - `forge/` — **the only place that knows what platform we are talking to.**
   `index.js` documents the interface and registers adapters; `github.js`
   implements it. Nothing else in the codebase calls `octokit`.
@@ -63,11 +67,18 @@ application logic lives under `src/`.
   PR report are two callers; an MCP server will be a third.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
-  `evaluate`). **Adding a concern = adding a folder + one line in `index.js`.**
+  `evaluate`) and the two shapes of detail every surface can render — `scores`
+  (measures) and `findings` (constats).
+  **Adding a concern = adding a folder + one line in `index.js`.**
   `performance/` is the first: `metrics.js` is the single source of truth for
   the five metrics (labels, units, thresholds), `status.js` derives
   `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
-  the failures worth an AI analysis
+  the failures worth an AI analysis.
+  `accessibility/` is the second, and the one that proves the interface holds
+  for something other than a measure: `findings.js` reads the failed axe rules
+  out of the Lighthouse report, folds both form factors into one list and
+  compares it to the baseline's; `impact.js` is the severity scale. A rule is
+  broken or it is not, so nothing is averaged and one load settles it
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config and runs `core/audit.js`, `render.js`
   prints the tables. It never loads `config/env.js`: that validates GitHub App
@@ -108,10 +119,15 @@ action wrapping it, and example GitHub and GitLab pipelines.
    Steps 3 and 4 are `src/core/audit.js`; the rest is the PR surface.
 4. Each module judges its results. For performance, metrics (score, LCP, TBT,
    CLS, FCP) are compared against per-repo budgets; status is `pass` / `warn` /
-   `fail`, worst-of across form factors, and worst-of across modules.
-5. Results post as a PR comment (badge + one table per form factor) and a commit
-   status. The comment carries a hidden `REPORT_MARKER`, so a re-run finds and
-   edits it rather than stacking a new one.
+   `fail`, worst-of across form factors, and worst-of across modules. For
+   accessibility, each broken axe rule is judged on its impact — and, when a
+   reference page was loaded, on whether that page already broke it: with a
+   reference Kanso judges what the change did, without one it judges the page
+   as it stands.
+5. Results post as a PR comment (badge + one table per form factor + one
+   section per module reporting findings) and a commit status. The comment
+   carries a hidden `REPORT_MARKER`, so a re-run finds and edits it rather than
+   stacking a new one.
 6. If any metric regresses >10% and `ai_analysis: true`, `src/ai-analysis/` runs
    detached — the verdict is already final without it.
 
@@ -192,12 +208,20 @@ nothing in the CI knows an audit is happening.
 ## Configuration
 
 `config.yml` is the static base config. A repo overrides it with `.kanso.yml`,
-merged per-metric (partial overrides allowed). The CLI reads that same
-`.kanso.yml` from the working directory (or `--config <path>`), so a developer's
-local run and the CI's run judge a page by the same numbers. On the API path the
-CI sends that file's contents inline — one fewer API call, and it works with a
-token that has no contents scope. Config controls budgets, the reference URL,
-`runs`, and whether AI analysis is enabled.
+deep-merged key by key (partial overrides allowed at any depth). **Each module
+reads the section carrying its id** (`accessibility: { fail_on: serious }`) and
+never sees the rest of the file, so two concerns cannot fight over a key name —
+`src/config/module-config.js`. Performance's `budgets:` predate the sections and
+still work at the root, which is where every `.kanso.yml` written so far keeps
+them; a `performance:` section wins over them, budget by budget. `runs:` stays
+at the root on purpose: it counts page loads, and one load feeds every module.
+
+The CLI reads that same `.kanso.yml` from the working directory (or `--config
+<path>`), so a developer's local run and the CI's run judge a page by the same
+numbers. On the API path the CI sends that file's contents inline — one fewer
+API call, and it works with a token that has no contents scope. Config controls
+budgets, each module's own thresholds, the reference URL, `runs`, and whether AI
+analysis is enabled.
 
 **Environment variables** (see `.env.example`, validated in `src/config/env.js`):
 

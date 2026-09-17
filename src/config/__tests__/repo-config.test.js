@@ -15,6 +15,14 @@ test('mergeConfig overrides budgets metric by metric', () => {
   assert.equal(merged.base_url, 'https://acme.com');
 });
 
+// A module's section merges the same way the budgets do: a repo setting one
+// key of it keeps the defaults for the rest.
+test('mergeConfig merges a module section key by key', () => {
+  const base = { accessibility: { fail_on: 'serious', ignore: ['color-contrast'] } };
+  const merged = mergeConfig(base, { accessibility: { fail_on: 'critical' } });
+  assert.deepEqual(merged.accessibility, { fail_on: 'critical', ignore: ['color-contrast'] });
+});
+
 test('parseRepoConfig merges a YAML document onto the defaults', () => {
   const merged = parseRepoConfig('budgets:\n  lcp: 1800\nruns: 3\n', staticConfig);
   assert.equal(merged.budgets.lcp, 1800);
@@ -35,6 +43,14 @@ test('parseRepoConfig refuses a non-mapping document', () => {
 // The API accepts this file from the caller, so its size has to be bounded.
 test('parseRepoConfig refuses an oversized document', () => {
   assert.throws(() => parseRepoConfig('x'.repeat(70_000), staticConfig), /exceeds/);
+});
+
+// Merging by assignment would make `__proto__` set the merged config's
+// prototype instead of adding a key — and this file arrives from a caller.
+test('parseRepoConfig drops a __proto__ key instead of merging it', () => {
+  const merged = parseRepoConfig('__proto__:\n  budgets:\n    lcp: 1\n', staticConfig);
+  assert.equal(Object.getPrototypeOf(merged), Object.prototype);
+  assert.equal(merged.budgets.lcp, 2500, 'the defaults are untouched');
 });
 
 // js-yaml's core schema builds plain data only — no custom tags are honoured.

@@ -1,3 +1,4 @@
+import { moduleConfig } from '../config/module-config.js';
 import { MODULES } from '../modules/index.js';
 import { worstLevel } from './levels.js';
 import { clampRuns } from './runs.js';
@@ -28,8 +29,11 @@ export const FORM_FACTORS = ['mobile', 'desktop'];
 // { side: 'current' | 'baseline', formFactor, url, error }.
 export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false }) {
   const runs = clampRuns(config.runs);
+  // Each module is judged by its own section of the config and never sees the
+  // rest of the file — see src/config/module-config.js.
+  const configs = new Map(modules.map((m) => [m.id, moduleConfig(config, m.id)]));
   const baselineModules = baseline
-    ? modules.filter((m) => alwaysCompare || (m.needsBaseline?.(config) ?? true))
+    ? modules.filter((m) => alwaysCompare || (m.needsBaseline?.(configs.get(m.id)) ?? true))
     : [];
 
   const loads = [
@@ -63,7 +67,7 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
       current: loaded[ff].current?.[mod.id] ?? null,
       baseline: loaded[ff].baseline?.[mod.id] ?? null,
     }]));
-    const evaluation = mod.evaluate({ formFactors, baselineAudited: baselineModules.includes(mod) }, config);
+    const evaluation = mod.evaluate({ formFactors, baselineAudited: baselineModules.includes(mod) }, configs.get(mod.id));
     results[mod.id] = { ...evaluation, conclusion: worstLevel(Object.values(evaluation.levels)) };
   }
 
