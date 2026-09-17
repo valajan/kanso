@@ -1,5 +1,5 @@
-import { metricLabels } from '../metrics/registry.js';
-import { hasStatus, metricsWithStatus } from '../metrics/status.js';
+import { metricLabels } from '../modules/performance/metrics.js';
+import { hasStatus, metricsWithStatus } from '../modules/performance/status.js';
 
 // Maps the per-metric status map to a GitHub commit status payload.
 // A warning never blocks a merge — only a failed metric reports 'failure'.

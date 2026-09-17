@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node 20+ built-in test runner)
-node --test src/metrics/__tests__/status.test.js  # Run a single test file
+node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:acceptance  # End-to-end suite against ../kanso-frontend (needs Chrome, ~5 min)
 ```
 
@@ -48,8 +48,17 @@ dependencies, and starts the server. All application logic lives under `src/`.
   `index.js` documents the interface and registers adapters; `github.js`
   implements it. Nothing else in the codebase calls `octokit`.
 - `security/` — `url-guard.js` (SSRF), `rate-limit.js` (token bucket)
-- `metrics/` — `registry.js` is the single source of truth for the five metrics
-  (labels, units, thresholds); `status.js` derives `pass`/`warn`/`fail`
+- `core/` — **the audit, with no knowledge of PRs, forges or servers.**
+  `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
+  every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
+  worst-of. The PR report is one caller; a CLI or MCP server will be others.
+- `modules/` — one folder per audit concern, registered in `index.js`, which
+  documents the module interface (`extract`, `combine`, `needsBaseline`,
+  `evaluate`). **Adding a concern = adding a folder + one line in `index.js`.**
+  `performance/` is the first: `metrics.js` is the single source of truth for
+  the five metrics (labels, units, thresholds), `status.js` derives
+  `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
+  the failures worth an AI analysis
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`
@@ -59,10 +68,12 @@ dependencies, and starts the server. All application logic lives under `src/`.
   adding a module + one line in `index.js`.** Only the webhook trigger uses
   these — the API trigger is told the URL.
 - `pipeline/` — `jobs.js` (bounded background queue), `state.js` (`PreviewStore`,
-  webhook-only coordination state), `orchestrator.js` (audit-and-report)
+  webhook-only coordination state), `orchestrator.js` (`core/audit.js`, then
+  report on the PR)
 - `report/` — `comment.js` (PR comment + `REPORT_MARKER`), `commit-status.js`
-- `lighthouse/runner.js` — runs the audits; `runner.worker.js` is one audit in
-  its own worker thread
+- `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
+  in its own worker thread, collecting the union of the modules' Lighthouse
+  categories and handing each module the report to `extract` from
 
 At the repo root, `integrations/` is what client repos run, not part of the
 server: the CI client (`kanso-audit.mjs`, zero dependencies), a GitHub composite
@@ -78,8 +89,10 @@ action wrapping it, and example GitHub and GitLab pipelines.
    parallelism: Lighthouse (via marky) writes to Node's `performance` namespace,
    and audits sharing a thread corrupt each other's marks. Set `runs` above 1 to
    report the per-metric median of several runs instead of a single noisy one.
-4. Metrics (score, LCP, TBT, CLS, FCP) are compared against per-repo budgets;
-   status is `pass` / `warn` / `fail`, worst-of across form factors.
+   Steps 3 and 4 are `src/core/audit.js`; the rest is the PR surface.
+4. Each module judges its results. For performance, metrics (score, LCP, TBT,
+   CLS, FCP) are compared against per-repo budgets; status is `pass` / `warn` /
+   `fail`, worst-of across form factors, and worst-of across modules.
 5. Results post as a PR comment (badge + one table per form factor) and a commit
    status. The comment carries a hidden `REPORT_MARKER`, so a re-run finds and
    edits it rather than stacking a new one.

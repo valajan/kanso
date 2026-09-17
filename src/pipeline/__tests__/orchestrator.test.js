@@ -26,7 +26,8 @@ function fakeForge(overrides = {}) {
 }
 
 // Records what each audit was asked to measure so the tests can assert on the
-// targets rather than on log output.
+// targets rather than on log output. Results are keyed by module, as the real
+// runner returns them.
 function fakeRunner(byUrl) {
   const calls = [];
   const run = async (url, opts) => {
@@ -34,7 +35,7 @@ function fakeRunner(byUrl) {
     const result = byUrl[url];
     if (result instanceof Error) throw result;
     if (result === undefined) throw new Error(`unexpected audit target ${url}`);
-    return result;
+    return { performance: result };
   };
   run.calls = calls;
   return run;
@@ -91,7 +92,7 @@ test('the commit status goes pending before the audits and settles afterwards', 
 
 // The commit status has to reflect the harshest outcome, not an average.
 test('the conclusion takes the worst level across form factors', async () => {
-  const runLighthouse = async (url, { formFactor }) => (formFactor === 'mobile' ? POOR : GOOD);
+  const runLighthouse = async (url, { formFactor }) => ({ performance: formFactor === 'mobile' ? POOR : GOOD });
   const forge = fakeForge();
   const orchestrator = build({ runLighthouse });
 
@@ -185,7 +186,7 @@ test('a preview that fails on both form factors reports a failed audit', async (
 test('one form factor failing still produces a report for the other', async () => {
   const runLighthouse = async (url, { formFactor }) => {
     if (formFactor === 'desktop') throw new Error('desktop died');
-    return GOOD;
+    return { performance: GOOD };
   };
   const forge = fakeForge();
   const orchestrator = build({ runLighthouse });

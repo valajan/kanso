@@ -1,6 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
+import { getModule } from '../modules/index.js';
 
 // Lighthouse desktop preset — matches `lighthouse --preset=desktop` defaults.
 const DESKTOP_CONFIG = {
@@ -22,7 +23,10 @@ const DESKTOP_CONFIG = {
   },
 };
 
-async function audit({ url, formFactor }) {
+// One page load serves every requested module: Lighthouse collects the union
+// of their categories, then each module extracts its own sample.
+async function audit({ url, formFactor, moduleIds }) {
+  const modules = moduleIds.map(getModule);
   const chrome = await chromeLauncher.launch({
     chromeFlags: ['--headless=new', '--no-sandbox'],
   });
@@ -33,30 +37,17 @@ async function audit({ url, formFactor }) {
       port: chrome.port,
       output: 'json',
       logLevel: 'error',
-      onlyCategories: ['performance'],
+      onlyCategories: [...new Set(modules.flatMap((m) => m.categories))],
       ...formFactorConfig,
     });
 
-    const lhr = result.lhr;
-    const perfScore = Math.round((lhr.categories.performance.score ?? 0) * 100);
-    const lcpMs = lhr.audits['largest-contentful-paint'].numericValue ?? 0;
-    const tbtMs = lhr.audits['total-blocking-time'].numericValue ?? 0;
-    const cls = lhr.audits['cumulative-layout-shift'].numericValue ?? 0;
-    const fcpMs = lhr.audits['first-contentful-paint'].numericValue ?? 0;
-
-    return {
-      performance: perfScore,
-      lcp: lcpMs,
-      tbt: tbtMs,
-      cls,
-      fcp: fcpMs,
-    };
+    return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr)]));
   } finally {
     await chrome.kill();
   }
 }
 
 audit(workerData).then(
-  (score) => parentPort.postMessage({ ok: true, score }),
+  (samples) => parentPort.postMessage({ ok: true, samples }),
   (err) => parentPort.postMessage({ ok: false, error: err?.message ?? String(err) }),
 );

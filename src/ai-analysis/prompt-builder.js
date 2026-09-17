@@ -53,12 +53,12 @@ const METRIC_ANTIPATTERNS = {
 
 const FORM_FACTOR_LABELS = { mobile: '📱 mobile', desktop: '💻 desktop' };
 
-function renderRegression({ metric, formFactor, prVal, threshold, refVal, delta }) {
+function renderRegression({ metric, formFactor, current, threshold, reference, delta }) {
   const label = METRIC_LABELS[metric] ?? metric;
   const ffSuffix = formFactor ? ` — ${FORM_FACTOR_LABELS[formFactor] ?? formFactor}` : '';
   const deltaStr = `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`;
   const antipattern = METRIC_ANTIPATTERNS[metric] ? `\n  ⚠ ${METRIC_ANTIPATTERNS[metric]}` : '';
-  return `- **${label}${ffSuffix}**: PR ${formatValue(metric, prVal)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, refVal)} · regression ${deltaStr}${antipattern}`;
+  return `- **${label}${ffSuffix}**: PR ${formatValue(metric, current)} · budget ${formatValue(metric, threshold)} · main ${formatValue(metric, reference)} · regression ${deltaStr}${antipattern}`;
 }
 
 export function buildPrompt({ regressions, diff }) {

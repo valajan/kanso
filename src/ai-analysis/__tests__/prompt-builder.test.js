@@ -12,12 +12,12 @@ const sampleDiff = [
 ];
 
 const singleRegression = [
-  { metric: 'lcp', prVal: 3200, threshold: 2500, refVal: 2400, delta: 33.3 },
+  { metric: 'lcp', current: 3200, threshold: 2500, reference: 2400, delta: 33.3 },
 ];
 
 const multiRegressions = [
-  { metric: 'lcp', prVal: 3200, threshold: 2500, refVal: 2400, delta: 33.3 },
-  { metric: 'fcp', prVal: 2800, threshold: 2000, refVal: 1500, delta: 86.7 },
+  { metric: 'lcp', current: 3200, threshold: 2500, reference: 2400, delta: 33.3 },
+  { metric: 'fcp', current: 2800, threshold: 2000, reference: 1500, delta: 86.7 },
 ];
 
 test('prompt contains metric label, values, and delta', () => {
@@ -32,7 +32,7 @@ test('prompt contains metric label, values, and delta', () => {
 
 test('prompt embeds the filtered diff and lists anchorable lines', () => {
   const prompt = buildPrompt({
-    regressions: [{ metric: 'tbt', prVal: 500, threshold: 300, refVal: 200, delta: 150 }],
+    regressions: [{ metric: 'tbt', current: 500, threshold: 300, reference: 200, delta: 150 }],
     diff: sampleDiff,
   });
 
@@ -44,7 +44,7 @@ test('prompt embeds the filtered diff and lists anchorable lines', () => {
 
 test('prompt requests JSON output with summary + comments schema', () => {
   const prompt = buildPrompt({
-    regressions: [{ metric: 'performance', prVal: 60, threshold: 80, refVal: 90, delta: 33.3 }],
+    regressions: [{ metric: 'performance', current: 60, threshold: 80, reference: 90, delta: 33.3 }],
     diff: sampleDiff,
   });
 
@@ -60,7 +60,7 @@ test('prompt requests JSON output with summary + comments schema', () => {
 
 test('prompt instructs the model not to invent file paths or line numbers', () => {
   const prompt = buildPrompt({
-    regressions: [{ metric: 'cls', prVal: 0.3, threshold: 0.1, refVal: 0.05, delta: 500 }],
+    regressions: [{ metric: 'cls', current: 0.3, threshold: 0.1, reference: 0.05, delta: 500 }],
     diff: sampleDiff,
   });
 
@@ -70,7 +70,7 @@ test('prompt instructs the model not to invent file paths or line numbers', () =
 
 test('prompt warns the model when a file has no anchorable lines', () => {
   const prompt = buildPrompt({
-    regressions: [{ metric: 'fcp', prVal: 3000, threshold: null, refVal: null, delta: 50 }],
+    regressions: [{ metric: 'fcp', current: 3000, threshold: null, reference: null, delta: 50 }],
     diff: [{ filename: 'src/Empty.jsx', status: 'modified', patch: ' context', addedLines: [] }],
   });
 

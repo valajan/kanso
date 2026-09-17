@@ -1,4 +1,4 @@
-import { METRICS } from './registry.js';
+import { METRICS } from './metrics.js';
 
 // Classifies a single metric value against its budget and Lighthouse thresholds:
 // - 'fail' = exceeds the budget (if set) or the Lighthouse "poor" threshold → block merge

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getMetric } from '../registry.js';
+import { getMetric } from '../metrics.js';
 import { buildStatus, evaluateStatuses, hasStatus, metricsWithStatus } from '../status.js';
 
 const performance = getMetric('performance'); // higher is better, good 90, poor 49

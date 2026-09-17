@@ -1,23 +1,18 @@
+import { audit, FORM_FACTORS } from '../core/audit.js';
 import { loadRepoConfig } from '../config/repo-config.js';
-import { roundScore, allBudgetsDefined } from '../metrics/registry.js';
-import { evaluateStatuses, hasStatus } from '../metrics/status.js';
 import { formatComment, REPORT_MARKER } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
 import {
   analyzePerformanceRegression,
-  detectSignificantRegressions,
   formatPendingNote,
   replaceAnalysisSection,
 } from '../ai-analysis/index.js';
-
-const FORM_FACTORS = ['mobile', 'desktop'];
-const MAX_RUNS = 5;
 
 // Builds the report pipeline. External dependencies are injected so the
 // pipeline can be exercised in isolation:
 // - store:         PreviewStore coordinating webhook state (legacy trigger only)
 // - staticConfig:  parsed config.yml, the base for per-repo config merges
-// - runLighthouse: the audit runner (one URL → metrics), accepts { formFactor, runs }
+// - runLighthouse: the audit runner, handed to src/core/audit.js
 // - gptClient:     the AI analysis client, or null when none is configured
 // - verifyUrl:     async URL guard; re-checked here, immediately before the
 //                  audit, to narrow the window in which a name validated at
@@ -49,10 +44,9 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     }
   }
 
-  // Audits the PR preview and the reference (mobile + desktop, all in parallel —
-  // each audit runs in its own worker thread for perf-hooks isolation), posts the
-  // report comment and commit status, and triggers AI analysis on a real
-  // regression. Returns the conclusion so a CI caller can fail its build on it.
+  // Audits the PR preview against the reference (src/core/audit.js), then
+  // posts the report comment and commit status, and triggers AI analysis on a
+  // real regression. Returns the conclusion so a CI caller can fail its build on it.
   async function runAndPostReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected = true, log, repoConfig, commentId }) {
     const budget = repoConfig.budgets ?? {};
     // A repo can ask for AI analysis, but it only runs if the deployment has a
@@ -61,7 +55,6 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     // A request-supplied reference wins over the configured one: the CI often
     // knows the base branch's own preview, which is a fairer comparison than prod.
     let reference = baseUrl ?? repoConfig.base_url;
-    const runs = Math.min(MAX_RUNS, Math.max(1, Math.trunc(repoConfig.runs ?? 1) || 1));
 
     // Re-validate right before dialling out. A URL that passed admission may
     // have been re-pointed since; this is the last chance to catch it.
@@ -91,98 +84,37 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
         .catch((err) => log.warn(`PR #${prNumber} — failed to post pending status: ${err.message}`));
     }
 
-    const skipRef = !reference || allBudgetsDefined(budget);
-    const runsNote = runs > 1 ? `, median of ${runs} runs` : '';
-    if (skipRef) {
-      const reason = !reference ? 'no reference URL configured' : 'all budgets defined';
-      log.info(`PR #${prNumber} — Lighthouse auditing preview only (${reason}${runsNote})`);
-    } else {
-      log.info(`PR #${prNumber} — Lighthouse auditing preview & reference (mobile + desktop) in parallel${runsNote}...`);
-    }
+    log.info(`PR #${prNumber} — Lighthouse auditing ${previewUrl}${reference ? ` against ${reference}` : ''} (mobile + desktop)...`);
+    const result = await audit({ url: previewUrl, baseline: reference, config: repoConfig, runLighthouse });
 
-    const auditTargets = [
-      runLighthouse(previewUrl, { formFactor: 'mobile', runs }),
-      runLighthouse(previewUrl, { formFactor: 'desktop', runs }),
-      ...(skipRef ? [] : [
-        runLighthouse(reference, { formFactor: 'mobile', runs }),
-        runLighthouse(reference, { formFactor: 'desktop', runs }),
-      ]),
-    ];
-
-    const settled = await Promise.allSettled(auditTargets);
-    const [previewMobile, previewDesktop] = settled;
-    // When all budgets are defined, use budget values as the reference so the
-    // comment shows a meaningful delta (PR score vs. configured threshold).
-    const budgetRef = skipRef ? budget : null;
-    const refMobile  = skipRef ? { status: 'fulfilled', value: budgetRef } : settled[2];
-    const refDesktop = skipRef ? { status: 'fulfilled', value: budgetRef } : settled[3];
-
-    // If both preview audits fail, we have nothing meaningful to report.
-    if (previewMobile.status === 'rejected' && previewDesktop.status === 'rejected') {
-      const msg = previewMobile.reason?.message ?? 'unknown error';
-      log.error(`PR #${prNumber} — Lighthouse failed on preview (mobile + desktop): ${msg}`);
+    // If the preview failed on every form factor, we have nothing meaningful to report.
+    if (!result.ok) {
+      log.error(`PR #${prNumber} — Lighthouse failed on preview (mobile + desktop): ${result.error}`);
       await postOrEditComment({
         forge, prNumber, commentId,
-        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ Lighthouse analysis failed: \`${msg}\``,
+        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ Lighthouse analysis failed: \`${result.error}\``,
       });
       if (sha) {
         await forge
           .setStatus({ sha, state: 'failure', description: 'Lighthouse audit failed' })
           .catch(() => {});
       }
-      return { ok: false, conclusion: 'error', error: msg };
+      return { ok: false, conclusion: 'error', error: result.error };
     }
-
-    const scores = {
-      mobile: {
-        pr:  previewMobile.status === 'fulfilled' ? previewMobile.value : null,
-        ref: refMobile.status     === 'fulfilled' ? refMobile.value     : null,
-      },
-      desktop: {
-        pr:  previewDesktop.status === 'fulfilled' ? previewDesktop.value : null,
-        ref: refDesktop.status     === 'fulfilled' ? refDesktop.value     : null,
-      },
-    };
 
     // Surface soft failures (one form factor or the reference) without aborting.
-    const softFailures = [
-      ['mobile preview',  previewMobile],
-      ['desktop preview', previewDesktop],
-      ...(!skipRef ? [['mobile reference', refMobile], ['desktop reference', refDesktop]] : []),
-    ];
-    for (const [label, result] of softFailures) {
-      if (result.status === 'rejected') {
-        log.warn(`PR #${prNumber} — Lighthouse failed on ${label}: ${result.reason.message}`);
-      }
+    for (const failure of result.failures) {
+      const label = `${failure.formFactor} ${failure.side === 'current' ? 'preview' : 'reference'}`;
+      log.warn(`PR #${prNumber} — Lighthouse failed on ${label}: ${failure.error}`);
     }
 
-    // Per-form-factor statuses + union of significant regressions.
-    const statusesByForm = {};
-    const regressions = [];
-    for (const formFactor of FORM_FACTORS) {
-      const prScore = scores[formFactor].pr;
-      if (!prScore) continue;
-      const statuses = evaluateStatuses(roundScore(prScore), budget);
-      statusesByForm[formFactor] = statuses;
-      regressions.push(...detectSignificantRegressions({
-        statuses,
-        prScore,
-        refScore: scores[formFactor].ref,
-        budget,
-        formFactor,
-        isBudgetRef: skipRef,
-      }));
-    }
-
-    // Global commit status: worst-of per metric across form factors (fail > warn > pass).
-    const combinedStatuses = combineStatuses(statusesByForm);
-    const conclusion = hasStatus(combinedStatuses, 'fail')
-      ? 'fail'
-      : hasStatus(combinedStatuses, 'warn') ? 'warn' : 'pass';
+    const perf = result.modules.performance;
+    const scores = toReportScores(perf.scores);
+    const { regressions } = perf;
 
     const baseBody = formatComment(scores, {
       previewUrl, headRef, baseRef, source, budget, detected,
-      ...(skipRef ? { refLabel: 'budgets' } : {}),
+      ...(perf.referenceKind === 'budgets' ? { refLabel: 'budgets' } : {}),
     });
 
     const initialBody = aiAnalysisEnabled && regressions.length > 0
@@ -192,7 +124,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     const reportCommentId = await postOrEditComment({ forge, prNumber, body: initialBody, commentId });
 
     if (sha) {
-      const { state, description } = commitStatusPayload(combinedStatuses);
+      const { state, description } = commitStatusPayload(perf.levels);
       await forge
         .setStatus({ sha, state, description })
         .catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
@@ -202,19 +134,20 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     // webhook nor a waiting CI job should block on an LLM round-trip.
     if (aiAnalysisEnabled && regressions.length > 0) {
       analyzePerformanceRegression({ forge, prNumber, sha, regressions, gptClient, log })
-        .then(async (result) => {
-          if (!result?.section) return;
-          const updatedBody = replaceAnalysisSection(initialBody, result.section);
+        .then(async (analysis) => {
+          if (!analysis?.section) return;
+          const updatedBody = replaceAnalysisSection(initialBody, analysis.section);
           await forge.editComment({ commentId: reportCommentId, body: updatedBody });
-          const n = result.structured?.comments?.length ?? 0;
+          const n = analysis.structured?.comments?.length ?? 0;
           log.info(`PR #${prNumber} — AI analysis posted (${n} inline comment${n !== 1 ? 's' : ''})`);
         })
         .catch((err) => log.warn(`PR #${prNumber} — AI analysis failed: ${err.message}`));
     }
 
+    const { conclusion } = result;
     const icon = conclusion === 'fail' ? '❌' : conclusion === 'warn' ? '⚠️' : '✅';
     log.info(`PR #${prNumber} ${icon} report posted — ${summarizePerf(scores)}`);
-    return { ok: true, conclusion, statuses: combinedStatuses, scores, commentId: reportCommentId };
+    return { ok: true, conclusion, statuses: perf.levels, scores, commentId: reportCommentId };
   }
 
   // Handles a preview-ready provider event: maps the deployment SHA to its open
@@ -280,19 +213,11 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
   return { handlePreviewUrl, runReport, postOrEditComment };
 }
 
-// Worst-of merge across form factors so the commit status reflects the harshest
-// outcome on each metric (fail beats warn beats pass).
-const SEVERITY = { fail: 2, warn: 1, pass: 0 };
-function combineStatuses(statusesByForm) {
-  const combined = {};
-  for (const statuses of Object.values(statusesByForm)) {
-    for (const [metric, level] of Object.entries(statuses)) {
-      if (!combined[metric] || SEVERITY[level] > SEVERITY[combined[metric]]) {
-        combined[metric] = level;
-      }
-    }
-  }
-  return combined;
+// The PR report and the /v1/audit response name the two sides `pr` and `ref`.
+function toReportScores(scores) {
+  return Object.fromEntries(
+    Object.entries(scores).map(([formFactor, { current, reference }]) => [formFactor, { pr: current, ref: reference }])
+  );
 }
 
 function summarizePerf(scores) {

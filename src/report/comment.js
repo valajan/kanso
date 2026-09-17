@@ -1,5 +1,5 @@
-import { METRICS, roundScore } from '../metrics/registry.js';
-import { evaluateStatuses, metricsWithStatus } from '../metrics/status.js';
+import { METRICS, roundScore } from '../modules/performance/metrics.js';
+import { evaluateStatuses, metricsWithStatus } from '../modules/performance/status.js';
 
 const STATUS_ICON = { pass: '✅', warn: '⚠️', fail: '❌' };
 
