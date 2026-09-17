@@ -4,13 +4,13 @@
 // contains a success marker (✅), and dedup by PR + head SHA.
 //
 // This provider needs an authenticated client to resolve the PR's head SHA and
-// open state; it calls getOctokit() lazily so a missing installation id is
+// open state; it calls getForge() lazily so a missing installation id is
 // reported the same way the legacy handler reported it.
 export default {
   name: 'railway',
   event: 'issue_comment',
 
-  async resolve(payload, { getOctokit, owner, repo, store, log }) {
+  async resolve(payload, { getForge, store, log }) {
     if (payload.action !== 'created' && payload.action !== 'edited') {
       return { ignored: { ok: true, ignored_action: payload.action } };
     }
@@ -37,22 +37,19 @@ export default {
     const targetUrl = match[0];
     const prNumber = payload.issue.number;
 
-    const octokit = await getOctokit();
-    const { data: pr } = await octokit.request(
-      'GET /repos/{owner}/{repo}/pulls/{pull_number}',
-      { owner, repo, pull_number: prNumber }
-    );
-    if (pr.state !== 'open') {
+    const forge = await getForge();
+    const pr = await forge.getPullRequest({ prNumber });
+    if (pr?.state !== 'open') {
       return { ignored: { ok: true, ignored: 'PR not open' } };
     }
 
-    const dedupKey = `railway:${prNumber}-${pr.head.sha}`;
+    const dedupKey = `railway:${prNumber}-${pr.headSha}`;
     if (store.hasSeen(dedupKey)) {
       return { ignored: { ok: true, ignored: 'duplicate railway deployment' } };
     }
     store.markSeen(dedupKey);
 
     log.info(`PR #${prNumber} — Railway bot posted preview: ${targetUrl}`);
-    return { preview: { sha: pr.head.sha, targetUrl, source: 'Railway' } };
+    return { preview: { sha: pr.headSha, targetUrl, source: 'Railway' } };
   },
 };

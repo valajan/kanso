@@ -50,12 +50,9 @@ export function extractAddedLines(patch) {
   return out;
 }
 
-export async function fetchRelevantDiff({ octokit, owner, repo, prNumber, log }) {
+export async function fetchRelevantDiff({ forge, prNumber, log }) {
   log?.info?.('[ai-analysis] fetching PR file diff');
-  const { data: files } = await octokit.request(
-    'GET /repos/{owner}/{repo}/pulls/{pull_number}/files',
-    { owner, repo, pull_number: prNumber, per_page: 100 }
-  );
+  const files = await forge.getPullRequestFiles({ prNumber });
 
   const filtered = files
     .filter((f) => isRelevantFile(f.filename))

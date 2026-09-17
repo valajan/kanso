@@ -1,7 +1,7 @@
 import { loadRepoConfig } from '../config/repo-config.js';
 import { roundScore, allBudgetsDefined } from '../metrics/registry.js';
 import { evaluateStatuses, hasStatus } from '../metrics/status.js';
-import { formatComment } from '../report/comment.js';
+import { formatComment, REPORT_MARKER } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
 import {
   analyzePerformanceRegression,
@@ -11,57 +11,101 @@ import {
 } from '../ai-analysis/index.js';
 
 const FORM_FACTORS = ['mobile', 'desktop'];
+const MAX_RUNS = 5;
 
 // Builds the report pipeline. External dependencies are injected so the
 // pipeline can be exercised in isolation:
-// - store:         PreviewStore coordinating webhook state
+// - store:         PreviewStore coordinating webhook state (legacy trigger only)
 // - staticConfig:  parsed config.yml, the base for per-repo config merges
-// - runLighthouse: the audit runner (one URL → metrics), accepts { formFactor }
+// - runLighthouse: the audit runner (one URL → metrics), accepts { formFactor, runs }
 // - gptClient:     the AI analysis client, or null when none is configured
-export function createOrchestrator({ store, staticConfig, runLighthouse, gptClient = null }) {
-  // Posts the report, reusing the "waiting for preview" placeholder comment if
-  // one was left for this PR; otherwise creates a fresh comment.
-  async function postOrEditComment({ octokit, owner, repo, prNumber, body }) {
-    const waitingCommentId = store.takeWaitingComment(prNumber);
-    if (waitingCommentId != null) {
-      await octokit.request(
-        'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
-        { owner, repo, comment_id: waitingCommentId, body }
-      );
-      return waitingCommentId;
+// - verifyUrl:     async URL guard; re-checked here, immediately before the
+//                  audit, to narrow the window in which a name validated at
+//                  admission could have been re-pointed at a private address
+//
+// Every platform call goes through `forge` (src/forge), so nothing in this file
+// knows it is talking to GitHub.
+export function createOrchestrator({ store, staticConfig, runLighthouse, gptClient = null, verifyUrl = null }) {
+  // Finds the report comment to write into: the id the caller already created,
+  // else Kanso's previous report on this PR (located by its hidden marker),
+  // else a fresh comment. The marker lookup is what keeps a PR to a single,
+  // continuously updated report instead of one comment per push.
+  async function postOrEditComment({ forge, prNumber, body, commentId }) {
+    const target = commentId ?? (await forge.findComment({ prNumber, marker: REPORT_MARKER }));
+    if (target != null) {
+      await forge.editComment({ commentId: target, body });
+      return target;
     }
-    const { data } = await octokit.request(
-      'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
-      { owner, repo, issue_number: prNumber, body }
-    );
-    return data.id;
+    return forge.postComment({ prNumber, body });
   }
 
-  // Audits the PR preview and the production reference (mobile + desktop, all in
-  // parallel — each audit runs in its own worker thread for perf-hooks isolation),
-  // posts the report comment and commit status, and triggers AI analysis on a
-  // real regression.
-  async function runAndPostReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, source, log, repoConfig }) {
+  async function guard(url, label) {
+    if (!verifyUrl || !url) return;
+    try {
+      await verifyUrl(url);
+    } catch (err) {
+      const reason = err?.reason ? `${err.reason}: ${err.message}` : err.message;
+      throw new Error(`${label} URL rejected — ${reason}`);
+    }
+  }
+
+  // Audits the PR preview and the reference (mobile + desktop, all in parallel —
+  // each audit runs in its own worker thread for perf-hooks isolation), posts the
+  // report comment and commit status, and triggers AI analysis on a real
+  // regression. Returns the conclusion so a CI caller can fail its build on it.
+  async function runAndPostReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected = true, log, repoConfig, commentId }) {
     const budget = repoConfig.budgets ?? {};
     // A repo can ask for AI analysis, but it only runs if the deployment has a
     // provider configured — otherwise we'd promise a section we cannot deliver.
     const aiAnalysisEnabled = repoConfig.ai_analysis === true && gptClient != null;
-    const baseUrl = repoConfig.base_url;
+    // A request-supplied reference wins over the configured one: the CI often
+    // knows the base branch's own preview, which is a fairer comparison than prod.
+    let reference = baseUrl ?? repoConfig.base_url;
+    const runs = Math.min(MAX_RUNS, Math.max(1, Math.trunc(repoConfig.runs ?? 1) || 1));
 
-    const skipProd = !baseUrl || allBudgetsDefined(budget);
-    if (skipProd) {
-      const reason = !baseUrl ? 'no base_url configured' : 'all budgets defined';
-      log.info(`PR #${prNumber} — Lighthouse auditing preview only (${reason}, skipping prod)`);
+    // Re-validate right before dialling out. A URL that passed admission may
+    // have been re-pointed since; this is the last chance to catch it.
+    try {
+      await guard(previewUrl, 'Preview');
+    } catch (err) {
+      log.warn(`PR #${prNumber} — ${err.message}`);
+      await postOrEditComment({
+        forge, prNumber, commentId,
+        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ ${err.message}`,
+      });
+      return { ok: false, conclusion: 'error', error: err.message };
+    }
+
+    // A rejected reference only costs the comparison column, so it degrades to
+    // "no reference" rather than sinking a report the PR still needs.
+    try {
+      await guard(reference, 'Reference');
+    } catch (err) {
+      log.warn(`PR #${prNumber} — ${err.message}; auditing preview only`);
+      reference = null;
+    }
+
+    if (sha) {
+      await forge
+        .setStatus({ sha, state: 'pending', description: 'Running Lighthouse audits…' })
+        .catch((err) => log.warn(`PR #${prNumber} — failed to post pending status: ${err.message}`));
+    }
+
+    const skipRef = !reference || allBudgetsDefined(budget);
+    const runsNote = runs > 1 ? `, median of ${runs} runs` : '';
+    if (skipRef) {
+      const reason = !reference ? 'no reference URL configured' : 'all budgets defined';
+      log.info(`PR #${prNumber} — Lighthouse auditing preview only (${reason}${runsNote})`);
     } else {
-      log.info(`PR #${prNumber} — Lighthouse auditing preview & prod (mobile + desktop) in parallel...`);
+      log.info(`PR #${prNumber} — Lighthouse auditing preview & reference (mobile + desktop) in parallel${runsNote}...`);
     }
 
     const auditTargets = [
-      runLighthouse(previewUrl, { formFactor: 'mobile' }),
-      runLighthouse(previewUrl, { formFactor: 'desktop' }),
-      ...(skipProd ? [] : [
-        runLighthouse(baseUrl, { formFactor: 'mobile' }),
-        runLighthouse(baseUrl, { formFactor: 'desktop' }),
+      runLighthouse(previewUrl, { formFactor: 'mobile', runs }),
+      runLighthouse(previewUrl, { formFactor: 'desktop', runs }),
+      ...(skipRef ? [] : [
+        runLighthouse(reference, { formFactor: 'mobile', runs }),
+        runLighthouse(reference, { formFactor: 'desktop', runs }),
       ]),
     ];
 
@@ -69,19 +113,24 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     const [previewMobile, previewDesktop] = settled;
     // When all budgets are defined, use budget values as the reference so the
     // comment shows a meaningful delta (PR score vs. configured threshold).
-    const budgetRef = skipProd ? budget : null;
-    const refMobile  = skipProd ? { status: 'fulfilled', value: budgetRef } : settled[2];
-    const refDesktop = skipProd ? { status: 'fulfilled', value: budgetRef } : settled[3];
+    const budgetRef = skipRef ? budget : null;
+    const refMobile  = skipRef ? { status: 'fulfilled', value: budgetRef } : settled[2];
+    const refDesktop = skipRef ? { status: 'fulfilled', value: budgetRef } : settled[3];
 
     // If both preview audits fail, we have nothing meaningful to report.
     if (previewMobile.status === 'rejected' && previewDesktop.status === 'rejected') {
       const msg = previewMobile.reason?.message ?? 'unknown error';
       log.error(`PR #${prNumber} — Lighthouse failed on preview (mobile + desktop): ${msg}`);
       await postOrEditComment({
-        octokit, owner, repo, prNumber,
-        body: `⚠️ Kanso — Lighthouse analysis failed: \`${msg}\``,
+        forge, prNumber, commentId,
+        body: `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⚠️ Lighthouse analysis failed: \`${msg}\``,
       });
-      return { ok: false, error: msg };
+      if (sha) {
+        await forge
+          .setStatus({ sha, state: 'failure', description: 'Lighthouse audit failed' })
+          .catch(() => {});
+      }
+      return { ok: false, conclusion: 'error', error: msg };
     }
 
     const scores = {
@@ -95,11 +144,11 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
       },
     };
 
-    // Surface soft failures (one form factor or the prod reference) without aborting.
+    // Surface soft failures (one form factor or the reference) without aborting.
     const softFailures = [
       ['mobile preview',  previewMobile],
       ['desktop preview', previewDesktop],
-      ...(!skipProd ? [['mobile prod', refMobile], ['desktop prod', refDesktop]] : []),
+      ...(!skipRef ? [['mobile reference', refMobile], ['desktop reference', refDesktop]] : []),
     ];
     for (const [label, result] of softFailures) {
       if (result.status === 'rejected') {
@@ -121,66 +170,68 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
         refScore: scores[formFactor].ref,
         budget,
         formFactor,
-        isBudgetRef: skipProd,
+        isBudgetRef: skipRef,
       }));
     }
 
     // Global commit status: worst-of per metric across form factors (fail > warn > pass).
     const combinedStatuses = combineStatuses(statusesByForm);
+    const conclusion = hasStatus(combinedStatuses, 'fail')
+      ? 'fail'
+      : hasStatus(combinedStatuses, 'warn') ? 'warn' : 'pass';
 
     const baseBody = formatComment(scores, {
-      previewUrl, headRef, baseRef, source, budget,
-      ...(skipProd ? { refLabel: 'budgets' } : {}),
+      previewUrl, headRef, baseRef, source, budget, detected,
+      ...(skipRef ? { refLabel: 'budgets' } : {}),
     });
 
     const initialBody = aiAnalysisEnabled && regressions.length > 0
       ? baseBody + formatPendingNote(regressions.map((r) => r.metric))
       : baseBody;
 
-    const commentId = await postOrEditComment({ octokit, owner, repo, prNumber, body: initialBody });
+    const reportCommentId = await postOrEditComment({ forge, prNumber, body: initialBody, commentId });
 
     if (sha) {
       const { state, description } = commitStatusPayload(combinedStatuses);
-      await octokit.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-        owner, repo, sha, state, description, context: 'kanso',
-      }).catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
+      await forge
+        .setStatus({ sha, state, description })
+        .catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
     }
 
+    // Detached on purpose: the verdict is already final without it, so neither a
+    // webhook nor a waiting CI job should block on an LLM round-trip.
     if (aiAnalysisEnabled && regressions.length > 0) {
-      analyzePerformanceRegression({ octokit, owner, repo, prNumber, sha, regressions, gptClient, log })
+      analyzePerformanceRegression({ forge, prNumber, sha, regressions, gptClient, log })
         .then(async (result) => {
           if (!result?.section) return;
           const updatedBody = replaceAnalysisSection(initialBody, result.section);
-          await octokit.request(
-            'PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}',
-            { owner, repo, comment_id: commentId, body: updatedBody }
-          );
+          await forge.editComment({ commentId: reportCommentId, body: updatedBody });
           const n = result.structured?.comments?.length ?? 0;
           log.info(`PR #${prNumber} — AI analysis posted (${n} inline comment${n !== 1 ? 's' : ''})`);
         })
         .catch((err) => log.warn(`PR #${prNumber} — AI analysis failed: ${err.message}`));
     }
 
-    const icon = hasStatus(combinedStatuses, 'fail') ? '❌' : hasStatus(combinedStatuses, 'warn') ? '⚠️' : '✅';
+    const icon = conclusion === 'fail' ? '❌' : conclusion === 'warn' ? '⚠️' : '✅';
     log.info(`PR #${prNumber} ${icon} report posted — ${summarizePerf(scores)}`);
-    return { ok: true, scores };
+    return { ok: true, conclusion, statuses: combinedStatuses, scores, commentId: reportCommentId };
   }
 
   // Handles a preview-ready provider event: maps the deployment SHA to its open
   // PR, records the preview URL, and — if the PR was parked waiting for this
-  // deployment — waits for assets to stabilize and runs the report.
-  async function handlePreviewUrl({ octokit, owner, repo, sha, targetUrl, source, log }) {
-    const { data: prs } = await octokit.request(
-      'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
-      { owner, repo, commit_sha: sha }
-    );
-    const pr = prs.find((p) => p.state === 'open');
+  // deployment — runs the report.
+  //
+  // Returns as soon as the PR is resolved: the audit itself is handed to the
+  // caller's `schedule` callback so the webhook response is not held open for
+  // the minutes an audit takes.
+  async function handlePreviewUrl({ forge, sha, targetUrl, source, log, schedule }) {
+    const pr = await forge.findOpenPullRequestForSha({ sha });
     if (!pr) return { ok: true, ignored: 'no open PR for sha' };
 
     // A late-arriving status event for a superseded commit would otherwise make
     // us run Lighthouse against the old build.
-    if (pr.head.sha !== sha) {
-      log.info(`PR #${pr.number} — stale deployment ignored (${sha.slice(0, 7)} ≠ HEAD ${pr.head.sha.slice(0, 7)})`);
+    if (pr.headSha !== sha) {
+      log.info(`PR #${pr.number} — stale deployment ignored (${sha.slice(0, 7)} ≠ HEAD ${pr.headSha.slice(0, 7)})`);
       return { ok: true, ignored: 'sha is not PR head' };
     }
 
@@ -188,30 +239,45 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     store.setPreviewUrl(prNumber, targetUrl);
     log.info(`PR #${prNumber} — ${source} preview ready: ${targetUrl}`);
 
-    if (store.takePending(prNumber)) {
-      const repoConfig = await loadRepoConfig({ octokit, owner, repo, staticConfig, ref: sha, log });
+    if (!store.isPending(prNumber)) {
+      return { ok: true, pr: prNumber, target_url: targetUrl };
+    }
+
+    const scheduled = schedule(async () => {
+      const repoConfig = await loadRepoConfig({ forge, staticConfig, ref: sha, log });
+      // Preview hosts report "ready" before the CDN has finished propagating
+      // assets; auditing immediately measures a half-warm deployment.
       const previewWaitMs = (repoConfig.preview_wait_seconds ?? 15) * 1000;
       log.info(`PR #${prNumber} — waiting ${previewWaitMs / 1000}s for assets to stabilize...`);
       await new Promise((resolve) => setTimeout(resolve, previewWaitMs));
-      await runAndPostReport({
-        octokit, owner, repo, prNumber, sha,
-        headRef: pr.head.ref, baseRef: pr.base.ref,
+      return runAndPostReport({
+        forge, prNumber, sha,
+        headRef: pr.headRef, baseRef: pr.baseRef,
         previewUrl: targetUrl, source, log, repoConfig,
       });
+    }, { prNumber, sha, previewUrl: targetUrl });
+
+    // Keep the PR parked when the queue refused the work, so the next
+    // deployment event for it still triggers a report.
+    if (!scheduled) {
+      log.warn(`PR #${prNumber} — audit not scheduled, staying pending`);
+      return { ok: true, pr: prNumber, target_url: targetUrl, queued: false };
     }
-    return { ok: true, pr: prNumber, target_url: targetUrl };
+    store.takePending(prNumber);
+    return { ok: true, pr: prNumber, target_url: targetUrl, job: scheduled.id };
   }
 
   // Runs the report for a PR whose preview URL is already known (PR opened or
-  // reopened after the deployment landed).
-  async function runReport({ octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, log }) {
-    const repoConfig = await loadRepoConfig({ octokit, owner, repo, staticConfig, ref: sha, log });
+  // reopened after the deployment landed), or requested directly through the API.
+  async function runReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected, log, repoConfig, inlineConfig, commentId }) {
+    const config = repoConfig ?? (await loadRepoConfig({ forge, staticConfig, ref: sha, log, inlineConfig }));
     return runAndPostReport({
-      octokit, owner, repo, prNumber, sha, headRef, baseRef, previewUrl, log, repoConfig,
+      forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected, log,
+      repoConfig: config, commentId,
     });
   }
 
-  return { handlePreviewUrl, runReport };
+  return { handlePreviewUrl, runReport, postOrEditComment };
 }
 
 // Worst-of merge across form factors so the commit status reflects the harshest

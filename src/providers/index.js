@@ -14,7 +14,7 @@ import railway from './railway.js';
 //       { ignored: <body> }    → handled but skipped; <body> is the HTTP response
 //       { preview: { sha, targetUrl, source } } → a preview is ready
 //
-//     ctx provides: { getOctokit, owner, repo, store, log }
+//     ctx provides: { getForge, owner, repo, store, log }
 //
 // To support a new host, add a provider module and one line to this array —
 // nothing else in the webhook pipeline needs to change.

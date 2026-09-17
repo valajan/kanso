@@ -3,17 +3,29 @@ import { evaluateStatuses, metricsWithStatus } from '../metrics/status.js';
 
 const STATUS_ICON = { pass: '✅', warn: '⚠️', fail: '❌' };
 
+// Hidden marker embedded in every Kanso report comment. It is how a re-run
+// finds the comment it wrote last time and edits it in place, instead of
+// stacking a new report on every push. Being carried in the comment body makes
+// that lookup stateless: it survives a restart, and works on any instance.
+export const REPORT_MARKER = '<!-- kanso:report -->';
+
+// The comment posted before the audit starts. On the /v1/audit path, writing it
+// is also how the caller's permission to comment on the PR is proven, so it goes
+// out before any Lighthouse run is scheduled.
+export function formatPlaceholder({ previewUrl, source = 'preview', message } = {}) {
+  const line = message ?? `Auditing the ${source} deployment…`;
+  const target = previewUrl ? `\n\n🔗 ${previewUrl}` : '';
+  return `${REPORT_MARKER}\n## Kanso | Performance Report\n\n⏳ ${line}${target}`;
+}
+
 const FORM_FACTOR_LABELS = {
   mobile:  { icon: '📱', label: 'Mobile' },
   desktop: { icon: '💻', label: 'Desktop' },
 };
 
 function formatValue(metric, value) {
+  if (value == null) return '—';
   return value.toFixed(metric.decimals) + metric.unit;
-}
-
-function formatRef(metric, value) {
-  return value == null ? '—' : formatValue(metric, value);
 }
 
 function formatDelta(metric, delta) {
@@ -61,12 +73,12 @@ function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main')
   const rows = METRICS.map((metric) => {
     const prVal = pr[metric.key];
     const refVal = ref?.[metric.key] ?? null;
-    const delta = ref != null ? prVal - refVal : null;
+    const delta = prVal != null && refVal != null ? prVal - refVal : null;
 
     const deltaCell = delta != null ? formatDelta(metric, delta) : '—';
     const iconCell = STATUS_ICON[statuses[metric.key]];
 
-    return `| ${metric.label} | ${formatRef(metric, refVal)} | ${formatValue(metric, prVal)} | ${deltaCell} | ${iconCell} |`;
+    return `| ${metric.label} | ${formatValue(metric, refVal)} | ${formatValue(metric, prVal)} | ${deltaCell} | ${iconCell} |`;
   });
 
   const table = [`| Metric | ${refLabel} | PR | Δ | |`, '|---|---|---|---|---|', ...rows].join('\n');
@@ -77,9 +89,12 @@ function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main')
 // Builds the PR comment body: a header line plus one comparison table per form
 // factor (mobile + desktop). scores has the shape { mobile: { pr, ref }, desktop: { pr, ref } }.
 // refLabel overrides the reference column header (default 'main', use 'budgets' when comparing against budgets).
-export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main' } = {}) {
+// `detected` distinguishes the two triggers: the webhook path works the preview
+// URL out from a provider's events, while a CI job simply tells us what it just
+// deployed. Claiming detection on the second would be untrue.
+export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main', detected = true } = {}) {
   const headerLine = headRef
-    ? `\`${headRef}\` → \`${baseRef}\` · ${source} detected automatically`
+    ? `\`${headRef}\` → \`${baseRef}\` · ${source}${detected ? ' detected automatically' : ''}`
     : `🔗 URL: ${previewUrl}`;
 
   const hasAnyRef = scores.mobile?.ref != null || scores.desktop?.ref != null;
@@ -94,7 +109,8 @@ export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', s
 
   const verdict = computeVerdict(scores, budget);
 
-  return `## Kanso | Performance Report
+  return `${REPORT_MARKER}
+## Kanso | Performance Report
 
 ${headerLine}
 ${verdict}

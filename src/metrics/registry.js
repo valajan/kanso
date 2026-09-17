@@ -29,10 +29,17 @@ export function getMetric(key) {
 
 // Applies each metric's round() to a raw Lighthouse score object, yielding the
 // values used for display and status evaluation. Returns null for a null score.
+//
+// A metric absent from the input rounds to null rather than throwing: the
+// reference "score" is sometimes the budget map, which a repo may define for
+// only some metrics.
 export function roundScore(score) {
   if (score == null) return null;
   const out = {};
-  for (const metric of METRICS) out[metric.key] = metric.round(score[metric.key]);
+  for (const metric of METRICS) {
+    const value = score[metric.key];
+    out[metric.key] = Number.isFinite(value) ? metric.round(value) : null;
+  }
   return out;
 }
 

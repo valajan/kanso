@@ -1,0 +1,82 @@
+name: Acceptance
+
+# Kanso end to end against the real kanso-frontend build: real Nuxt build, real
+# Chrome and Lighthouse, real Kanso server and CI client. GitHub itself is
+# faked, so no pull request is ever touched. The suite and what each step
+# asserts are described in test/acceptance/kanso-frontend.test.mjs.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'integrations/**'
+      - 'test/acceptance/**'
+      - 'config.yml'
+      - 'package-lock.json'
+      - '.github/workflows/acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'integrations/**'
+      - 'test/acceptance/**'
+      - 'config.yml'
+      - 'package-lock.json'
+      - '.github/workflows/acceptance.yml'
+  # Weekly, so a Chrome, Lighthouse or kanso-frontend change that alters what
+  # Kanso detects shows up even in a week with no Kanso commit.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push makes the running suite irrelevant.
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kanso-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out kanso-api
+        uses: actions/checkout@v4
+        with:
+          path: kanso-api
+
+      # kanso-frontend is private, and the job's own GITHUB_TOKEN only reaches
+      # this repository. FRONTEND_REPO_TOKEN must be a fine-grained token scoped
+      # to valajan/kanso-frontend with read-only Contents permission.
+      - name: Check out kanso-frontend
+        uses: actions/checkout@v4
+        with:
+          repository: valajan/kanso-frontend
+          path: kanso-frontend
+          token: ${{ secrets.FRONTEND_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            kanso-api/package-lock.json
+            kanso-frontend/package-lock.json
+
+      - name: Install kanso-api
+        working-directory: kanso-api
+        run: npm ci
+
+      - name: Install kanso-frontend
+        working-directory: kanso-frontend
+        run: npm ci
+
+      # The suite builds kanso-frontend itself, so the audit always measures the
+      # checked-out sources. Chrome comes preinstalled on the runner image.
+      - name: Run the acceptance suite
+        working-directory: kanso-api
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run test:acceptance

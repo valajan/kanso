@@ -19,12 +19,13 @@ test('takePending removes the entry and reports whether it existed', () => {
   assert.equal(store.isPending(2), false);
 });
 
-test('takeWaitingComment returns the id once and forgets it', () => {
+test('markSeen evicts the oldest key rather than growing without bound', () => {
   const store = new PreviewStore();
-  assert.equal(store.takeWaitingComment(3), undefined);
-  store.setWaitingComment(3, 999);
-  assert.equal(store.takeWaitingComment(3), 999);
-  assert.equal(store.takeWaitingComment(3), undefined);
+  // The cap is 5000; insert past it and confirm the earliest key was dropped
+  // while the most recent ones survive.
+  for (let i = 0; i < 5010; i++) store.markSeen(`key:${i}`);
+  assert.equal(store.hasSeen('key:0'), false);
+  assert.equal(store.hasSeen('key:5009'), true);
 });
 
 test('dedup keys are remembered after markSeen', () => {

@@ -25,5 +25,19 @@ budgets:
   cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
   fcp: 3000        # maximum FCP in ms — above 3000ms is Lighthouse "poor"
 
+# Number of Lighthouse runs per target, per form factor; the per-metric median
+# is reported. A single run swings by 20-30% on TBT, which is enough on its own
+# to fail a good PR or trigger an AI analysis of a regression that never
+# happened. 3 is the usual remedy; the cost is 3x the audit time. Max 5.
+runs: 1
+
+# Reference deployment every PR preview is compared against.
+#
+# Production is the obvious choice and the wrong one if you can avoid it: it
+# differs from a preview in CDN, cache warmth and build flags, so part of every
+# delta is hosting rather than code. If your host builds a preview for the base
+# branch, point this at that instead — or pass --base-url from CI per run.
+# base_url: https://example.com
+
 # root-cause analysis on regressions
 ai_analysis: true

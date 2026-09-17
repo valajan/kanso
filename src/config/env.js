@@ -28,6 +28,27 @@ export function loadEnv() {
     privateKey,
     port: num(process.env.PORT, 3000),
     ai: loadAiEnv(),
+    runtime: loadRuntimeEnv(),
+  };
+}
+
+// Capacity and safety knobs for the shared instance. All optional: the defaults
+// suit a 4 vCPU container running two audits at a time.
+//
+// KANSO_ALLOWED_PREVIEW_HOSTS is the one to set in any deployment that sits on
+// a network with internal services: it pins the set of hosts Kanso will ever
+// fetch, which is the only defence that also holds against DNS rebinding (see
+// src/security/url-guard.js). Comma-separated, "*.example.com" wildcards allowed.
+function loadRuntimeEnv() {
+  return {
+    allowedPreviewHosts: process.env.KANSO_ALLOWED_PREVIEW_HOSTS ?? '',
+    // Points the forge at a self-hosted GitHub (GitHub Enterprise Server).
+    // Operator-level on purpose: a caller must never be able to steer Kanso's
+    // outbound API calls at a host of their choosing.
+    githubApiUrl: process.env.KANSO_GITHUB_API_URL ?? undefined,
+    jobConcurrency: num(process.env.KANSO_JOB_CONCURRENCY, 2),
+    maxQueued: num(process.env.KANSO_MAX_QUEUED, 20),
+    rateLimitPerMinute: num(process.env.KANSO_RATE_LIMIT_PER_MINUTE, 10),
   };
 }
 
