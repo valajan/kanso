@@ -48,23 +48,10 @@ export function detectSignificantRegressions({ statuses, prScore, refScore, budg
 // comment on the right side of the diff. We use event:COMMENT (not REQUEST_CHANGES
 // or APPROVE) so the review is informational and never blocks merging. Failure is
 // swallowed: the section in the main PR comment still goes through.
-async function postInlineReview({ octokit, owner, repo, prNumber, sha, comments, log }) {
+async function postInlineReview({ forge, prNumber, sha, comments, log }) {
   if (!comments || comments.length === 0) return { posted: 0 };
   try {
-    await octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
-      owner,
-      repo,
-      pull_number: prNumber,
-      ...(sha ? { commit_id: sha } : {}),
-      event: 'COMMENT',
-      comments: comments.map((c) => ({
-        path: c.file,
-        line: c.line,
-        side: 'RIGHT',
-        body: c.body,
-        ...(c.startLine != null ? { start_line: c.startLine, start_side: 'RIGHT' } : {}),
-      })),
-    });
+    await forge.postReview({ prNumber, sha, comments });
     log?.info?.({ posted: comments.length }, '[ai-analysis] inline review posted');
     return { posted: comments.length };
   } catch (err) {
@@ -82,9 +69,7 @@ async function postInlineReview({ octokit, owner, repo, prNumber, sha, comments,
 //   inline findings are now delivered as native review comments).
 // - structured: the validated { summary, comments[] } payload, or null on skip/fail.
 export async function analyzePerformanceRegression({
-  octokit,
-  owner,
-  repo,
+  forge,
   prNumber,
   sha,
   regressions,
@@ -108,7 +93,7 @@ export async function analyzePerformanceRegression({
       '[ai-analysis] running analysis on all regressed metrics'
     );
 
-    const diff = await fetchRelevantDiff({ octokit, owner, repo, prNumber, log });
+    const diff = await fetchRelevantDiff({ forge, prNumber, log });
     if (!diff) {
       log?.info?.('[ai-analysis] no relevant files in diff — skipping AI call');
       return { section: formatSkippedNote('no relevant files in the PR diff'), structured: null };
@@ -125,11 +110,7 @@ export async function analyzePerformanceRegression({
       '[ai-analysis] structured output validated'
     );
 
-    await postInlineReview({
-      octokit, owner, repo, prNumber, sha,
-      comments: structured.comments,
-      log,
-    });
+    await postInlineReview({ forge, prNumber, sha, comments: structured.comments, log });
 
     return { section: formatStructuredAnalysis(structured), structured };
   } catch (err) {

@@ -154,14 +154,14 @@ test('amplify returns null for a check_run that is not its own', async () => {
 // --- issue_comment (Railway) ------------------------------------------------
 
 test('railway resolves the PR head SHA and preview URL from the bot comment', async () => {
-  const octokit = { request: async () => ({ data: { state: 'open', head: { sha: 'rsha' } } }) };
+  const forge = { getPullRequest: async () => ({ number: 7, state: 'open', headSha: 'rsha', headRef: 'f', baseRef: 'main' }) };
   const result = await railway.resolve(
     {
       action: 'created',
       issue: { number: 7, pull_request: {} },
       comment: { user: { login: 'railway[bot]' }, body: 'Build complete ✅ https://app-pr-7.up.railway.app' },
     },
-    { getOctokit: async () => octokit, owner: 'o', repo: 'r', store: fakeStore(), log }
+    { getForge: async () => forge, owner: 'o', repo: 'r', store: fakeStore(), log }
   );
   assert.deepEqual(result, {
     preview: { sha: 'rsha', targetUrl: 'https://app-pr-7.up.railway.app', source: 'Railway' },

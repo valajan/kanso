@@ -3,18 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Kanso GitHub App — webhook receiver POC",
+  "description": "Kanso \u2014 performance audits on pull requests, from a GitHub App webhook or any CI",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test \"src/**/__tests__/*.test.js\""
+    "test": "node --test \"src/**/__tests__/*.test.js\"",
+    "test:acceptance": "node --test --test-concurrency=1 --test-reporter=spec test/acceptance/kanso-frontend.test.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@octokit/app": "^15.1.0",
+    "@octokit/core": "^6.1.6",
     "chrome-launcher": "^1.2.1",
     "dotenv": "^16.4.5",
     "fastify": "^5.0.0",

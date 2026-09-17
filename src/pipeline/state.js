@@ -1,18 +1,22 @@
-// In-memory coordination state shared between the two async webhook streams:
-// the pull_request lifecycle and the preview-ready provider events.
+// In-memory coordination state for the legacy webhook trigger: it bridges the
+// two async webhook streams — the pull_request lifecycle and the preview-ready
+// provider events — which arrive in an order nobody controls.
 //
 // A PR opened before its preview is deployed is parked as "pending" with a
-// placeholder comment; when the provider event arrives the report runs and
-// edits that comment in place. Dedup keys guard against providers that emit
-// the same deployment more than once.
+// placeholder comment; when the provider event arrives the report runs. Dedup
+// keys guard against providers that emit the same deployment more than once.
 //
-// State is process-local and ephemeral by design — a restart simply re-derives
-// it from subsequent webhooks. Swap this class for a persistent store if that
-// guarantee ever needs to survive restarts.
+// State is process-local and ephemeral by design — a restart re-derives it from
+// subsequent webhooks. That also means it does not survive horizontal scaling:
+// with several instances behind a load balancer, the pull_request event and the
+// deployment event can land on different ones. The /v1/audit trigger has no such
+// constraint — the caller supplies the preview URL, so nothing needs to be
+// remembered between two requests — which is the main reason to prefer it.
+const MAX_SEEN = 5_000;
+
 export class PreviewStore {
   #previewUrls = new Map();
   #pendingPRs = new Map();
-  #waitingComments = new Map();
   #seen = new Set();
 
   setPreviewUrl(prNumber, targetUrl) {
@@ -27,7 +31,7 @@ export class PreviewStore {
     this.#previewUrls.delete(prNumber);
   }
 
-  markPending(prNumber, info) {
+  markPending(prNumber, info = {}) {
     this.#pendingPRs.set(prNumber, info);
   }
 
@@ -40,22 +44,17 @@ export class PreviewStore {
     return this.#pendingPRs.delete(prNumber);
   }
 
-  setWaitingComment(prNumber, commentId) {
-    this.#waitingComments.set(prNumber, commentId);
-  }
-
-  // Removes and returns the placeholder comment id, or undefined if none.
-  takeWaitingComment(prNumber) {
-    const commentId = this.#waitingComments.get(prNumber);
-    this.#waitingComments.delete(prNumber);
-    return commentId;
-  }
-
   hasSeen(key) {
     return this.#seen.has(key);
   }
 
+  // Bounded: a long-running process sees an unbounded number of deployments, and
+  // the oldest keys can never match again — the PRs they belong to are closed.
   markSeen(key) {
+    if (this.#seen.size >= MAX_SEEN) {
+      const oldest = this.#seen.values().next().value;
+      this.#seen.delete(oldest);
+    }
     this.#seen.add(key);
   }
 }

@@ -48,43 +48,36 @@ test('truncatePatch returns the patch unchanged when under the cap', () => {
 });
 
 test('fetchRelevantDiff returns null when no relevant files', async () => {
-  const octokit = {
-    request: async () => ({
-      data: [
-        { filename: 'README.md', patch: '+ doc' },
-        { filename: 'image.png', patch: null },
-        { filename: 'package-lock.json', patch: '+ deps' },
-      ],
-    }),
+  const forge = {
+    getPullRequestFiles: async () => [
+      { filename: 'README.md', patch: '+ doc' },
+      { filename: 'image.png', patch: null },
+      { filename: 'package-lock.json', patch: '+ deps' },
+    ],
   };
-  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  const result = await fetchRelevantDiff({ forge, prNumber: 1 });
   assert.equal(result, null);
 });
 
-test('fetchRelevantDiff filters, truncates, and forwards octokit args', async () => {
+test('fetchRelevantDiff filters, truncates, and forwards the PR number', async () => {
   const longPatch = Array.from({ length: 1100 }, (_, i) => `+ line ${i}`).join('\n');
   let received = null;
 
-  const octokit = {
-    request: async (route, params) => {
-      received = { route, params };
-      return {
-        data: [
-          { filename: 'src/Hero.jsx', status: 'modified', patch: '+ <img />' },
-          { filename: 'src/Hero.test.jsx', status: 'modified', patch: '+ test code' },
-          { filename: 'styles/big.css', status: 'modified', patch: longPatch },
-          { filename: 'docs/notes.md', status: 'added', patch: '+ note' },
-        ],
-      };
+  const forge = {
+    getPullRequestFiles: async (args) => {
+      received = args;
+      return [
+        { filename: 'src/Hero.jsx', status: 'modified', patch: '+ <img />' },
+        { filename: 'src/Hero.test.jsx', status: 'modified', patch: '+ test code' },
+        { filename: 'styles/big.css', status: 'modified', patch: longPatch },
+        { filename: 'docs/notes.md', status: 'added', patch: '+ note' },
+      ];
     },
   };
 
-  const result = await fetchRelevantDiff({
-    octokit, owner: 'acme', repo: 'site', prNumber: 42,
-  });
+  const result = await fetchRelevantDiff({ forge, prNumber: 42 });
 
-  assert.equal(received.route, 'GET /repos/{owner}/{repo}/pulls/{pull_number}/files');
-  assert.deepEqual(received.params, { owner: 'acme', repo: 'site', pull_number: 42, per_page: 100 });
+  assert.deepEqual(received, { prNumber: 42 });
 
   assert.equal(result.length, 2);
   assert.equal(result[0].filename, 'src/Hero.jsx');
@@ -140,26 +133,22 @@ test('fetchRelevantDiff attaches addedLines to each returned file', async () => 
     '+ new line at 2',
     ' ctx',
   ].join('\n');
-  const octokit = {
-    request: async () => ({
-      data: [{ filename: 'src/a.js', status: 'modified', patch }],
-    }),
+  const forge = {
+    getPullRequestFiles: async () => [{ filename: 'src/a.js', status: 'modified', patch }],
   };
-  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  const result = await fetchRelevantDiff({ forge, prNumber: 1 });
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].addedLines, [1, 2, 3]);
 });
 
 test('fetchRelevantDiff drops files with empty patch after filtering', async () => {
-  const octokit = {
-    request: async () => ({
-      data: [
-        { filename: 'src/empty.js', status: 'renamed', patch: null },
-        { filename: 'src/real.js', status: 'modified', patch: '+ x' },
-      ],
-    }),
+  const forge = {
+    getPullRequestFiles: async () => [
+      { filename: 'src/empty.js', status: 'renamed', patch: null },
+      { filename: 'src/real.js', status: 'modified', patch: '+ x' },
+    ],
   };
-  const result = await fetchRelevantDiff({ octokit, owner: 'o', repo: 'r', prNumber: 1 });
+  const result = await fetchRelevantDiff({ forge, prNumber: 1 });
   assert.equal(result.length, 1);
   assert.equal(result[0].filename, 'src/real.js');
 });
