@@ -63,8 +63,10 @@ dependencies, and starts the server. All application logic lives under `src/`.
 - `report/` — `comment.js` (PR comment + `REPORT_MARKER`), `commit-status.js`
 - `lighthouse/runner.js` — runs the audits; `runner.worker.js` is one audit in
   its own worker thread
-- `integrations/` — the CI client (`kanso-audit.mjs`, zero dependencies) plus a
-  GitHub composite action and a GitLab snippet
+
+At the repo root, `integrations/` is what client repos run, not part of the
+server: the CI client (`kanso-audit.mjs`, zero dependencies), a GitHub composite
+action wrapping it, and example GitHub and GitLab pipelines.
 
 ### Main flow
 
