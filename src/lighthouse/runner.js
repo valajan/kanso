@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import { clampRuns } from '../core/runs.js';
 import { MODULES } from '../modules/index.js';
 
 const WORKER_URL = new URL('./runner.worker.js', import.meta.url);
@@ -35,8 +36,6 @@ class Semaphore {
 
 const semaphore = new Semaphore(MAX_CONCURRENT);
 
-export const MAX_RUNS = 5;
-
 // Runs `runs` headless-Chrome Lighthouse loads of `url` and returns what each
 // module made of them: { [moduleId]: data }, folded by the module's combine().
 // Runs are sequential: they compete for the same CPU, so overlapping them
@@ -45,7 +44,7 @@ export const MAX_RUNS = 5;
 // Rejects only when every run failed — a partial set still yields a usable
 // median, and reporting four metrics from two good runs beats reporting none.
 export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES } = {}) {
-  const count = Math.min(MAX_RUNS, Math.max(1, Math.trunc(runs) || 1));
+  const count = clampRuns(runs);
   const samples = [];
   let lastError = null;
 

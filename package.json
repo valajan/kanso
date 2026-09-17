@@ -5,7 +5,11 @@
   "type": "module",
   "description": "Kanso \u2014 performance audits on pull requests, from a GitHub App webhook or any CI",
   "main": "server.js",
+  "bin": {
+    "kanso": "bin/kanso.js"
+  },
   "scripts": {
+    "kanso": "node bin/kanso.js",
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test \"src/**/__tests__/*.test.js\"",

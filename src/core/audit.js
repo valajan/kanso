@@ -1,8 +1,8 @@
 import { MODULES } from '../modules/index.js';
 import { worstLevel } from './levels.js';
+import { clampRuns } from './runs.js';
 
 export const FORM_FACTORS = ['mobile', 'desktop'];
-const MAX_RUNS = 5;
 
 // Audits one page with every module, optionally against a baseline page, and
 // returns the verdict. Nothing here knows about pull requests, forges or
@@ -13,6 +13,11 @@ const MAX_RUNS = 5;
 // - config:        the resolved .kanso.yml
 // - runLighthouse: (url, { formFactor, runs, modules }) → { [moduleId]: data }
 // - modules:       defaults to every registered module
+// - alwaysCompare: load the baseline even for modules that could judge without
+//                  it. A baseline named in the configuration is a hint, and
+//                  skipping it saves half the audit; a baseline the caller
+//                  asked for by hand is an instruction, and the comparison is
+//                  what they came for, verdict or no verdict.
 //
 // All loads start together; the runner caps how many Chrome instances run at
 // once. A failed load only costs its own column: the audit is an error when
@@ -21,9 +26,11 @@ const MAX_RUNS = 5;
 // Resolves to { ok: true, conclusion, modules: { [id]: { conclusion, levels, ... } }, failures }
 // or { ok: false, conclusion: 'error', error, failures }, where each failure is
 // { side: 'current' | 'baseline', formFactor, url, error }.
-export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES }) {
-  const runs = Math.min(MAX_RUNS, Math.max(1, Math.trunc(config.runs ?? 1) || 1));
-  const baselineModules = baseline ? modules.filter((m) => m.needsBaseline?.(config) ?? true) : [];
+export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false }) {
+  const runs = clampRuns(config.runs);
+  const baselineModules = baseline
+    ? modules.filter((m) => alwaysCompare || (m.needsBaseline?.(config) ?? true))
+    : [];
 
   const loads = [
     ...FORM_FACTORS.map((formFactor) => ({ side: 'current', formFactor, url, modules })),

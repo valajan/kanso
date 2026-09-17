@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node 20+ built-in test runner)
@@ -25,18 +26,25 @@ Requires Node.js >=20. No build step — all files are run directly with Node.
 
 ## Architecture
 
-Kanso audits web performance on pull requests and posts the results back to the
-PR. It has **two triggers into one pipeline**:
+Kanso audits a web page and judges it. **The audit is `src/core/audit.js` and
+knows nothing about pull requests, forges or servers**; everything else is a
+surface onto it.
 
-1. **`POST /v1/audit`** — a CI job posts the preview URL it just deployed.
-   Platform-agnostic, stateless, and the preferred path.
-2. **`POST /webhook`** — the GitHub App, which works the preview URL out from a
-   preview host's webhook events. GitHub-only, and needs cross-request state.
+Two surfaces exist today:
 
-Both converge on the same orchestrator and the same report.
+- **the CLI** (`bin/kanso.js`) — `kanso audit <url>`, on a developer's machine,
+  against a local build. No server, no credentials, no network but the page.
+- **the PR report**, with **two triggers into one pipeline**:
+  1. **`POST /v1/audit`** — a CI job posts the preview URL it just deployed.
+     Platform-agnostic, stateless, and the preferred path.
+  2. **`POST /webhook`** — the GitHub App, which works the preview URL out from
+     a preview host's webhook events. GitHub-only, and needs cross-request state.
 
-**Entry point:** `server.js` — a thin bootstrap that loads config, wires
-dependencies, and starts the server. All application logic lives under `src/`.
+  Both converge on the same orchestrator and the same report.
+
+**Entry points:** `server.js` — a thin bootstrap that loads config, wires
+dependencies, and starts the server — and `bin/kanso.js` for the CLI. All
+application logic lives under `src/`.
 
 ### Module layout (`src/`)
 
@@ -51,7 +59,8 @@ dependencies, and starts the server. All application logic lives under `src/`.
 - `core/` — **the audit, with no knowledge of PRs, forges or servers.**
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
-  worst-of. The PR report is one caller; a CLI or MCP server will be others.
+  worst-of; `runs.js` holds how many loads a measure is worth. The CLI and the
+  PR report are two callers; an MCP server will be a third.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`). **Adding a concern = adding a folder + one line in `index.js`.**
@@ -59,6 +68,13 @@ dependencies, and starts the server. All application logic lives under `src/`.
   the five metrics (labels, units, thresholds), `status.js` derives
   `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
   the failures worth an AI analysis
+- `cli/` — the local surface. `index.js` parses the command line,
+  `audit-command.js` resolves the config and runs `core/audit.js`, `render.js`
+  prints the tables. It never loads `config/env.js`: that validates GitHub App
+  credentials a developer auditing localhost does not have. The exit code is
+  the verdict — 0 audited and clean, 1 audited and over `--fail-on`, 2 the
+  audit could not run — which is what makes it usable in a pre-commit hook or a
+  CI job. `--json` prints the audit result and nothing else
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`
@@ -145,6 +161,10 @@ again when it loads the page, so DNS rebinding remains possible in principle;
 the guard re-checks immediately before the audit, and
 `KANSO_ALLOWED_PREVIEW_HOSTS` closes it completely for deployments that need it.
 
+The CLI deliberately skips the guard. It exists because `/v1/audit` is a public
+endpoint that must not be aimed at private addresses on the operator's behalf;
+on a developer's own machine, `http://localhost:4173` is the whole point.
+
 ### Capacity
 
 Audits are minutes long, so neither trigger holds a request open for one: both
@@ -172,10 +192,12 @@ nothing in the CI knows an audit is happening.
 ## Configuration
 
 `config.yml` is the static base config. A repo overrides it with `.kanso.yml`,
-merged per-metric (partial overrides allowed). On the API path the CI sends that
-file's contents inline — one fewer API call, and it works with a token that has
-no contents scope. Config controls budgets, the reference URL, `runs`, and
-whether AI analysis is enabled.
+merged per-metric (partial overrides allowed). The CLI reads that same
+`.kanso.yml` from the working directory (or `--config <path>`), so a developer's
+local run and the CI's run judge a page by the same numbers. On the API path the
+CI sends that file's contents inline — one fewer API call, and it works with a
+token that has no contents scope. Config controls budgets, the reference URL,
+`runs`, and whether AI analysis is enabled.
 
 **Environment variables** (see `.env.example`, validated in `src/config/env.js`):
 

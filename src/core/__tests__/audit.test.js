@@ -69,6 +69,26 @@ test('a module that can judge from its config alone skips the baseline load', as
   assert.ok(runLighthouse.calls.every((c) => c.url === 'http://localhost:3000/'));
 });
 
+// A baseline named in the config is a hint the core may ignore; one the caller
+// asked for is an instruction, and the comparison column is the point of it.
+test('alwaysCompare loads the baseline even when no module needs it', async () => {
+  const runLighthouse = fakeRunner({
+    'http://localhost:3000/': { performance: GOOD },
+    'http://localhost:4000/': { performance: GOOD },
+  });
+
+  const result = await audit({
+    url: 'http://localhost:3000/',
+    baseline: 'http://localhost:4000/',
+    config: { budgets: ALL_BUDGETS },
+    alwaysCompare: true,
+    runLighthouse,
+  });
+
+  assert.equal(result.modules.performance.referenceKind, 'baseline');
+  assert.equal(runLighthouse.calls.length, 4);
+});
+
 test('the conclusion is the worst across modules, and each module keeps its own', async () => {
   const runLighthouse = fakeRunner({
     'http://localhost:3000/': { performance: GOOD, links: { broken: 2 } },
