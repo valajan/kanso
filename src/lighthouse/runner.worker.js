@@ -41,6 +41,15 @@ async function audit({ url, formFactor, moduleIds }) {
       ...formFactorConfig,
     });
 
+    // Lighthouse reports a page it could not load as a complete result with
+    // every metric at zero, which a module would happily extract and judge —
+    // a dead URL then reads as a catastrophically slow page, four of its five
+    // rows green. It is a failed load, so it fails the run.
+    const { runtimeError } = result.lhr;
+    if (runtimeError && runtimeError.code !== 'NO_ERROR') {
+      throw new Error(`${runtimeError.code}: ${runtimeError.message}`);
+    }
+
     return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr)]));
   } finally {
     await chrome.kill();
