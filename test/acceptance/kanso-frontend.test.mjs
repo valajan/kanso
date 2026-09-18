@@ -214,13 +214,18 @@ for (const [index, step] of STEPS.entries()) {
       .filter(([, level]) => level === 'fail')
       .map(([metric]) => metric);
 
-    // Accessibility findings the reference already has must never fail a push:
-    // a repo with existing violations would otherwise be red on every PR, and
-    // the report would be read as noise within a week.
-    const inherited = verdict.modules?.accessibility?.findings ?? [];
-    assert.ok(inherited.length > 0, 'the landing page has axe findings — this is what proves they are inherited, not new');
+    // Findings the reference already has must never fail a push: a repo with
+    // existing violations would otherwise be red on every PR, and the report
+    // would be read as noise within a week. That holds for every module that
+    // reports findings — none of this suite's regressions touches a rule.
+    const findings = Object.entries(verdict.modules ?? {})
+      .flatMap(([id, result]) => (result.findings ?? []).map((finding) => ({ id, ...finding })));
+    assert.ok(
+      verdict.modules?.accessibility?.findings?.length > 0,
+      'the landing page has axe findings — this is what proves they are inherited, not new'
+    );
     assert.deepEqual(
-      inherited.filter((finding) => finding.level !== 'pass').map((finding) => finding.rule),
+      findings.filter((finding) => finding.level !== 'pass').map((finding) => `${finding.id}: ${finding.rule}`),
       [],
       'a finding the reference already has was held against the push'
     );

@@ -1,5 +1,7 @@
 import accessibility from './accessibility/index.js';
+import bestPractices from './best-practices/index.js';
 import performance from './performance/index.js';
+import seo from './seo/index.js';
 
 // Audit modules: one per concern Kanso checks on a page. Adding one = a folder
 // under modules/ + one line in MODULES.
@@ -40,17 +42,22 @@ import performance from './performance/index.js';
 //             noisy, they need several runs and a median, and they are rendered
 //             as a table with a delta column.
 //
-//   findings  [{ rule, title, impact, count, nodes, state, level, formFactors }]
+//   findings  [{ rule, title, impact, count, nodes, detail?, state, level, formFactors }]
 //             Findings: a rule broken on a set of elements. They are
 //             deterministic, one load settles them, and they are rendered as a
-//             list, worst first. `state` is 'new' | 'worse' | 'inherited' when
-//             a baseline was compared, and null when there was none.
-//             null — rather than [] — means no load produced a result.
+//             list, worst first. `impact` is on one scale for every module
+//             (impact.js), `nodes` are the elements it failed on (findings.js
+//             says what one carries), `detail` what Lighthouse says of the
+//             failure as a whole when it says more than the title. `state` is
+//             'new' | 'worse' | 'inherited' when a baseline was compared, and
+//             null when there was none. null — rather than [] — means no load
+//             produced a result. A module reporting findings shares everything
+//             but its category and its impacts: see findings.js.
 //
-// Performance produces the first, accessibility the second; a module that
-// produces neither still reports through `levels`, which is the only part of
-// the contract the core itself relies on.
-export const MODULES = [performance, accessibility];
+// Performance produces the first; accessibility, SEO and best practices the
+// second. A module that produces neither still reports through `levels`, which
+// is the only part of the contract the core itself relies on.
+export const MODULES = [performance, accessibility, seo, bestPractices];
 
 const BY_ID = new Map(MODULES.map((m) => [m.id, m]));
 
@@ -61,8 +68,8 @@ export function getModule(id) {
 }
 
 // How a check is named in a report. A module's checks are its own vocabulary:
-// performance's are metric keys, and reading "LCP" beats reading "lcp";
-// accessibility's are axe rule ids, which are already the name to read.
+// performance's are metric keys, and reading "LCP" beats reading "lcp"; the
+// others' are Lighthouse audit ids, which are already the name to read.
 export function checkLabel(moduleId, check) {
   return BY_ID.get(moduleId)?.checkLabels?.[check] ?? check;
 }

@@ -1,6 +1,6 @@
 import { moduleConfig } from '../config/module-config.js';
 import { FORM_FACTORS } from '../core/audit.js';
-import { elementHint, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
+import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses } from '../modules/performance/status.js';
@@ -134,12 +134,12 @@ function diagnosticRows(diagnostics, statuses) {
   return rows;
 }
 
-// An element by its selector, and by what tells it apart from the others
+// An element by where it is, and by what tells it apart from the others
 // sharing that selector: its text, or its tag when it has none.
 function describe(element) {
   const hint = elementHint(element);
   const detail = hint?.text ? `"${hint.text}"` : hint?.tag;
-  return (element.selector || element.snippet) + (detail ? `  ${detail}` : '');
+  return elementWhere(element) + (detail ? `  ${detail}` : '');
 }
 
 function metricRows(current, reference, budget, refLabel) {
@@ -166,10 +166,11 @@ function metricRows(current, reference, budget, refLabel) {
 // One line per broken rule, worst first, with the elements to go and look at
 // under the ones that count. The rows are built first and padded together, then
 // the elements are slipped back under their own row.
-function renderFindings({ findings, fixed = [], comparedToBaseline, failOn }, c) {
+function renderFindings(moduleResult, c) {
+  const { findings } = moduleResult;
   if (findings == null) return ['', '  ' + c('dim', 'no result')];
   if (findings.length === 0) {
-    return ['', '  ' + c('green', 'no findings'), '', '  ' + c('dim', summary({ findings, fixed, comparedToBaseline, failOn }))];
+    return ['', '  ' + c('green', 'no findings'), '', '  ' + c('dim', summary(moduleResult))];
   }
 
   // The state column only exists when a baseline gave the findings one.
@@ -186,8 +187,9 @@ function renderFindings({ findings, fixed = [], comparedToBaseline, failOn }, c)
   table(rows, rows[0].map(() => 'left'), c).forEach((line, i) => {
     lines.push(line);
     const finding = findings[i];
-    // A rule Lighthouse failed without naming an element has nothing to list.
-    if (finding.level === 'pass' || finding.nodes.length === 0) return;
+    if (finding.level === 'pass') return;
+    // A rule that failed as a whole — no doctype — is explained here, if at all.
+    if (finding.detail) lines.push('      ' + finding.detail);
     const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
     const shared = sharedExplanation(shown);
     if (shared) lines.push('      ' + shared);
@@ -200,24 +202,26 @@ function renderFindings({ findings, fixed = [], comparedToBaseline, failOn }, c)
     if (rest > 0) lines.push('      ' + c('dim', `… and ${rest} more`));
   });
 
-  lines.push('', '  ' + c('dim', summary({ findings, fixed, comparedToBaseline, failOn })));
+  lines.push('', '  ' + c('dim', summary(moduleResult)));
   return lines;
 }
 
 // Says what the numbers were judged against, which is the difference between a
-// clean page and a page whose findings were all there before.
-function summary({ findings, fixed, comparedToBaseline, failOn }) {
+// clean page and a page whose findings were all there before — and what was
+// left out of the judging.
+function summary({ findings, fixed = [], comparedToBaseline, failOn, ignore = [] }) {
   const parts = [`failing from ${failOn} up`];
   if (comparedToBaseline) {
     const inherited = findings.filter((f) => f.state === 'inherited').length;
     parts.push(`${inherited} already in the baseline`, `${fixed.length} fixed`);
   }
+  if (ignore.length > 0) parts.push(`ignoring ${ignore.join(', ')}`);
   return parts.join(' · ');
 }
 
 function elements(finding) {
   const grew = finding.state === 'worse' ? ` (+${finding.count - finding.baselineCount})` : '';
-  return `${finding.count} element${finding.count === 1 ? '' : 's'}${grew}`;
+  return countLabel(finding) + grew;
 }
 
 // A rule broken on one form factor only is worth saying so.

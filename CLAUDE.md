@@ -86,12 +86,20 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   layout shifts — from the load behind each median. They explain and are never
   judged.
   `accessibility/` is the second, and the one that proves the interface holds
-  for something other than a measure: `findings.js` reads the failed axe rules
-  out of the Lighthouse report — every failing element with its selector, tag,
-  text and axe's explanation (for contrast: the ratio and both colours) — folds
-  both form factors into one list and compares it to the baseline's;
-  `impact.js` is the severity scale. A rule is broken or it is not, so nothing
-  is averaged and one load settles it
+  for something other than a measure: a rule is broken or it is not, so nothing
+  is averaged and one load settles it. `seo/` and `best-practices/` are the
+  other two Lighthouse categories, reported the same way. What the three share
+  lives next to the registry: `findings.js` reads a category's failed rules out
+  of the Lighthouse report — every failing element with its selector, tag, text
+  and what is wrong with it (axe's explanation, or the columns Lighthouse shows:
+  a console error's message and the line that logged it) — folds both form
+  factors into one list, compares it to the baseline's and judges it; `impact.js`
+  is the one severity scale, axe's. What each keeps to itself is where a rule's
+  impact comes from: axe gives one; for SEO and best practices, which Lighthouse
+  does not rank, `rules.js` places each rule on axe's scale. SEO leaves
+  `document-title` and `image-alt` to accessibility, and best practices also
+  passes through, unjudged, what Lighthouse says of the security headers
+  without scoring them
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config and runs `core/audit.js`, `render.js`
   prints the tables. It never loads `config/env.js`: that validates GitHub App
@@ -141,10 +149,10 @@ action wrapping it, and example GitHub and GitLab pipelines.
 4. Each module judges its results. For performance, metrics (score, LCP, TBT,
    CLS, FCP) are compared against per-repo budgets; status is `pass` / `warn` /
    `fail`, worst-of across form factors, and worst-of across modules. For
-   accessibility, each broken axe rule is judged on its impact — and, when a
-   reference page was loaded, on whether that page already broke it: with a
-   reference Kanso judges what the change did, without one it judges the page
-   as it stands.
+   accessibility, SEO and best practices, each broken rule is judged on its
+   impact — and, when a reference page was loaded, on whether that page already
+   broke it: with a reference Kanso judges what the change did, without one it
+   judges the page as it stands.
 5. Results post as a PR comment (badge + one table per form factor + one
    section per module reporting findings) and a commit status. The comment
    carries a hidden `REPORT_MARKER`, so a re-run finds and edits it rather than
@@ -232,7 +240,9 @@ nothing in the CI knows an audit is happening.
 deep-merged key by key (partial overrides allowed at any depth). **Each module
 reads the section carrying its id** (`accessibility: { fail_on: serious }`) and
 never sees the rest of the file, so two concerns cannot fight over a key name —
-`src/config/module-config.js`. Performance's `budgets:` predate the sections and
+`src/config/module-config.js`. The three findings sections take the same keys:
+`fail_on` (an impact) and `ignore` (rule ids left unjudged — the `noindex`
+preview hosts add is what it is for). Performance's `budgets:` predate the sections and
 still work at the root, which is where every `.kanso.yml` written so far keeps
 them; a `performance:` section wins over them, budget by budget. `runs:` stays
 at the root on purpose: it counts page loads, and one load feeds every module.

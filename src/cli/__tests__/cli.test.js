@@ -283,6 +283,37 @@ test('a page breaking no rule says so', async () => {
   assert.match(out, /no findings/);
 });
 
+// SEO and best practices print through the same findings list; what they add
+// is failures that are no DOM element, and rules a project chose to ignore.
+test('a failure with no element is printed by what it names, or what Lighthouse says of it', async () => {
+  const cwd = emptyProject();
+  writeFileSync(join(cwd, '.kanso.yml'), 'seo:\n  ignore: [is-crawlable]\n');
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': {
+      performance: GOOD,
+      seo: { findings: [{ rule: 'is-crawlable', impact: 'critical', count: 1, title: 't', nodes: [] }] },
+      'best-practices': { findings: [
+        { rule: 'doctype', impact: 'moderate', count: 0, title: 't', nodes: [], detail: 'Document must contain a doctype' },
+        { rule: 'errors-in-console', impact: 'moderate', count: 1, title: 't', nodes: [
+          { selector: '', snippet: '', label: '', explanation: 'Description: boom', url: 'http://localhost:3000/app.js:14:16' },
+        ] },
+      ] },
+    },
+  });
+
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse, cwd });
+
+  assert.equal(code, 0, 'nothing here reaches serious');
+  assert.match(out, /SEO\s+pass\s+no findings\s+failing from serious up · ignoring is-crawlable/);
+  assert.match(out, /Best Practices\s+warn/);
+  const lines = out.split('\n').map((line) => line.trim());
+  const doctype = lines.findIndex((line) => line.startsWith('doctype'));
+  assert.match(lines[doctype], /^doctype\s+moderate\s+warn$/, 'a rule broken as a whole has no element count');
+  assert.equal(lines[doctype + 1], 'Document must contain a doctype');
+  assert.match(out, /errors-in-console\s+moderate\s+1 item\s+warn/);
+  assert.match(out, /Description: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
+});
+
 // --- invocation mistakes ----------------------------------------------------
 
 test('a mistake in the command line exits 2 and points at the help', async () => {

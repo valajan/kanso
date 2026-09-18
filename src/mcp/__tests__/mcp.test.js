@@ -197,16 +197,19 @@ test('a page that never loaded is reported as the tool failing', async () => {
 
 test('the project configuration is what list_modules reports', async () => {
   const cwd = emptyProject();
-  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\naccessibility:\n  fail_on: critical\n');
+  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\naccessibility:\n  fail_on: critical\nseo:\n  ignore: [is-crawlable]\n');
 
   const [message] = await session([call(1, 'list_modules', {})], { cwd });
 
   const payload = message.result.structuredContent;
   assert.match(payload.configSource, /\.kanso\.yml$/);
-  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility']);
+  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices']);
   assert.equal(payload.modules[0].config.budgets.lcp, 1000);
   assert.equal(payload.modules[1].config.fail_on, 'critical');
   assert.deepEqual(payload.modules[1].lighthouseCategories, ['accessibility']);
+  // A section the project wrote part of keeps Kanso's defaults for the rest.
+  assert.deepEqual(payload.modules[2].config, { fail_on: 'serious', ignore: ['is-crawlable'] });
+  assert.deepEqual(payload.modules[3].config, { fail_on: 'serious' });
 });
 
 // --- a call that takes a minute ---------------------------------------------

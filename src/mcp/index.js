@@ -4,7 +4,7 @@ import { createTools } from './tools.js';
 
 // Handed to the host's model, as a hint about what this server is for. Short on
 // purpose: it is prompt, and every line of it is paid for on every turn.
-const INSTRUCTIONS = `Kanso audits a web page in Chrome and returns a verdict — pass, warn or fail — on how fast it is and what it breaks for assistive technology.
+const INSTRUCTIONS = `Kanso audits a web page in Chrome and returns a verdict — pass, warn or fail — on how fast it is, what it breaks for assistive technology, and what search engines and browsers make of it.
 
 Use it to check a frontend change rather than describe one: build, serve the build, audit the URL. Auditing a dev server measures the dev server, not the page a user gets.
 

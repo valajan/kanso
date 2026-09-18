@@ -34,11 +34,16 @@ function auditPage({ cwd, runLighthouse, now }) {
     title: 'Audit a page',
     description:
       'Loads a URL in Chrome on mobile and desktop, measures it and checks it, and returns the verdict: '
-      + 'pass, warn or fail, with every metric and every accessibility finding behind it — each failing '
-      + 'element with its selector, its opening tag, its text and what axe says is wrong with it. '
+      + 'pass, warn or fail, with every metric and every accessibility, SEO and best-practices finding behind '
+      + 'it — each failing element with its selector, its opening tag, its text and what is wrong with it '
+      + '(for a contrast failure, the ratio and both colours); a failure that is no DOM element, such as a '
+      + 'console error, carries the URL and line it names. '
       + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
       + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
       + 'the unthrottled load, so they tell proportions, not the simulated metrics. '
+      + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
+      + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
+      + 'would, so their absence there says nothing about production. '
       + 'Point it at a served build (a preview server, a container, a deployed URL), never at a dev server — '
       + 'the numbers of an unbundled page mean nothing. '
       + 'Name a baseline to judge what a change did rather than what the page has always been: without one, '
@@ -118,8 +123,9 @@ function listModules({ cwd }) {
     title: 'List audit modules',
     description:
       'What Kanso checks on a page, and what it will judge it against: one module per concern — performance '
-      + 'measures against budgets, accessibility findings against an impact threshold — each with the '
-      + 'configuration resolved for this project. Call it to know what a verdict rests on before reading one.',
+      + 'measures against budgets; accessibility, SEO and best-practices findings against an impact threshold, '
+      + 'minus the rules the project ignores — each with the configuration resolved for this project. Call it '
+      + 'to know what a verdict rests on before reading one.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
 
