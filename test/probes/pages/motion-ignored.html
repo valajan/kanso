@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion that ignores the preference</title>
+<style>
+  html { scroll-behavior: smooth; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  @keyframes slide-in { from { transform: translateY(40px); } to { transform: none; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hero { animation: slide-in 800ms ease-out; }
+  .spinner { width: 24px; height: 24px; border: 3px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; }
+  .spacer { height: 1600px; }
+  /* Revealed on scroll, by sliding up — and a stagger delay, so that it only
+     starts once the reader has moved on. */
+  .reveal { transform: translateY(60px); transition: transform 500ms 300ms; }
+  .reveal.shown { transform: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 class="hero">Everything moves</h1>
+  <div class="spinner" role="status" aria-label="Loading"></div>
+  <p class="scripted">Moved by a script.</p>
+  <div class="spacer"></div>
+  <p class="reveal">Revealed on scroll, by sliding.</p>
+</main>
+<script>
+  document.querySelector('.scripted').animate([{ transform: 'translateX(-30px)' }, { transform: 'none' }], { duration: 1000 });
+  new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && e.target.classList.add('shown')))
+    .observe(document.querySelector('.reveal'));
+</script>
+</body>
+</html>

@@ -87,8 +87,9 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
 - `probes/` — what Kanso checks on a page itself, beyond Lighthouse. A module
   declares its probes; `index.js` runs them in the audit worker, after
   Lighthouse, on the same Chrome — each in a fresh page and browser context,
-  laid out as Lighthouse laid it out unless it asks for another viewport, under
-  a timeout. A probe that fails costs its own rules, reported as unchecked,
+  laid out as Lighthouse laid it out unless it asks for another viewport or
+  media features, with a script of its own run before the page's if it needs
+  one, under a timeout. A probe that fails costs its own rules, reported as unchecked,
   never as clean. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
@@ -125,8 +126,9 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
   `keyboard.js` presses Tab from the top until focus leaves the page —
-  `focus-trap`, `focus-visible`, `focus-obscured`. `rules.js` ranks Kanso's own
-  rules on axe's scale. `seo/` and
+  `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
+  scrolls through it under `prefers-reduced-motion: reduce` —
+  `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

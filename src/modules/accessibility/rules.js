@@ -28,6 +28,12 @@ const IMPACTS = {
   // behind something else — a cookie banner, a sticky bar. Warns: the probe
   // sees the page as a first visit does, with every banner still open.
   'focus-obscured': 'moderate',
+
+  // prefers-reduced-motion, and WCAG 2.3.3 Animation from Interactions (AAA).
+  // The reader asked their system for less motion, and the page moves anyway:
+  // for some, nausea or a migraine. Warns: AAA, and a spinner that keeps
+  // turning may be the one thing saying the page is busy.
+  'reduced-motion': 'moderate',
 };
 
 export function impactOf(rule) {

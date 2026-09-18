@@ -14,13 +14,14 @@ import seo from './seo/index.js';
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   probes      optional [{ id, rules, formFactors?, viewport?, media?, run(page, context) }]
+//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, run(page, context) }]
 //               What the module checks on the page itself, for what Lighthouse
 //               does not look at: how it reflows at 320 CSS pixels, what a
 //               keyboard can reach. Each runs in the audit worker after
 //               Lighthouse, on the same Chrome, in a fresh page of its own —
 //               laid out as Lighthouse laid it out, unless it asks for another
-//               `viewport` or emulated `media` features — and resolves to
+//               `viewport` or emulated `media` features, with `beforeLoad` run
+//               in the page before any of its scripts — and resolves to
 //               findings. `rules` are the ones it can report: when it fails,
 //               they are what nobody checked. `formFactors` restricts it to
 //               some loads. Probes run on the first load of a page that

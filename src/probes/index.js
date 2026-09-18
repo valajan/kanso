@@ -78,6 +78,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, timeoutMs }
       await page.setViewport({ ...screen(settings), ...probe.viewport });
       if (typeof settings?.emulatedUserAgent === 'string') await page.setUserAgent(settings.emulatedUserAgent);
       if (probe.media) await page.emulateMediaFeatures(probe.media);
+      if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
       await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
       await page.bringToFront();

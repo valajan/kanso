@@ -6,6 +6,7 @@ import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
+import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
 import { runProbes } from '../../src/probes/index.js';
 import { serveDirectory } from '../../src/serve/static.js';
@@ -18,9 +19,10 @@ import { serveDirectory } from '../../src/serve/static.js';
 // ones, carries every pattern that looks like a failure and is not: a table
 // wider than the screen, a code block with its own scrollbar, a carousel, a
 // menu waiting off the screen, a visually hidden label, an ellipsis; a focus
-// ring replaced by a shadow, an underline, a lit-up card, a skip link.
+// ring replaced by a shadow, an underline, a lit-up card, a skip link; motion
+// kept for those who did not ask for less, a fade in its place.
 //
-//   npm run test:probes        (needs Chrome, ~15 s)
+//   npm run test:probes        (needs Chrome, ~20 s)
 
 // Lighthouse's mobile emulation, as a report's configSettings carries it.
 const MOBILE = {
@@ -172,6 +174,32 @@ test('the keyboard walk runs on the desktop load too', async () => {
   assert.equal(summary(result)[0].rule, 'focus-visible');
 });
 
+// --- reduced motion -------------------------------------------------------------------
+
+// What honours the preference: movement kept for those who did not ask for
+// less, a fade in its place, a nudge shorter than a blink, a reveal by opacity.
+test('a page that keeps still when asked reports nothing', async () => {
+  const { accessibility: result } = await probe('motion-calm.html', { modules: only(motion) });
+  assert.deepEqual(summary(result), []);
+});
+
+test('what moves anyway is named: on load, forever, from a script, on scroll, and smooth scrolling', async () => {
+  const { accessibility: result } = await probe('motion-ignored.html', { modules: only(motion) });
+
+  assert.deepEqual(summary(result), [{
+    rule: 'reduced-motion',
+    count: 5,
+    nodes: [
+      'body > main > p.scripted — script animation of transform for 1000ms',
+      'body > main > h1.hero — animation “slide-in” moves transform for 800ms',
+      'body > main > div.spinner — animation “spin” moves transform forever',
+      'body > main > p.reveal — transition of transform for 500ms',
+      'html — scrolls smoothly (scroll-behavior: smooth)',
+    ],
+  }]);
+  assert.equal(result.findings[0].impact, 'moderate');
+});
+
 // --- the harness ----------------------------------------------------------------------
 
 test('a probe that throws or never ends costs its own rules, and the others still run', async () => {
@@ -202,6 +230,7 @@ test('a page that never answers fails every probe, with what went wrong', async 
   assert.deepEqual(result.failures.map(({ probe, rules }) => ({ probe, rules })), [
     { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'] },
     { probe: 'keyboard', rules: ['focus-trap', 'focus-visible', 'focus-obscured'] },
+    { probe: 'motion', rules: ['reduced-motion'] },
   ]);
   assert.match(result.failures[0].error, /ERR_CONNECTION_REFUSED/);
 });

@@ -161,6 +161,7 @@ reports under accessibility, on the same scale:
 | `focus-trap` | pressing Tab from the top, focus goes round part of the page, or stays on one element, and never gets past it (WCAG 2.1.2) — an open modal dialog is left alone | `critical` |
 | `focus-visible` | an element takes focus with nothing on it changing — no outline, ring, border, background or underline, on it or around it — or takes it off the screen, invisible, or folded out of sight (WCAG 2.4.7) | `serious` |
 | `focus-obscured` | a focused element is entirely behind something else: a cookie banner, a sticky bar (WCAG 2.4.11) | `moderate` |
+| `reduced-motion` | with `prefers-reduced-motion: reduce` set, something still moves — on load, as the page is scrolled through, or forever: a transform, a position, a size, or smooth scrolling. Fades and colour changes are left alone | `moderate` |
 
 Each names the element to fix: the box too wide for the screen, the code block
 that neither wraps nor scrolls, the card that hides the end of its lines, the
