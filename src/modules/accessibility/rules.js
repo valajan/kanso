@@ -15,6 +15,19 @@ const IMPACTS = {
   // text runs past an edge that cuts it, and is lost. A carousel peeking at its
   // next slide or a ticker looks the same to the probe, hence a warning.
   'reflow-clip': 'moderate',
+
+  // WCAG 2.1.2, No Keyboard Trap (A). Tab goes round part of the page, or
+  // stays put, and whoever has no mouse cannot get past it. An open modal
+  // dialog, which holds focus on purpose, is not reported.
+  'focus-trap': 'critical',
+  // WCAG 2.4.7, Focus Visible (AA). A keyboard user cannot tell where they
+  // are: nothing changes on the element that has focus, or it is off the
+  // screen or invisible when it gets it.
+  'focus-visible': 'serious',
+  // WCAG 2.4.11, Focus Not Obscured (AA). The focused element is entirely
+  // behind something else — a cookie banner, a sticky bar. Warns: the probe
+  // sees the page as a first visit does, with every banner still open.
+  'focus-obscured': 'moderate',
 };
 
 export function impactOf(rule) {

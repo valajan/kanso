@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus behind a banner</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  /* The second link lands inside the first screen, under the banner: already
+     on the screen, so the browser has no reason to scroll it into view. */
+  .top { height: 620px; }
+  section { height: 900px; }
+  /* A cookie banner fixed to the bottom of the screen, 200 px tall. */
+  .cookie-banner { position: fixed; left: 0; right: 0; bottom: 0; height: 200px; background: #222; color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Under the banner</h1>
+  <section class="top"><a href="#a">A link at the top</a></section>
+  <section><a class="low" href="#b">A link the banner covers</a></section>
+</main>
+<div class="cookie-banner"><p>We use cookies.</p></div>
+</body>
+</html>

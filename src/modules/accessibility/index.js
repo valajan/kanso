@@ -1,4 +1,5 @@
 import { evaluateFindings, extractFindings, firstSample, withProbed } from '../findings.js';
+import { keyboard } from './keyboard.js';
 import { reflow } from './reflow.js';
 
 // Accessibility: the axe rules Lighthouse runs on the page, judged by the
@@ -13,12 +14,13 @@ import { reflow } from './reflow.js';
 // axe reads the page at one size and never touches it. What only shows at
 // another size, or under a keyboard, Kanso's probes check — each in a page of
 // its own, after Lighthouse — and report as findings of this module, on the
-// same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide.
+// same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide,
+// keyboard.js goes through it with the Tab key.
 export default {
   id: 'accessibility',
   label: 'Accessibility',
   categories: ['accessibility'],
-  probes: [reflow],
+  probes: [reflow, keyboard],
 
   extract(lhr, { probed } = {}) {
     return withProbed({ findings: extractFindings(lhr, { category: 'accessibility', impactOf: axeImpact }) }, probed);

@@ -158,9 +158,14 @@ reports under accessibility, on the same scale:
 |---|---|---|
 | `reflow-scroll` | laid out 320 CSS pixels wide — a 1280 px window zoomed to 400% — the page scrolls sideways (WCAG 1.4.10) | `serious` |
 | `reflow-clip` | at that width, text runs past an edge that cuts it — an `overflow: hidden` box, a fixed bar, the screen — and is lost | `moderate` |
+| `focus-trap` | pressing Tab from the top, focus goes round part of the page, or stays on one element, and never gets past it (WCAG 2.1.2) — an open modal dialog is left alone | `critical` |
+| `focus-visible` | an element takes focus with nothing on it changing — no outline, ring, border, background or underline, on it or around it — or takes it off the screen, invisible, or folded out of sight (WCAG 2.4.7) | `serious` |
+| `focus-obscured` | a focused element is entirely behind something else: a cookie banner, a sticky bar (WCAG 2.4.11) | `moderate` |
 
 Each names the element to fix: the box too wide for the screen, the code block
-that neither wraps nor scrolls, the card that hides the end of its lines. What
+that neither wraps nor scrolls, the card that hides the end of its lines, the
+button whose focus style was removed, the menu link that takes focus while the
+menu is closed. What
 WCAG lets need two dimensions — images, video, maps, data tables — is left out,
 and so is anything that scrolls on its own or is truncated on purpose with an
 ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next

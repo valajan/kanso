@@ -121,10 +121,12 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   judged.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: a rule is broken or it is not, so nothing
-  is averaged and one load settles it. It also carries Kanso's first probe,
-  `reflow.js` — the page laid out 320 CSS pixels wide (WCAG 1.4.10):
+  is averaged and one load settles it. It also carries Kanso's probes:
+  `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
-  `rules.js` ranks Kanso's own rules on axe's scale. `seo/` and
+  `keyboard.js` presses Tab from the top until focus leaves the page —
+  `focus-trap`, `focus-visible`, `focus-obscured`. `rules.js` ranks Kanso's own
+  rules on axe's scale. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

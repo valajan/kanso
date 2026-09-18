@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus that stays put</title>
+<style>body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }</style>
+</head>
+<body>
+<main>
+  <h1>An editor that takes the Tab key for itself</h1>
+  <p><a href="#before">A link before the editor</a></p>
+  <textarea class="editor" rows="4" cols="30"></textarea>
+  <p><a href="#after">A link after the editor, never reached</a></p>
+</main>
+<script>
+  document.querySelector('.editor').addEventListener('keydown', (event) => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      event.target.setRangeText('\t', event.target.selectionStart, event.target.selectionEnd, 'end');
+    }
+  });
+</script>
+</body>
+</html>
