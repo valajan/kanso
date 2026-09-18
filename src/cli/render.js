@@ -3,7 +3,7 @@ import { FORM_FACTORS } from '../core/audit.js';
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
-import { evaluateStatuses } from '../modules/performance/status.js';
+import { evaluateStatuses, failThreshold } from '../modules/performance/status.js';
 
 const CODES = {
   reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
@@ -76,7 +76,7 @@ function renderModule(id, moduleResult, config, c) {
 }
 
 function renderScores(moduleResult, config, c) {
-  const refLabel = moduleResult.referenceKind === 'budgets' ? 'budget' : 'baseline';
+  const againstBaseline = moduleResult.referenceKind === 'baseline';
   const lines = [];
 
   for (const [formFactor, { current, reference }] of Object.entries(moduleResult.scores)) {
@@ -86,8 +86,8 @@ function renderScores(moduleResult, config, c) {
       continue;
     }
     const budget = config.budgets ?? {};
-    const rows = metricRows(current, reference, budget, refLabel);
-    lines.push(...table(rows, ['left', 'right', 'right', 'right', 'left'], c));
+    const rows = metricRows(current, againstBaseline ? reference : null, budget);
+    lines.push(...table(rows, ['left', ...rows[0].slice(1, -1).map(() => 'right'), 'left'], c));
 
     const statuses = evaluateStatuses(roundScore(current), budget);
     const why = diagnosticRows(moduleResult.diagnostics?.[formFactor]?.current, statuses);
@@ -142,20 +142,27 @@ function describe(element) {
   return elementWhere(element) + (detail ? `  ${detail}` : '');
 }
 
-function metricRows(current, reference, budget, refLabel) {
+// One row per metric: the budget it is judged against, always — and when a
+// baseline was loaded, that page's value too, which is then what Δ measures
+// from. Without the budget beside a baseline, a metric equal to the baseline
+// can read `fail` with nothing on the line saying why.
+function metricRows(current, baseline, budget) {
   const scored = roundScore(current);
-  const ref = roundScore(reference);
+  const ref = roundScore(baseline);
   const statuses = evaluateStatuses(scored, budget);
 
-  const header = [{ text: '' }, { text: refLabel, color: 'dim' }, { text: 'current', color: 'dim' }, { text: 'Δ', color: 'dim' }, { text: '' }];
+  const dim = (text) => ({ text, color: 'dim' });
+  const header = [dim(''), dim('budget'), ...(baseline ? [dim('baseline')] : []), dim('current'), dim('Δ'), dim('')];
   return [header, ...METRICS.map((metric) => {
     const value = scored[metric.key];
-    const against = ref?.[metric.key] ?? null;
+    const threshold = failThreshold(metric, budget);
+    const against = baseline ? ref?.[metric.key] ?? null : threshold;
     const delta = value != null && against != null ? value - against : null;
     const level = statuses[metric.key];
     return [
       { text: metric.label },
-      { text: format(metric, against) },
+      { text: format(metric, threshold) },
+      ...(baseline ? [{ text: format(metric, against) }] : []),
       { text: format(metric, value), color: LEVEL_COLOR[level] },
       { text: delta == null ? '—' : (delta >= 0 ? '+' : '') + format(metric, delta) },
       { text: level, color: LEVEL_COLOR[level] },

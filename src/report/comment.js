@@ -1,7 +1,7 @@
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
-import { evaluateStatuses, metricsWithStatus } from '../modules/performance/status.js';
+import { evaluateStatuses, failThreshold, metricsWithStatus } from '../modules/performance/status.js';
 
 const STATUS_ICON = { pass: '✅', warn: '⚠️', fail: '❌' };
 
@@ -76,29 +76,44 @@ function findingParts(modules) {
 
 // Renders one form-factor section: heading + per-metric comparison table
 // (reference vs. PR, with delta and a pass/warn/fail/improvement icon).
-function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main', currentLabel = 'PR') {
+//
+// The icon is read against the budget, whatever the reference column holds. So
+// the budget has a column of its own whenever a baseline takes the reference
+// one: without it, a PR scoring what main scores can show ❌ with nothing on
+// the line saying why. Against budgets alone, the reference column is the
+// budget, and Δ the distance to it.
+function renderSection(formFactor, prScore, refScore, budget, { refLabel = 'main', currentLabel = 'PR', referenceKind = 'baseline' } = {}) {
   const { icon, label } = FORM_FACTOR_LABELS[formFactor];
 
   if (prScore == null) {
     return `### ${icon} ${label}\n\n_Lighthouse audit failed — no results to report._\n`;
   }
 
+  const againstBaseline = referenceKind === 'baseline';
   const pr = roundScore(prScore);
   const ref = roundScore(refScore);
   const statuses = evaluateStatuses(pr, budget);
 
   const rows = METRICS.map((metric) => {
+    const threshold = failThreshold(metric, budget);
     const prVal = pr[metric.key];
-    const refVal = ref?.[metric.key] ?? null;
+    const refVal = againstBaseline ? ref?.[metric.key] ?? null : threshold;
     const delta = prVal != null && refVal != null ? prVal - refVal : null;
 
-    const deltaCell = delta != null ? formatDelta(metric, delta) : '—';
-    const iconCell = STATUS_ICON[statuses[metric.key]];
-
-    return `| ${metric.label} | ${formatValue(metric, refVal)} | ${formatValue(metric, prVal)} | ${deltaCell} | ${iconCell} |`;
+    const cells = [
+      metric.label,
+      ...(againstBaseline ? [formatValue(metric, threshold)] : []),
+      formatValue(metric, refVal),
+      formatValue(metric, prVal),
+      delta != null ? formatDelta(metric, delta) : '—',
+      STATUS_ICON[statuses[metric.key]],
+    ];
+    return `| ${cells.join(' | ')} |`;
   });
 
-  const table = [`| Metric | ${refLabel} | ${currentLabel} | Δ | |`, '|---|---|---|---|---|', ...rows].join('\n');
+  // The last column holds the icon, and has no heading.
+  const headings = ['Metric', ...(againstBaseline ? ['budget'] : []), refLabel, currentLabel, 'Δ'];
+  const table = [`| ${headings.join(' | ')} | |`, `|${'---|'.repeat(headings.length + 1)}`, ...rows].join('\n');
 
   return `### ${icon} ${label}\n\n${table}\n`;
 }
@@ -114,6 +129,9 @@ export function formatComment(scores, options = {}) {
 // which is what a CI job summary shows.
 // scores has the shape { mobile: { pr, ref }, desktop: { pr, ref } }.
 // refLabel overrides the reference column header (default 'main', use 'budgets' when comparing against budgets).
+// referenceKind is the performance module's: 'baseline' when the reference is a
+// page, which then gets a budget column beside it; 'budgets' when the budgets
+// are the reference.
 // currentLabel heads the column of the page under audit: the PR's, by default.
 // `header` replaces the line naming what was audited, for a report that is not
 // about a pull request.
@@ -122,7 +140,7 @@ export function formatComment(scores, options = {}) {
 // `detected` distinguishes the two triggers: the webhook path works the preview
 // URL out from a provider's events, while a CI job simply tells us what it just
 // deployed. Claiming detection on the second would be untrue.
-export function formatReport(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main', currentLabel = 'PR', header, detected = true, modules = {} } = {}) {
+export function formatReport(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main', referenceKind = 'baseline', currentLabel = 'PR', header, detected = true, modules = {} } = {}) {
   const headerLine = header ?? (headRef
     ? `\`${headRef}\` → \`${baseRef}\` · ${source}${detected ? ' detected automatically' : ''}`
     : `🔗 URL: ${previewUrl}`);
@@ -133,8 +151,8 @@ export function formatReport(scores, { previewUrl, headRef, baseRef = 'main', so
     : '';
 
   const sections = [
-    renderSection('mobile',  scores.mobile?.pr  ?? null, scores.mobile?.ref  ?? null, budget, refLabel, currentLabel),
-    renderSection('desktop', scores.desktop?.pr ?? null, scores.desktop?.ref ?? null, budget, refLabel, currentLabel),
+    renderSection('mobile',  scores.mobile?.pr  ?? null, scores.mobile?.ref  ?? null, budget, { refLabel, currentLabel, referenceKind }),
+    renderSection('desktop', scores.desktop?.pr ?? null, scores.desktop?.ref ?? null, budget, { refLabel, currentLabel, referenceKind }),
     // Findings are compared against the reference page, whatever the metrics
     // ended up being judged against — the two can differ, since budgets alone
     // can settle performance while accessibility still needs the comparison.

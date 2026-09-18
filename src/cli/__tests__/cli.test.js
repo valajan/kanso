@@ -127,8 +127,23 @@ test('a baseline is audited too, and becomes the comparison column', async () =>
   assert.equal(code, 0);
   assert.equal(runLighthouse.calls.length, 4);
   assert.match(out, /against https:\/\/example\.com\//);
-  assert.match(out, /baseline\s+current/);
-  assert.match(out, /LCP\s+6000ms\s+1500ms\s+-4500ms/);
+  assert.match(out, /budget\s+baseline\s+current/);
+  assert.match(out, /LCP\s+4000ms\s+6000ms\s+1500ms\s+-4500ms/);
+});
+
+// The verdict comes from the budget, the Δ from the baseline: a page no worse
+// than its baseline still fails a budget both miss, and the line says which.
+test('a metric equal to its baseline that fails its budget shows the budget it fails', async () => {
+  const cwd = emptyProject();
+  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\n');
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
+
+  const { code, out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLighthouse, cwd });
+
+  assert.equal(code, 1);
+  assert.match(out, /LCP\s+1000ms\s+1500ms\s+1500ms\s+\+0ms\s+fail/);
+  // A metric the file sets no budget for keeps Kanso's default, shown as such.
+  assert.match(out, /TBT\s+600ms\s+80ms\s+80ms\s+\+0ms\s+pass/);
 });
 
 test('--json prints the result and nothing else', async () => {
@@ -374,7 +389,7 @@ test('a baseline directory is served alongside, and becomes the comparison', asy
 
   assert.equal(code, 0);
   assert.match(out, /against base · /);
-  assert.match(out, /LCP\s+6000ms\s+1500ms\s+-4500ms/);
+  assert.match(out, /LCP\s+4000ms\s+6000ms\s+1500ms\s+-4500ms/);
 });
 
 test('a serve: block Kanso cannot serve is why the audit did not run', async () => {

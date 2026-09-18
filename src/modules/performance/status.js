@@ -11,12 +11,19 @@ export function buildStatus(value, budget, { lowerIsBetter, good, poor }) {
   return 'pass';
 }
 
+// The value past which a metric fails: the repo's budget, or Lighthouse's
+// "poor" boundary when it sets none. What a report shows as the budget, since
+// it is what the verdict was read against.
+export function failThreshold(metric, budget = {}) {
+  return budget[metric.key] ?? metric.poor;
+}
+
 // Evaluates every metric of a rounded score object against a per-metric budget
 // map, returning { [metricKey]: 'pass' | 'warn' | 'fail' }.
 export function evaluateStatuses(roundedScore, budget = {}) {
   const statuses = {};
   for (const metric of METRICS) {
-    statuses[metric.key] = buildStatus(roundedScore[metric.key], budget[metric.key] ?? null, metric);
+    statuses[metric.key] = buildStatus(roundedScore[metric.key], failThreshold(metric, budget), metric);
   }
   return statuses;
 }

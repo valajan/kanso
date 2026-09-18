@@ -194,12 +194,12 @@ against ../main/dist · mobile + desktop · 1 run per page · 18s
 Performance  warn
 
 mobile
-               baseline  current       Δ
-  Performance        96       91      -5  pass
-  LCP            2100ms   2680ms  +580ms  warn
-  TBT              90ms    210ms  +120ms  warn
-  CLS              0.02     0.02   +0.00  pass
-  FCP            1310ms   1400ms   +90ms  pass
+               budget  baseline  current       Δ
+  Performance      49        96       91      -5  pass
+  LCP          4000ms    2100ms   2680ms  +580ms  warn
+  TBT           600ms      90ms    210ms  +120ms  warn
+  CLS            0.25      0.02     0.02   +0.00  pass
+  FCP          3000ms    1310ms   1400ms   +90ms  pass
 
 desktop
   …
@@ -215,9 +215,12 @@ Accessibility  fail
 fail · image-alt
 ```
 
-The `baseline` column replaces the `budget` column, and `Δ` is the gap. Two
-build directories are the fairest comparison there is: Kanso serves both, side
-by side, so the hosting is identical and only the code differs.
+A `baseline` column joins the `budget` one, and `Δ` becomes the gap to the
+baseline. The verdict still comes from the budget: a page that matches its
+baseline fails anyway when both are over budget — and the budget on the same
+line says why. Two build directories are the fairest comparison there is: Kanso
+serves both, side by side, so the hosting is identical and only the code
+differs.
 
 `--baseline` also changes how findings are judged. Without it, Kanso judges
 **the page as it stands**, and everything counts. With it, Kanso judges **what

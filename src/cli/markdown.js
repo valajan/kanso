@@ -15,6 +15,7 @@ export function renderMarkdown({ url, baseline, served = null, result, config = 
   return formatReport(reportScores(perf?.scores), {
     header,
     budget: moduleConfig(config, 'performance').budgets ?? {},
+    referenceKind: perf?.referenceKind,
     refLabel: perf?.referenceKind === 'budgets' ? 'budget' : 'baseline',
     currentLabel: 'current',
     baseRef: 'baseline',

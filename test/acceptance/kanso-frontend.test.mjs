@@ -278,7 +278,9 @@ test('the CLI serves two builds, fails the regressed one, and writes its report'
 
   const report = await readFile(join(workDir, 'cli/report.md'), 'utf8');
   assert.match(report, /🔗 `tbt` against `baseline`/);
-  assert.match(report, /\| TBT \| \d+ms \| \d+ms \| \+\d+ms \| ❌ \|/);
+  // Budget, baseline, current, Δ: the budget is what the ❌ was read against.
+  assert.match(report, /\| Metric \| budget \| baseline \| current \| Δ \| \|/);
+  assert.match(report, /\| TBT \| \d+ms \| \d+ms \| \d+ms \| \+\d+ms \| ❌ \|/);
 });
 
 // --- what the PR ends up with ---------------------------------------------------

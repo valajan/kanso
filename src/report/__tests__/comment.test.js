@@ -21,7 +21,7 @@ test('the comment is the report behind its marker, and the report can name its o
   const options = { headRef: 'feature', baseRef: 'main', source: 'CI', detected: false };
   assert.equal(formatComment(scoresPrOnly, options), `${REPORT_MARKER}\n${formatReport(scoresPrOnly, options)}`);
 
-  const report = formatReport(scoresPrOnly, { header: '🔗 `dist`', refLabel: 'budget', currentLabel: 'current' });
+  const report = formatReport(scoresPrOnly, { header: '🔗 `dist`', refLabel: 'budget', referenceKind: 'budgets', currentLabel: 'current' });
   assert.match(report, /^## Kanso \| Audit Report\n\n🔗 `dist`\n/);
   assert.match(report, /\| Metric \| budget \| current \| Δ \| \|/);
   assert.doesNotMatch(report, /kanso:report/);
@@ -36,10 +36,10 @@ test('renders Mobile and Desktop sections side by side', () => {
   const body = formatComment(scoresPrOnly, { headRef: 'feature' });
   assert.ok(body.includes('### 📱 Mobile'));
   assert.ok(body.includes('### 💻 Desktop'));
-  // mobile perf cell
-  assert.ok(body.includes('| Performance | — | 95 |'));
+  // mobile perf cell: Lighthouse's "poor" boundary as the budget, no main score
+  assert.ok(body.includes('| Performance | 49 | — | 95 |'));
   // desktop perf cell
-  assert.ok(body.includes('| Performance | — | 98 |'));
+  assert.ok(body.includes('| Performance | 49 | — | 98 |'));
 });
 
 test('shows the no-reference note when no form factor has a main score and no budget', () => {
@@ -68,8 +68,9 @@ test('renders deltas and a pass icon when the PR improves on main', () => {
     desktop: { pr: desktopScore, ref: null },
   };
   const body = formatComment(scores, { headRef: 'feature' });
-  assert.ok(body.includes('| Performance | 90 | 95 | +5 | ✅ |'));
-  assert.ok(body.includes('| LCP | 2500ms | 2000ms | -500ms | ✅ |'));
+  assert.ok(body.includes('| Metric | budget | main | PR | Δ | |'));
+  assert.ok(body.includes('| Performance | 49 | 90 | 95 | +5 | ✅ |'));
+  assert.ok(body.includes('| LCP | 4000ms | 2500ms | 2000ms | -500ms | ✅ |'));
 });
 
 test('marks a metric outside its budget as failed', () => {
@@ -80,7 +81,24 @@ test('marks a metric outside its budget as failed', () => {
     desktop: { pr: desktopScore, ref: null },
   };
   const body = formatComment(scores, { headRef: 'feature', budget: { lcp: 4000 } });
-  assert.ok(body.includes('| LCP | 2000ms | 5000ms | +3000ms | ❌ |'));
+  assert.ok(body.includes('| LCP | 4000ms | 2000ms | 5000ms | +3000ms | ❌ |'));
+});
+
+// The icon is read against the budget, the Δ against main: a PR scoring what
+// main scores still fails a budget both miss, and the row says which.
+test('a metric equal to main that fails its budget shows the budget it fails', () => {
+  const scores = {
+    mobile:  { pr: mobileScore, ref: mobileScore },
+    desktop: { pr: desktopScore, ref: desktopScore },
+  };
+  const body = formatComment(scores, { headRef: 'feature', budget: { performance: 101 } });
+  assert.ok(body.includes('| Performance | 101 | 95 | 95 | +0 | ❌ |'));
+});
+
+test('against budgets alone, the budget is the reference column and Δ the distance to it', () => {
+  const body = formatComment(scoresPrOnly, { headRef: 'feature', budget: { lcp: 3000 }, refLabel: 'budgets', referenceKind: 'budgets' });
+  assert.ok(body.includes('| Metric | budgets | PR | Δ | |'));
+  assert.ok(body.includes('| LCP | 3000ms | 2000ms | -1000ms | ✅ |'));
 });
 
 test('reports a failed audit for a missing form factor', () => {

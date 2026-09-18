@@ -243,8 +243,9 @@ test('a complete budget set drops performance from the reference audit', async (
 });
 
 // A partial budget used as the reference column used to crash the renderer on
-// the first metric with no budget set.
-test('a partial budget set renders without a value for the unset metrics', async () => {
+// the first metric with no budget set. Such a metric is judged against
+// Lighthouse's "poor" boundary, and that is the budget the report shows.
+test('a metric with no budget set is shown against the boundary that judges it', async () => {
   const runLighthouse = fakeRunner({ 'https://preview.example': GOOD });
   const forge = fakeForge();
   const orchestrator = build({ runLighthouse, staticConfig: { budgets: { lcp: 2500 } } });
@@ -252,7 +253,7 @@ test('a partial budget set renders without a value for the unset metrics', async
   const result = await orchestrator.runReport(baseArgs(forge));
 
   assert.equal(result.ok, true);
-  assert.match(forge.posted[0], /\| CLS \| — \| 0.01 \| — \|/);
+  assert.match(forge.posted[0], /\| CLS \| 0\.25 \| 0\.01 \| -0\.24 \| ✅ \|/);
 });
 
 test('the inline config wins over the repo file, which is then never fetched', async () => {

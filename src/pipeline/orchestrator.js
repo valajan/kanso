@@ -115,6 +115,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
 
     const baseBody = formatComment(scores, {
       previewUrl, headRef, baseRef, source, budget, detected, modules: result.modules,
+      referenceKind: perf.referenceKind,
       ...(perf.referenceKind === 'budgets' ? { refLabel: 'budgets' } : { refLabel: baseRef ?? 'main' }),
     });
 
