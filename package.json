@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Kanso \u2014 performance and accessibility audits of a web page, from the terminal, your CI, or a pull request",
+  "description": "Kanso \u2014 performance, accessibility, SEO and best-practices audits of a web page, from the terminal, your CI, or a pull request",
   "main": "server.js",
   "bin": {
     "kanso": "bin/kanso.js"

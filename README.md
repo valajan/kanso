@@ -1,9 +1,9 @@
 # Kanso
 
 Kanso loads a page in Chrome, measures what it costs, checks what it breaks, and
-returns a verdict: `pass`, `warn` or `fail`. Performance and accessibility
-today, in a single page load; on mobile **and** desktop; against your own
-thresholds — and it can judge one version of a page against another.
+returns a verdict: `pass`, `warn` or `fail`. Performance, accessibility, SEO and
+best practices today, in a single page load; on mobile **and** desktop; against
+your own thresholds — and it can judge one version of a page against another.
 
 Four ways to run it, from the simplest to the most integrated: **locally**
 while you work, **from your coding agent** so it can measure what it just wrote,
@@ -85,6 +85,20 @@ Accessibility  fail
 
   failing from serious up
 
+SEO  pass
+
+  no findings
+
+  failing from serious up
+
+Best Practices  warn
+
+  errors-in-console  moderate  1 item  warn
+      Description: Failed to load resource: the server responded with a status of 404 (Not Found)
+      http://localhost:4173/favicon.ico:1:0
+
+  failing from serious up
+
 fail · image-alt, color-contrast
 ```
 
@@ -131,6 +145,33 @@ By default a `serious` or `critical` finding fails the audit and the rest warn.
 The first three failing elements are printed under each rule, with what axe says
 is wrong with them — for a contrast failure, the ratio and both colours — so you
 know where to start. `--json` carries every element.
+
+SEO and best practices give you findings too, read and judged exactly the same
+way. Lighthouse ranks none of their rules, so Kanso places each one on the same
+impact scale — which is what lets one `fail_on` mean the same thing everywhere:
+
+| | Fails by default (`serious` and up) | Warns |
+|---|---|---|
+| **SEO** | the page tells search engines not to index it; an invalid canonical | no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text |
+| **Best practices** | not served over HTTPS; a field that refuses a paste | console errors, deprecated APIs, no doctype or charset, permission prompts on load, badly sized images |
+
+The full ranking, with the reason for each rule, is in
+`src/modules/seo/rules.js` and `src/modules/best-practices/rules.js`. A missing
+`<title>` and an image without `alt` belong to both Lighthouse categories;
+Kanso reports them once, under accessibility.
+
+Not every failure is an element: a console error is printed with the script and
+line that logged it, a missing doctype with what Lighthouse says of it.
+
+Two things Lighthouse does not check, and so neither does Kanso yet: a
+**missing** canonical (it only judges one that is there) and Open Graph tags. A
+page with neither scores 100 in SEO.
+
+Best practices also reports, without judging it, what Lighthouse says of the
+security headers the page was served with — CSP, HSTS, COOP, frame control,
+Trusted Types — which it lists without scoring. They are in `--json` and in what
+the MCP server returns: a local static server sends none of those headers, so
+they mean something on a deployed URL, not on `localhost`.
 
 ## 4. Compare two versions
 
@@ -196,10 +237,15 @@ budgets:
   cls: 0.1
   fcp: 1800          # ms
 
-# Accessibility: the impact from which a finding fails the audit.
-# minor | moderate | serious | critical
+# Accessibility, SEO, best practices: the impact from which a finding fails
+# the audit. minor | moderate | serious | critical
 accessibility:
   fail_on: serious
+seo:
+  fail_on: serious
+  ignore: [is-crawlable]   # rules this project is not held to — see below
+best-practices:
+  fail_on: moderate
 
 # Page loads per page and per form factor; the median is kept.
 # It counts page loads, and one load feeds every module — which is why it stays
@@ -210,6 +256,14 @@ runs: 3
 Each module reads the section carrying its name. Performance's `budgets:` live
 at the root, where every `.kanso.yml` written so far keeps them;
 `performance: { budgets: ... }` works too, and wins.
+
+`ignore:` takes the rules a project has decided not to be held to, in any of the
+three findings sections; an ignored rule is neither reported nor judged, and the
+report says it was left out. The case it exists for: Vercel, Netlify and
+Cloudflare Pages send `X-Robots-Tag: noindex` with every preview deployment, so a
+preview audited against production — or against nothing — fails `is-crawlable`
+on every pull request. A preview of the base branch carries the same header,
+which makes the finding inherited and needs no ignore.
 
 Kanso reads the file from the directory you run the command in. Missing values
 fall back to the defaults, which are Lighthouse's "poor" boundaries —
@@ -349,10 +403,10 @@ The audit is `src/core/audit.js`, and it knows nothing about pull requests,
 forges or servers: the CLI, the MCP server and the PR report are three surfaces
 onto the same core.
 
-Each concern Kanso checks is a module under `src/modules/` — performance
-and accessibility today — and every module extracts what it needs from **the
-same page load**, so a second concern costs a Lighthouse category, not another
-audit.
+Each concern Kanso checks is a module under `src/modules/` — performance,
+accessibility, SEO and best practices today — and every module extracts what it
+needs from **the same page load**, so another concern costs a Lighthouse
+category, not another audit.
 
 Adding one is a folder plus one line in `src/modules/index.js`.
 [`CLAUDE.md`](CLAUDE.md) documents the architecture in full.

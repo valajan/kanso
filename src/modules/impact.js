@@ -1,10 +1,15 @@
-// axe-core's impact scale, weakest first. Lighthouse carries it through: every
-// accessibility audit that failed reports the impact of its rule in
-// `details.debugData.impact`.
+// The severity scale of every module that reports findings, weakest first.
 //
-// It is the only severity axis accessibility has. Performance compares a number
-// to a budget; a violated rule has no number, so `serious` is what stands in
-// for "over the line".
+// It is axe-core's: Lighthouse carries it through for accessibility, where every
+// audit that failed reports the impact of its rule in `details.debugData.impact`.
+// SEO and best practices have no scale of their own — Lighthouse weighs their
+// rules for a score and ranks none of them — so each of those modules places its
+// rules on this one (their `rules.js`). One scale is what lets `fail_on` mean the
+// same thing in every section of .kanso.yml.
+//
+// It is the only severity axis findings have. Performance compares a number to
+// a budget; a broken rule has no number, so `serious` is what stands in for
+// "over the line".
 export const IMPACTS = ['minor', 'moderate', 'serious', 'critical'];
 
 // The impact from which a finding fails the audit, unless .kanso.yml says
@@ -13,9 +18,9 @@ export const IMPACTS = ['minor', 'moderate', 'serious', 'critical'];
 // below are mostly hygiene a page should fix without a build failing on it.
 export const DEFAULT_FAIL_ON = 'serious';
 
-// A rule Lighthouse reported without an impact is judged as `serious`: it is a
-// real violation either way, and silently treating it as the mildest thing on
-// the scale would hide it behind the default threshold.
+// A rule reported without an impact is judged as `serious`: it is a real
+// violation either way, and silently treating it as the mildest thing on the
+// scale would hide it behind the default threshold.
 const UNKNOWN = 'serious';
 
 export function impactRank(impact) {

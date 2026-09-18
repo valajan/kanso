@@ -97,9 +97,9 @@ test('renders a findings section with the failing elements folded away', () => {
   });
 
   assert.ok(body.includes('### ♿ Accessibility'));
-  assert.ok(body.includes('| `image-alt` | critical | 2 | new | ❌ |'));
-  assert.ok(body.includes('| `heading-order` | moderate | 1 | new | ⚠️ |'));
-  assert.ok(body.includes('<details><summary>Failing elements</summary>'));
+  assert.ok(body.includes('| `image-alt` | critical | 2 elements | new | ❌ |'));
+  assert.ok(body.includes('| `heading-order` | moderate | 1 element | new | ⚠️ |'));
+  assert.ok(body.includes('<details><summary>What failed, and where</summary>'));
   assert.ok(body.includes('- `img.logo`'));
   assert.ok(body.includes('_failing from `serious` up_'));
 });
@@ -133,7 +133,7 @@ test('the verdict counts the findings alongside the metrics', () => {
     ]),
   });
 
-  assert.ok(body.includes('> ❌ 1 accessibility finding\n'), body.split('\n').slice(0, 6).join('\n'));
+  assert.ok(body.includes('> ❌ 1 Accessibility finding\n'), body.split('\n').slice(0, 6).join('\n'));
 });
 
 // A reader cannot tell a clean page from a page whose findings were all there
@@ -147,15 +147,48 @@ test('a compared section says what was inherited and what was fixed', () => {
     ),
   });
 
-  assert.ok(body.includes('| `label` | serious | 2 | inherited | ✅ |'));
+  assert.ok(body.includes('| `label` | serious | 2 elements | inherited | ✅ |'));
   assert.ok(body.includes('_failing from `serious` up · 1 already on `trunk` · 1 fixed_'));
   assert.ok(!body.includes('<details>'), 'nothing to fix, nothing to unfold');
 });
 
 test('a module that found nothing says so, and the ones that ran nothing say nothing', () => {
   const clean = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility([]) });
-  assert.ok(clean.includes('_No findings — nothing failed an accessibility rule._'));
+  assert.ok(clean.includes('_No findings — every rule checked passed._'));
 
   const absent = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility(null) });
   assert.ok(!absent.includes('### ♿ Accessibility'));
+});
+
+// SEO and best practices report through the same section as accessibility,
+// and their failures are not all DOM elements: a console error is a script and
+// a line, a missing doctype is nothing at all.
+test('a failure with no DOM element is shown by what it names, or by what Lighthouse says of it', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: {
+      'best-practices': { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
+        { rule: 'doctype', title: 'Page lacks the HTML doctype', impact: 'moderate', count: 0, state: null, level: 'warn', nodes: [], detail: 'Document must contain a doctype' },
+        { rule: 'errors-in-console', title: 'Browser errors were logged to the console', impact: 'moderate', count: 1, state: null, level: 'warn', nodes: [
+          { selector: '', snippet: '', label: '', explanation: 'Description: Failed to load resource: 404', url: 'http://localhost:4173/favicon.ico:1:0' },
+        ] },
+      ] },
+    },
+  });
+
+  assert.ok(body.includes('### 🧰 Best Practices'));
+  assert.ok(body.includes('| `doctype` | moderate |  | — | ⚠️ |'), 'a rule broken as a whole has no element count');
+  assert.ok(body.includes('| `errors-in-console` | moderate | 1 item | — | ⚠️ |'));
+  assert.ok(body.includes('**`doctype`** — Page lacks the HTML doctype\nDocument must contain a doctype'));
+  assert.ok(body.includes('Description: Failed to load resource: 404\n- `http://localhost:4173/favicon.ico:1:0`'));
+});
+
+test('each module reporting findings gets its own section, and says what it ignored', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: { seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [], ignore: ['is-crawlable'] } },
+  });
+
+  assert.ok(body.includes('### 🔍 SEO'));
+  assert.ok(body.includes('_No findings — every rule checked passed, ignoring `is-crawlable`._'), 'what was not looked at is said');
 });

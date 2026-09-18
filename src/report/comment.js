@@ -1,4 +1,4 @@
-import { elementHint, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
+import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, metricsWithStatus } from '../modules/performance/status.js';
@@ -62,13 +62,13 @@ function computeVerdict(scores, budget, modules) {
 }
 
 // One part per module that counted something worth a verdict, e.g.
-// "❌ 2 accessibility findings".
+// "❌ 2 Accessibility findings".
 function findingParts(modules) {
   const parts = [];
-  for (const [id, result] of findingModules(modules)) {
+  for (const [mod, result] of findingModules(modules)) {
     for (const level of ['fail', 'warn']) {
       const count = result.findings.filter((f) => f.level === level).length;
-      if (count > 0) parts.push(`${STATUS_ICON[level]} ${count} ${id} finding${count === 1 ? '' : 's'}`);
+      if (count > 0) parts.push(`${STATUS_ICON[level]} ${count} ${mod.label} finding${count === 1 ? '' : 's'}`);
     }
   }
   return parts;
@@ -128,7 +128,7 @@ export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', s
     // Findings are compared against the reference page, whatever the metrics
     // ended up being judged against — the two can differ, since budgets alone
     // can settle performance while accessibility still needs the comparison.
-    ...findingModules(modules).map(([id, result]) => renderFindings(id, result, baseRef)),
+    ...findingModules(modules).map(([mod, result]) => renderFindings(mod, result, baseRef)),
   ].join('\n');
 
   const verdict = computeVerdict(scores, budget, modules);
@@ -145,7 +145,7 @@ ${sections}`;
 // The modules that report findings, in registry order — see src/modules/index.js.
 function findingModules(modules = {}) {
   return MODULES
-    .map((mod) => [mod.id, modules[mod.id]])
+    .map((mod) => [mod, modules[mod.id]])
     .filter(([, result]) => Array.isArray(result?.findings));
 }
 
@@ -153,53 +153,60 @@ function hasFindings(modules) {
   return findingModules(modules).length > 0;
 }
 
-const MODULE_HEADINGS = {
-  accessibility: { icon: '♿', label: 'Accessibility' },
+// A module with no icon of its own gets the magnifier: a new module reports
+// here without this file changing.
+const MODULE_ICONS = {
+  accessibility: '♿',
+  seo: '🔍',
+  'best-practices': '🧰',
 };
 
 // Failing elements listed per rule. A rule broken on forty nodes is one problem
 // to fix, and the first few say where it lives.
 const ELEMENTS_SHOWN = 5;
 
-// One findings section: a row per broken rule, worst first, the failing
-// elements folded into a <details>, and a line saying what it was all judged
+// One findings section: a row per broken rule, worst first, where each one
+// failed folded into a <details>, and a line saying what it was all judged
 // against — without which a reader cannot tell a clean page from a page whose
 // findings were all there before the change.
-function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }, baseRef) {
-  const { icon, label } = MODULE_HEADINGS[id] ?? { icon: '🔎', label: id };
-  const heading = `### ${icon} ${label}`;
+function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [] }, baseRef) {
+  const heading = `### ${MODULE_ICONS[mod.id] ?? '🔎'} ${mod.label}`;
+
+  const ignoring = ignore.length > 0 ? `ignoring ${ignore.map((rule) => code(rule)).join(', ')}` : '';
 
   if (findings.length === 0) {
-    return `${heading}\n\n_No findings — nothing failed an ${label.toLowerCase()} rule._\n`;
+    return `${heading}\n\n_No findings — every rule checked passed${ignoring ? `, ${ignoring}` : ''}._\n`;
   }
 
   const rows = findings.map((finding) => {
     const change = finding.state === 'worse' ? `worse (+${finding.count - finding.baselineCount})` : finding.state ?? '—';
-    return `| \`${finding.rule}\` | ${finding.impact ?? '—'} | ${finding.count} | ${change} | ${STATUS_ICON[finding.level]} |`;
+    return `| \`${finding.rule}\` | ${finding.impact ?? '—'} | ${countLabel(finding)} | ${change} | ${STATUS_ICON[finding.level]} |`;
   });
-  const table = ['| Rule | Impact | Elements | Change | |', '|---|---|---|---|---|', ...rows].join('\n');
+  const table = ['| Rule | Impact | Found | Change | |', '|---|---|---|---|---|', ...rows].join('\n');
 
-  const elements = findings
-    // A rule Lighthouse failed without naming an element has nothing to unfold.
-    .filter((finding) => finding.level !== 'pass' && finding.nodes.length > 0)
+  const explained = findings
+    // A rule that failed as a whole, with nothing to say beyond its title, has
+    // nothing to unfold.
+    .filter((finding) => finding.level !== 'pass' && (finding.nodes.length > 0 || finding.detail))
     .map((finding) => {
       const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
       const shared = sharedExplanation(shown);
       return [
         `**\`${finding.rule}\`** — ${finding.title}`,
+        finding.detail ? escapeMarkdown(finding.detail) : null,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {
           const hint = elementHint(node);
           const detail = hint?.text ? ` “${escapeMarkdown(hint.text)}”` : hint?.tag ? ` ${code(hint.tag)}` : '';
           const reason = shared ? '' : explanationLine(node.explanation);
-          return `- ${code(node.selector || node.snippet)}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
+          return `- ${code(elementWhere(node))}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
         }),
         finding.count > shown.length ? `- _…and ${finding.count - shown.length} more_` : null,
       ].filter(Boolean).join('\n');
     });
 
-  const details = elements.length > 0
-    ? `\n<details><summary>Failing elements</summary>\n\n${elements.join('\n\n')}\n\n</details>\n`
+  const details = explained.length > 0
+    ? `\n<details><summary>What failed, and where</summary>\n\n${explained.join('\n\n')}\n\n</details>\n`
     : '';
 
   const parts = [`failing from \`${failOn}\` up`];
@@ -207,6 +214,7 @@ function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }
     const inherited = findings.filter((finding) => finding.state === 'inherited').length;
     parts.push(`${inherited} already on \`${baseRef}\``, `${fixed.length} fixed`);
   }
+  if (ignoring) parts.push(ignoring);
 
   return `${heading}\n\n${table}\n${details}\n_${parts.join(' · ')}_\n`;
 }

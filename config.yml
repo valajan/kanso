@@ -6,10 +6,11 @@
 # the values defined here, key by key at any depth, so a client can override a
 # single budget or a single module setting without restating the others.
 #
-# Each audit module reads the section carrying its name — `accessibility:`
-# below, and `performance:` if you prefer stating the budgets there. Performance
-# came first and its `budgets:` still live at the root, where every .kanso.yml
-# written so far keeps them; both forms work and the section wins.
+# Each audit module reads the section carrying its name — `accessibility:`,
+# `seo:` and `best-practices:` below, and `performance:` if you prefer stating
+# the budgets there. Performance came first and its `budgets:` still live at the
+# root, where every .kanso.yml written so far keeps them; both forms work and
+# the section wins.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Delay in seconds before running Lighthouse on a PR preview.
@@ -40,6 +41,29 @@ budgets:
 # did; without one — a local `kanso audit` with no --baseline — it judges the
 # page as it stands, and every finding counts.
 accessibility:
+  fail_on: serious
+
+# SEO and Best Practices — the other two Lighthouse categories. They report
+# findings too, judged exactly like accessibility's, on the same impact scale:
+# Lighthouse ranks none of their rules, so Kanso does (src/modules/seo/rules.js,
+# src/modules/best-practices/rules.js). With `serious`, what fails is a page
+# search engines are told to leave out or a broken canonical, a page not served
+# over HTTPS or a field that refuses a paste; the rest warns.
+#
+# Any of the three sections takes an `ignore:` list of rules the project is not
+# held to. Preview hosts — Vercel, Netlify, Cloudflare Pages — send
+# `X-Robots-Tag: noindex` with every preview deployment, so a preview audited
+# against production, or against nothing, fails `is-crawlable` on every PR:
+#
+#   seo:
+#     ignore: [is-crawlable]
+#
+# A preview of the base branch carries the same header, which makes the finding
+# inherited and needs no ignore.
+seo:
+  fail_on: serious
+
+best-practices:
   fail_on: serious
 
 # Number of Lighthouse runs per target, per form factor; the per-metric median

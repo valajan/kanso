@@ -112,3 +112,16 @@ test('repeated loads are not folded — the first sample is the answer', () => {
 test('the module always wants the baseline, whatever the config says', () => {
   assert.equal(accessibility.needsBaseline({ fail_on: 'critical' }), true);
 });
+
+// What makes this module its own: the impact of a rule is the one axe gave it.
+test('a rule is ranked by the impact axe gave it', () => {
+  const { findings } = accessibility.extract({
+    categories: { accessibility: { auditRefs: [{ id: 'color-contrast' }, { id: 'aria-valid-attr' }] } },
+    audits: {
+      'color-contrast': { score: 0, title: 't', details: { items: [], debugData: { type: 'debugdata', impact: 'serious' } } },
+      'aria-valid-attr': { score: 0, title: 't', details: { items: [] } },
+    },
+  });
+
+  assert.deepEqual(findings.map((f) => f.impact), ['serious', null]);
+});
