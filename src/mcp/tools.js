@@ -40,6 +40,8 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'it — each failing element with its selector, its opening tag, its text and what is wrong with it '
       + '(for a contrast failure, the ratio and both colours); a failure that is no DOM element, such as a '
       + 'console error, carries the URL and line it names. '
+      + 'Each performance metric is judged against its budget, given in `budgets`; a baseline is what it is '
+      + 'compared to, never what it is judged by — a page equal to its baseline fails a budget both miss. '
       + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
       + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
       + 'the unthrottled load, so they tell proportions, not the simulated metrics. '

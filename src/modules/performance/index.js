@@ -3,7 +3,7 @@ import { extractDiagnostics, pickDiagnostics } from './diagnostics.js';
 import { allBudgetsDefined, METRICS, roundScore } from './metrics.js';
 import { medianScores } from './median.js';
 import { detectSignificantRegressions } from './regressions.js';
-import { evaluateStatuses } from './status.js';
+import { effectiveBudgets, evaluateStatuses } from './status.js';
 
 // Performance: the five Lighthouse metrics (score, LCP, TBT, CLS, FCP), judged
 // against per-repo budgets and compared to a baseline.
@@ -39,6 +39,11 @@ export default {
   },
 
   // Returns, beyond `levels`:
+  // - budgets:       { [metric]: threshold }, what every level was read
+  //                  against — the repo's budget, or Lighthouse's "poor"
+  //                  boundary where it sets none. The same on both form
+  //                  factors, and there whether or not a baseline was loaded:
+  //                  a baseline gives Δ its meaning, never the verdict.
   // - scores:        { [formFactor]: { current, reference } }
   // - referenceKind: 'baseline', or 'budgets' when no baseline was loaded and
   //                  the budgets stand in as the comparison column
@@ -71,6 +76,7 @@ export default {
 
     return {
       levels: combineLevels(statusesByForm),
+      budgets: effectiveBudgets(budget),
       scores,
       referenceKind: baselineAudited ? 'baseline' : 'budgets',
       diagnostics,

@@ -18,6 +18,12 @@ export function failThreshold(metric, budget = {}) {
   return budget[metric.key] ?? metric.poor;
 }
 
+// Every metric's fail threshold, { [metricKey]: value }: the budgets as the
+// verdict read them, including the ones the repo left to Lighthouse.
+export function effectiveBudgets(budget = {}) {
+  return Object.fromEntries(METRICS.map((metric) => [metric.key, failThreshold(metric, budget)]));
+}
+
 // Evaluates every metric of a rounded score object against a per-metric budget
 // map, returning { [metricKey]: 'pass' | 'warn' | 'fail' }.
 export function evaluateStatuses(roundedScore, budget = {}) {

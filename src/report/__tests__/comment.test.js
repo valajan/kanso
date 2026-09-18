@@ -182,9 +182,27 @@ test('a compared section says what was inherited and what was fixed', () => {
   assert.ok(!body.includes('<details>'), 'nothing to fix, nothing to unfold');
 });
 
+// A change that fixed every finding leaves an empty section, which still has
+// to say what was fixed — and has nothing to say of what was already there.
+test('an emptied section says what was fixed', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature', baseRef: 'trunk',
+    modules: accessibility([], { comparedToBaseline: true, fixed: [{ rule: 'link-name', title: 't', impact: 'serious', count: 1 }] }),
+  });
+
+  assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up · 1 fixed_'));
+  assert.ok(!body.includes('already on'));
+});
+
+test('the verdict names metrics as the tables do', () => {
+  const failing = { mobile: { pr: { ...mobileScore, performance: 40, lcp: 5000, tbt: 300 }, ref: null }, desktop: { pr: desktopScore, ref: null } };
+  const body = formatComment(failing, { headRef: 'feature' });
+  assert.ok(body.includes('> ❌ Performance, LCP failed · ⚠️ TBT warning'));
+});
+
 test('a module that found nothing says so, and the ones that ran nothing say nothing', () => {
   const clean = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility([]) });
-  assert.ok(clean.includes('_No findings — every rule checked passed._'));
+  assert.ok(clean.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up_'));
 
   const absent = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility(null) });
   assert.ok(!absent.includes('### ♿ Accessibility'));
@@ -220,5 +238,5 @@ test('each module reporting findings gets its own section, and says what it igno
   });
 
   assert.ok(body.includes('### 🔍 SEO'));
-  assert.ok(body.includes('_No findings — every rule checked passed, ignoring `is-crawlable`._'), 'what was not looked at is said');
+  assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up · ignoring `is-crawlable`_'), 'what was not looked at is said');
 });

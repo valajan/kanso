@@ -1,6 +1,6 @@
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { MODULES } from '../modules/index.js';
-import { METRICS, roundScore } from '../modules/performance/metrics.js';
+import { getMetric, METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, failThreshold, metricsWithStatus } from '../modules/performance/status.js';
 
 const STATUS_ICON = { pass: '✅', warn: '⚠️', fail: '❌' };
@@ -49,12 +49,15 @@ function computeVerdict(scores, budget, modules) {
     allStatuses.push(statuses);
   }
 
-  const failKeys = [...new Set(allStatuses.flatMap((s) => metricsWithStatus(s, 'fail')))];
-  const warnKeys = [...new Set(allStatuses.flatMap((s) => metricsWithStatus(s, 'warn')))];
+  // Named as the tables name them, not by their keys.
+  const labels = (level) => [...new Set(allStatuses.flatMap((s) => metricsWithStatus(s, level)))]
+    .map((key) => getMetric(key).label);
+  const failed = labels('fail');
+  const warned = labels('warn');
 
   const parts = [];
-  if (failKeys.length > 0) parts.push(`❌ ${failKeys.join(', ')} failed`);
-  if (warnKeys.length > 0) parts.push(`⚠️ ${warnKeys.join(', ')} warning`);
+  if (failed.length > 0) parts.push(`❌ ${failed.join(', ')} failed`);
+  if (warned.length > 0) parts.push(`⚠️ ${warned.join(', ')} warning`);
   parts.push(...findingParts(modules));
 
   if (parts.length > 0) return `> ${parts.join(' · ')}\n`;
@@ -207,10 +210,22 @@ const ELEMENTS_SHOWN = 5;
 function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [] }, baseRef) {
   const heading = `### ${MODULE_ICONS[mod.id] ?? '🔎'} ${mod.label}`;
 
-  const ignoring = ignore.length > 0 ? `ignoring ${ignore.map((rule) => code(rule)).join(', ')}` : '';
+  // What it was all judged against, found or not: without it, a section with
+  // nothing left in it cannot say that the change fixed what was there. How
+  // many findings were already there is only worth saying when there are some.
+  const parts = [`failing from \`${failOn}\` up`];
+  if (comparedToBaseline) {
+    if (findings.length > 0) {
+      const inherited = findings.filter((finding) => finding.state === 'inherited').length;
+      parts.push(`${inherited} already on \`${baseRef}\``);
+    }
+    parts.push(`${fixed.length} fixed`);
+  }
+  if (ignore.length > 0) parts.push(`ignoring ${ignore.map((rule) => code(rule)).join(', ')}`);
+  const judged = `_${parts.join(' · ')}_`;
 
   if (findings.length === 0) {
-    return `${heading}\n\n_No findings — every rule checked passed${ignoring ? `, ${ignoring}` : ''}._\n`;
+    return `${heading}\n\n_No findings — every rule checked passed._\n\n${judged}\n`;
   }
 
   const rows = findings.map((finding) => {
@@ -244,14 +259,7 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
     ? `\n<details><summary>What failed, and where</summary>\n\n${explained.join('\n\n')}\n\n</details>\n`
     : '';
 
-  const parts = [`failing from \`${failOn}\` up`];
-  if (comparedToBaseline) {
-    const inherited = findings.filter((finding) => finding.state === 'inherited').length;
-    parts.push(`${inherited} already on \`${baseRef}\``, `${fixed.length} fixed`);
-  }
-  if (ignoring) parts.push(ignoring);
-
-  return `${heading}\n\n${table}\n${details}\n_${parts.join(' · ')}_\n`;
+  return `${heading}\n\n${table}\n${details}\n${judged}\n`;
 }
 
 // axe writes plain text, and a stray `<` or `*` in it would be read as markup.

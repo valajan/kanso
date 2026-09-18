@@ -219,8 +219,12 @@ function renderFindings(moduleResult, c) {
 function summary({ findings, fixed = [], comparedToBaseline, failOn, ignore = [] }) {
   const parts = [`failing from ${failOn} up`];
   if (comparedToBaseline) {
-    const inherited = findings.filter((f) => f.state === 'inherited').length;
-    parts.push(`${inherited} already in the baseline`, `${fixed.length} fixed`);
+    // Only worth counting when there is something to count.
+    if (findings.length > 0) {
+      const inherited = findings.filter((f) => f.state === 'inherited').length;
+      parts.push(`${inherited} already in the baseline`);
+    }
+    parts.push(`${fixed.length} fixed`);
   }
   if (ignore.length > 0) parts.push(`ignoring ${ignore.join(', ')}`);
   return parts.join(' · ');

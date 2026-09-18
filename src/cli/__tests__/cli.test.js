@@ -255,6 +255,17 @@ test('a finding the baseline already has does not fail the audit', async () => {
   assert.match(out, /1 already in the baseline · 0 fixed/);
 });
 
+test('a change that fixed every finding says so, with nothing already there to count', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: findings() },
+    'https://example.com/': { performance: GOOD, accessibility: findings(['color-contrast', 'serious', 3]) },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLighthouse });
+
+  assert.match(out, /Accessibility\s+pass\s+no findings\s+failing from serious up · 1 fixed\n/);
+});
+
 // A missing alt is a missing alt, so it is said once; contrast ratios differ
 // from one element to the next, so each gets its own.
 test('what is wrong is printed once for the rule, or under each element when it differs', async () => {
