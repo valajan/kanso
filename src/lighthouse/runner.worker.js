@@ -58,7 +58,10 @@ async function audit({ url, formFactor, moduleIds }) {
       throw new Error(`${runtimeError.code}: ${runtimeError.message}`);
     }
 
-    return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr)]));
+    // The artifacts stay in this thread: a module keeps what it needs of them
+    // in its sample, which is all that crosses back.
+    const context = { artifacts: result.artifacts };
+    return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr, context)]));
   } finally {
     chrome.kill();
   }

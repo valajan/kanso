@@ -246,10 +246,13 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
         finding.detail ? escapeMarkdown(finding.detail) : null,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {
+          const where = elementWhere(node);
+          const reason = shared ? '' : explanationLine(node.explanation);
+          // A tag the page lacks is nowhere: its explanation is all there is.
+          if (!where) return reason ? `- ${escapeMarkdown(reason)}` : null;
           const hint = elementHint(node);
           const detail = hint?.text ? ` “${escapeMarkdown(hint.text)}”` : hint?.tag ? ` ${code(hint.tag)}` : '';
-          const reason = shared ? '' : explanationLine(node.explanation);
-          return `- ${code(elementWhere(node))}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
+          return `- ${code(where)}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
         }),
         finding.count > shown.length ? `- _…and ${finding.count - shown.length} more_` : null,
       ].filter(Boolean).join('\n');

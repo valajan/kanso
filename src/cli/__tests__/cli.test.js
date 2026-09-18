@@ -340,6 +340,24 @@ test('a failure with no element is printed by what it names, or what Lighthouse 
   assert.match(out, /Description: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
 });
 
+// A tag the page lacks is nowhere: it is printed by its explanation alone,
+// rather than under an empty place.
+test('a missing tag is printed by what is missing', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': {
+      performance: GOOD,
+      seo: { findings: [{ rule: 'open-graph', impact: 'minor', count: 2, title: 't', nodes: [
+        { selector: '', snippet: '', label: '', explanation: 'og:description is missing' },
+        { selector: 'head > meta', snippet: '<meta property="og:image" content="/og.png">', label: '', explanation: 'og:image is not an absolute URL: /og.png' },
+      ] }] },
+    },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.match(out, /open-graph\s+minor\s+2 items\s+warn\n\s+og:description is missing\n\s+head > meta  <meta property="og:image" content="\/og\.png">\n\s+og:image is not an absolute URL: \/og\.png\n/);
+});
+
 // --- serving the build ------------------------------------------------------
 
 // A project with its build on disk, as `npm run build` leaves it.

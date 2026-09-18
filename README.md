@@ -156,7 +156,7 @@ impact scale — which is what lets one `fail_on` mean the same thing everywhere
 
 | | Fails by default (`serious` and up) | Warns |
 |---|---|---|
-| **SEO** | the page tells search engines not to index it; an invalid canonical | no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text |
+| **SEO** | the page tells search engines not to index it; an invalid canonical | no canonical at all, no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text, missing Open Graph tags |
 | **Best practices** | not served over HTTPS; a field that refuses a paste | console errors, deprecated APIs, no doctype or charset, permission prompts on load, badly sized images |
 
 The full ranking, with the reason for each rule, is in
@@ -167,9 +167,13 @@ Kanso reports them once, under accessibility.
 Not every failure is an element: a console error is printed with the script and
 line that logged it, a missing doctype with what Lighthouse says of it.
 
-Two things Lighthouse does not check, and so neither does Kanso yet: a
-**missing** canonical (it only judges one that is there) and Open Graph tags. A
-page with neither scores 100 in SEO.
+Two SEO rules are Kanso's own, from the same page load: Lighthouse judges a
+canonical that is there but says nothing of a **missing** one, and ignores Open
+Graph tags — a page with neither scores 100. Kanso reports `canonical-missing`
+when the page names no canonical URL, in its head or in a `Link` header, and
+`open-graph` when a link preview would lack its title, its text or its image —
+or when `og:image` is a relative URL, which the sites fetching it cannot
+resolve. Both warn by default.
 
 Best practices also reports, without judging it, what Lighthouse says of the
 security headers the page was served with — CSP, HSTS, COOP, frame control,

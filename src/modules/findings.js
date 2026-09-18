@@ -24,7 +24,8 @@ import { impactRank, parseFailOn, reaches } from './impact.js';
 //                the error
 //
 // Not every failure has a DOM element — a console error has a script, a link
-// with vague text has a target — so any of the first four can be empty.
+// with vague text has a target — so any of the first four can be empty. A tag
+// the page lacks altogether has nothing but its explanation.
 //
 // While extracting, an element also carries `path`, its position in the DOM:
 // the one thing that tells two elements apart. `aggregate` uses it, and drops it.
@@ -146,6 +147,20 @@ function toElement(item, headings) {
 
   element.explanation = lines.join('\n');
   return element;
+}
+
+// An element from a node Lighthouse gathered but did not report — one of its
+// artifacts — for a rule Kanso checks itself. `node` may be null, for what the
+// rule found missing: an element that is nowhere, which only its explanation
+// can describe.
+export function elementFromNode(node, explanation) {
+  return {
+    selector: node?.selector ?? '',
+    snippet: node?.snippet ?? '',
+    label: node?.nodeLabel ?? '',
+    explanation,
+    path: node?.devtoolsNodePath ?? '',
+  };
 }
 
 // A place in a script or a file as Lighthouse writes it: lines one-based,

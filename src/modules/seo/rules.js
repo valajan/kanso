@@ -33,6 +33,15 @@ const IMPACTS = {
   'meta-description': 'moderate',
   // "click here" says nothing of where a link goes, to a crawler or a person.
   'link-text': 'minor',
+
+  // Kanso's own two, which Lighthouse holds but does not report (head.js).
+  //
+  // No canonical at all: the search engine picks which of the URLs the page
+  // answers at to rank — usually the right one, which is why it only warns.
+  'canonical-missing': 'moderate',
+  // No title, text or image for a link preview, or an image a scraper cannot
+  // fetch: the page is shared worse, not ranked worse.
+  'open-graph': 'minor',
 };
 
 // A rule Lighthouse adds after this table was written is reported, and warns

@@ -14,9 +14,12 @@ import seo from './seo/index.js';
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   extract(lhr) → sample
-//     Runs inside the audit worker, once per page load. The sample crosses a
-//     thread boundary, so keep only what the module needs.
+//   extract(lhr, { artifacts }) → sample
+//     Runs inside the audit worker, once per page load. `lhr` is the Lighthouse
+//     report; `artifacts` is what Lighthouse gathered from the page to run its
+//     audits, for the facts it holds and does not report — the page's meta
+//     tags, say. The sample crosses a thread boundary, so keep only what the
+//     module needs.
 //
 //   combine(samples) → data
 //     Folds the samples of repeated loads into one result: a noisy measure

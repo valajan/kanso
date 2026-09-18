@@ -201,8 +201,14 @@ function renderFindings(moduleResult, c) {
     const shared = sharedExplanation(shown);
     if (shared) lines.push('      ' + shared);
     for (const node of shown) {
-      lines.push('      ' + c('dim', describe(node)));
+      const where = describe(node);
       const explanation = shared ? '' : explanationLine(node.explanation);
+      // A tag the page lacks is nowhere: its explanation is all there is.
+      if (!where) {
+        if (explanation) lines.push('      ' + explanation);
+        continue;
+      }
+      lines.push('      ' + c('dim', where));
       if (explanation) lines.push('        ' + explanation);
     }
     const rest = finding.count - shown.length;

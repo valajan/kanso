@@ -116,7 +116,10 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   is the one severity scale, axe's. What each keeps to itself is where a rule's
   impact comes from: axe gives one; for SEO and best practices, which Lighthouse
   does not rank, `rules.js` places each rule on axe's scale. SEO leaves
-  `document-title` and `image-alt` to accessibility, and best practices also
+  `document-title` and `image-alt` to accessibility, and adds two rules of its
+  own from what Lighthouse holds but does not report (`head.js`): a missing
+  canonical, and the Open Graph tags a link preview needs — `extract` gets
+  Lighthouse's artifacts as well as its report, for that. Best practices also
   passes through, unjudged, what Lighthouse says of the security headers
   without scoring them
 - `cli/` — the local surface. `index.js` parses the command line,
