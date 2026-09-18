@@ -1,0 +1,81 @@
+# Kanso in your own runner: build the pull request and its base branch, and
+# judge the one against the other. Nothing to host, no token, no permission to
+# grant — the report lands in the job summary, and the job fails on a
+# regression. A pull request from a fork runs it exactly the same.
+#
+# Both builds are served by Kanso itself, from their directories, on the same
+# runner and the same Chrome: the comparison isolates the change, not two
+# hostings. That needs a static build (Vite, Astro, Nuxt generate, Next export…).
+# A project that needs its own server — `serve: { command, url }` in .kanso.yml
+# — is audited the same way against a deployed baseline instead: see the
+# variants at the end.
+name: Kanso
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push makes the previous audit irrelevant.
+concurrency:
+  group: kanso-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      # The pull request and its base, side by side, so neither build sees the
+      # other's files. The build runs the pull request's code: keep the token
+      # out of its reach.
+      - uses: actions/checkout@v7
+        with:
+          path: head
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # Kanso needs Node 22.19 or later.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            head/package-lock.json
+            base/package-lock.json
+
+      - name: Build the base branch
+        working-directory: base
+        run: npm ci && npm run build
+      - name: Build the pull request
+        working-directory: head
+        run: npm ci && npm run build
+
+      - uses: valajan/kanso-api@main
+        with:
+          working-directory: head
+          url: dist
+          baseline: ../base/dist
+
+# Variants of the last step:
+#
+#   Against production, or the base branch's own preview deployment — the only
+#   way to compare a project Kanso serves with its command:
+#
+#       - uses: valajan/kanso-api@main
+#         with:
+#           baseline: https://example.com
+#
+#   Against the budgets alone, with every finding the page carries counting —
+#   the page as it stands rather than what the change did to it:
+#
+#       - uses: valajan/kanso-api@main
+#         with:
+#           url: dist
+#
+#   With `serve:` in .kanso.yml, `url` can be left out: Kanso serves the project
+#   as the file says, on this runner as on a developer's machine.

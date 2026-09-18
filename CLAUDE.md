@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
+node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
-npm test           # Run all tests (Node 20+ built-in test runner)
+npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:acceptance  # End-to-end suite against ../kanso-frontend (needs Chrome, ~5 min)
 ```
@@ -25,8 +26,15 @@ GitHub is faked (`test/acceptance/fake-github.mjs`), so no PR is touched. It run
 in CI through `.github/workflows/acceptance.yml`, which needs the
 `FRONTEND_REPO_TOKEN` secret to check out the private frontend repo. Set
 `KANSO_ACCEPTANCE_SKIP_BUILD=1` to reuse an existing `dist/` while iterating.
+The suite also runs the CLI on two of those builds, as directories, the way the
+GitHub Action does.
 
-Requires Node.js >=20. No build step — all files are run directly with Node.
+The GitHub Action at the repo root (`action.yml`) has its own self-test,
+`.github/workflows/action.yml`: it runs the action from the checkout on the
+page in `test/action/`, once passing and once under a budget no page meets.
+
+Requires Node.js >=22.19 — Lighthouse 13's floor. No build step — all files are
+run directly with Node.
 
 ## Architecture
 
@@ -36,8 +44,11 @@ surface onto it.
 
 Three surfaces exist today:
 
-- **the CLI** (`bin/kanso.js`) — `kanso audit <url>`, on a developer's machine,
-  against a local build. No server, no credentials, no network but the page.
+- **the CLI** (`bin/kanso.js`) — `kanso audit <url | dir>`, on a developer's
+  machine, against a local build. No server, no credentials, no network but the
+  page. The **GitHub Action** (`action.yml`) is this CLI run in a client's own
+  runner: it writes the Markdown report to the job summary and fails the job on
+  the verdict, with no token and no permission.
 - **the MCP server** (`kanso mcp`) — the same audit over stdio, so the agent
   that wrote the code can measure it. Facts only: in MCP the host is the model,
   so nothing here calls one.
@@ -67,6 +78,14 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `index.js` documents the interface and registers adapters; `github.js`
   implements it. Nothing else in the codebase calls `octokit`.
 - `security/` — `url-guard.js` (SSRF), `rate-limit.js` (token bucket)
+- `serve/` — what the local surfaces can audit besides a URL: a directory of
+  built files (`static.js`, loopback, a free port, gzip), or the command a
+  project serves itself with (`command.js`, started in its own process group,
+  waited for, stopped with everything it spawned). `index.js` reads a target
+  named on the command line or in a tool call, reads the `serve:` block of
+  `.kanso.yml`, and opens a page and its baseline for the length of one audit.
+  The core only ever sees a URL. **The server never comes here**: a
+  `.kanso.yml` read from a pull request must never get a command run
 - `core/` — **the audit, with no knowledge of PRs, forges or servers.**
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
@@ -101,12 +120,15 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   passes through, unjudged, what Lighthouse says of the security headers
   without scoring them
 - `cli/` — the local surface. `index.js` parses the command line,
-  `audit-command.js` resolves the config and runs `core/audit.js`, `render.js`
-  prints the tables. It never loads `config/env.js`: that validates GitHub App
-  credentials a developer auditing localhost does not have. The exit code is
-  the verdict — 0 audited and clean, 1 audited and over `--fail-on`, 2 the
-  audit could not run — which is what makes it usable in a pre-commit hook or a
-  CI job. `--json` prints the audit result and nothing else
+  `audit-command.js` resolves the config, serves the target and runs
+  `core/audit.js`, `render.js` prints the tables, `markdown.js` renders the
+  report `--out report.md` writes — the PR comment's body, from
+  `report/comment.js`, under a header naming what was audited. It never loads
+  `config/env.js`: that validates GitHub App credentials a developer auditing
+  localhost does not have. The exit code is the verdict — 0 audited and clean,
+  1 audited and over `--fail-on`, 2 the audit could not run — which is what
+  makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
+  result and nothing else
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv
@@ -133,7 +155,8 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
 
 At the repo root, `integrations/` is what client repos run, not part of the
 server: the CI client (`kanso-audit.mjs`, zero dependencies), a GitHub composite
-action wrapping it, and example GitHub and GitLab pipelines.
+action wrapping it, and example GitHub and GitLab pipelines — plus
+`kanso-action.example.yml`, for the root `action.yml` that needs no server.
 
 ### Main flow
 
@@ -254,6 +277,12 @@ an agent's audit is judged by them too. On the API path the CI sends that file's
 contents inline — one fewer API call, and it works with a token that has no
 contents scope. Config controls budgets, each module's own thresholds, the
 reference URL, `runs`, and whether AI analysis is enabled.
+
+`serve:` says how to serve the project when a local surface is given no page:
+`dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves
+it, and where), relative to the file. The CLI, the MCP server and the Action
+read it; the server path never does — it would be a repository naming a command
+for Kanso's own machine to run.
 
 **Environment variables** (see `.env.example`, validated in `src/config/env.js`):
 

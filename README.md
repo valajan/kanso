@@ -14,7 +14,7 @@ the review.
 
 ## 1. Requirements
 
-- **Node 20 or later** (`node -v`)
+- **Node 22.19 or later** (`node -v`) — Lighthouse 13's floor
 - **Google Chrome** installed — Kanso drives it, it does not ship it
 
 Nothing else: no account, no API key, no server.
@@ -38,22 +38,25 @@ kanso --help
 
 ## 3. Audit a page
 
-Kanso audits **a URL**, wherever it comes from. Locally, serve your build first:
+Build your project, then point Kanso at what the build wrote:
 
 ```bash
 # in your web project
 npm run build
-npx serve dist -l 4173        # or `npm run preview`, depending on your tooling
+kanso audit dist
 ```
 
-Then, in another terminal:
+Kanso serves the directory itself — on a free port, gzipped like a CDN would,
+for the length of the audit — so there is nothing to start and nothing left
+running. It also audits **a URL**, wherever it comes from: a preview server, a
+container, a deployment.
 
 ```bash
-kanso audit http://localhost:4173
+kanso audit http://localhost:3000
 ```
 
 ```
-Kanso · http://localhost:4173/
+Kanso · dist
 against the configured budgets · mobile + desktop · 1 run per page · 9s
 
 Performance  pass
@@ -95,7 +98,7 @@ Best Practices  warn
 
   errors-in-console  moderate  1 item  warn
       Description: Failed to load resource: the server responded with a status of 404 (Not Found)
-      http://localhost:4173/favicon.ico:1:0
+      http://127.0.0.1:52817/favicon.ico:1:0
 
   failing from serious up
 
@@ -104,7 +107,8 @@ fail · image-alt, color-contrast
 
 **Always audit a production build.** A dev server ships unbundled modules, with
 no minification and no cache: the numbers it produces describe nothing your
-visitors will ever see.
+visitors will ever see. And Kanso builds nothing: after a change, build again,
+or the audit measures the build before it.
 
 Kanso returns two kinds of result. Performance gives you **measures** — five
 numbers, read against your budgets:
@@ -179,22 +183,23 @@ The most useful thing it does day to day: *did what I just wrote cost
 anything?*
 
 ```bash
-kanso audit http://localhost:4173 --baseline http://localhost:4174
+kanso audit dist --baseline ../main/dist    # the same project, built from main
+kanso audit dist --baseline https://example.com
 ```
 
 ```
-Kanso · http://localhost:4173/
-against http://localhost:4174/ · mobile + desktop · 1 run per page · 18s
+Kanso · dist
+against ../main/dist · mobile + desktop · 1 run per page · 18s
 
 Performance  warn
 
 mobile
-               baseline  current       Δ
-  Performance        96       91      -5  pass
-  LCP            2100ms   2680ms  +580ms  warn
-  TBT              90ms    210ms  +120ms  warn
-  CLS              0.02     0.02   +0.00  pass
-  FCP            1310ms   1400ms   +90ms  pass
+               budget  baseline  current       Δ
+  Performance      49        96       91      -5  pass
+  LCP          4000ms    2100ms   2680ms  +580ms  warn
+  TBT           600ms      90ms    210ms  +120ms  warn
+  CLS            0.25      0.02     0.02   +0.00  pass
+  FCP          3000ms    1310ms   1400ms   +90ms  pass
 
 desktop
   …
@@ -210,9 +215,12 @@ Accessibility  fail
 fail · image-alt
 ```
 
-The `baseline` column replaces the `budget` column, and `Δ` is the gap. Two
-local builds served on two ports compare the same way — and more fairly, since
-the hosting is then identical on both sides.
+A `baseline` column joins the `budget` one, and `Δ` becomes the gap to the
+baseline. The verdict still comes from the budget: a page that matches its
+baseline fails anyway when both are over budget — and the budget on the same
+line says why. Two build directories are the fairest comparison there is: Kanso
+serves both, side by side, so the hosting is identical and only the code
+differs.
 
 `--baseline` also changes how findings are judged. Without it, Kanso judges
 **the page as it stands**, and everything counts. With it, Kanso judges **what
@@ -251,6 +259,11 @@ best-practices:
 # It counts page loads, and one load feeds every module — which is why it stays
 # at the root of the file rather than under one of them.
 runs: 3
+
+# What `kanso audit` audits when you name no page: the directory your build
+# writes. Relative to this file.
+serve:
+  dir: dist
 ```
 
 Each module reads the section carrying its name. Performance's `budgets:` live
@@ -269,6 +282,24 @@ Kanso reads the file from the directory you run the command in. Missing values
 fall back to the defaults, which are Lighthouse's "poor" boundaries —
 deliberately lax, so nothing is red by surprise on day one.
 
+**`serve:` tells Kanso how to serve the project**, so that `kanso audit`, your
+coding agent and your CI need no URL and no knowledge of your tooling. Either a
+directory of built files, as above, or the command your project serves itself
+with, when it needs its own server — server-side rendering, a worker runtime:
+
+```yaml
+serve:
+  command: npm run preview        # run from this file's directory
+  url: http://localhost:4173      # where the command serves the page
+```
+
+Kanso starts the command, waits until the URL answers, audits it, and stops the
+command and everything it started. It refuses to start one when something
+already answers at that URL: an audit of a server Kanso did not start could be
+an audit of anything. `serve:` is read by the CLI, the MCP server and the
+GitHub Action — never by a Kanso server auditing a pull request, which runs no
+command a repository names.
+
 **The same file serves CI and pull requests.** A local audit and a PR audit
 therefore judge a page by the same numbers.
 
@@ -286,17 +317,59 @@ Which is all a CI job needs:
 
 ```yaml
 - run: npm run build
-- run: npx serve dist -l 4173 &
-- run: kanso audit http://localhost:4173 --fail-on warn
+- run: kanso audit dist --fail-on warn --out kanso.md
 ```
 
 `--fail-on warn` is stricter: it fails on the amber zone rather than waiting for
-red. For a report meant for a script rather than a human, `--json` prints the
-whole result and nothing else:
+red. `--out` writes the report to a file as well — Markdown for a `.md`, the one
+a pull request gets; JSON for a `.json` — and can be given twice. For a report
+meant for a script rather than a human, `--json` prints the whole result and
+nothing else:
 
 ```bash
-kanso audit http://localhost:4173 --json > audit.json
+kanso audit dist --json > audit.json
 ```
+
+### On GitHub Actions
+
+The repository is an action. It runs the CLI in your own runner, with the
+runner's Chrome: nothing to host, no token, no permission to grant. The report
+goes to the job summary, and the job fails on a regression:
+
+```yaml
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build
+- uses: valajan/kanso-api@main
+  with:
+    url: dist                          # or leave it out, with serve: in .kanso.yml
+    baseline: https://example.com      # optional: judge the change, not the page
+```
+
+| Input | |
+|---|---|
+| `url` | a URL or a build directory; defaults to `serve:` |
+| `baseline` | a URL or a build directory to compare against |
+| `runs` | page loads per page and form factor, median kept |
+| `fail-on` | `fail` (default) or `warn` |
+| `config` | another configuration file |
+| `working-directory` | the project, in a monorepo |
+
+Its outputs are `conclusion` (`pass`, `warn`, `fail`, or `error`), and the paths
+of the Markdown `report` and the JSON `result`, for a later step to upload or
+post.
+
+Needing no permission is also why it works on a pull request from a fork, whose
+token cannot write. Do not reach for `pull_request_target` to post a comment
+from there: it runs the fork's code with a token that can write to your
+repository. The safe way is a second workflow, on `workflow_run`, posting a
+report the first one uploaded.
+
+The fairest comparison builds the base branch in the same job and hands both
+directories to Kanso: same runner, same Chrome, same server, only the code
+differs. [`integrations/kanso-action.example.yml`](integrations/kanso-action.example.yml)
+does exactly that.
 
 ## 7. Give it to your coding agent
 
@@ -328,17 +401,23 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url`, optional `baseline` and `runs` | the whole verdict, as JSON |
-| `list_modules` | none | what Kanso checks, and what this project judges it against |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline` and `runs` | the whole verdict, as JSON |
+| `list_modules` | none | what Kanso checks, what this project judges it against, and how it is served |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
 project — so the agent is held to the same numbers you are.
 
 Three things worth knowing before you wire it up:
 
-**Serve the build.** An agent auditing `npm run dev` measures the dev server:
-unbundled modules, no minification, numbers that mean nothing. Build first, serve
-the build, audit that.
+**Serve the build, or let Kanso.** An agent auditing `npm run dev` measures the
+dev server: unbundled modules, no minification, numbers that mean nothing. With
+a `serve:` block in `.kanso.yml`, `audit_page` needs no URL at all — Kanso
+serves the project the way the file says, and the agent never has to work out
+how. Kanso still builds nothing: the agent builds after a change, or it measures
+the build before it.
+
+Because `audit_page` may start the command your `.kanso.yml` names, it is not
+flagged read-only to the host.
 
 **It returns facts, not an opinion.** Kanso never calls a model from here. In MCP
 the host *is* the model, and it has the diff it just wrote in front of it — more
@@ -371,8 +450,9 @@ deployed:
 The details — token permissions, GitLab, waiting for the preview — are in
 [`integrations/README.md`](integrations/README.md).
 
-> A second action that runs the CLI **inside the runner**, with nothing to host,
-> is planned. Today this path needs the instance.
+> For a check in CI with nothing to host, the action of §6 runs the CLI in your
+> own runner instead. This path is for the report in the pull request itself,
+> and for the GitHub App that finds the preview on its own.
 
 ## 9. When the numbers move between runs
 
@@ -395,6 +475,9 @@ Chrome: they fight over the same CPU as the page being measured.
 | `error · ...ChromeLauncher...` | Chrome is missing, or not where Kanso looks for it |
 | Excellent scores, visibly slow page | you audited the dev server, not the build |
 | `configuration file not found` | the path given to `--config` does not exist |
+| `there is no dist directory to serve` | the project has not been built yet |
+| `something already answers at …` | a server is already running where `serve.url` points: stop it, or audit that URL directly |
+| `` `…` did not answer at … within 60s `` | `serve.url` is not where the command serves the page |
 | Huge gaps with `--baseline` | you are comparing two hostings, not two codebases |
 
 ## 11. Under the hood
@@ -416,11 +499,14 @@ Adding one is a folder plus one line in `src/modules/index.js`.
 ## Cheat sheet
 
 ```bash
-kanso audit <url>                        # audit a page
+kanso audit dist                         # audit a build, served by Kanso
+kanso audit <url>                        # audit a page already served
+kanso audit                              # audit what serve: in .kanso.yml says
 kanso audit <url> --baseline <url>       # compare against another version
 kanso audit <url> --runs 3               # 3 loads, median kept
 kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
+kanso audit <url> --out report.md        # also write the Markdown report
 kanso audit <url> --config other.yml     # another configuration file
 kanso mcp                                # serve the audit to a coding agent
 kanso --help

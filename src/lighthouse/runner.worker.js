@@ -27,11 +27,19 @@ const DESKTOP_CONFIG = {
 // of their categories, then each module extracts its own sample.
 async function audit({ url, formFactor, moduleIds }) {
   const modules = moduleIds.map(getModule);
-  const chrome = await chromeLauncher.launch({
+
+  // The Launcher is built by hand rather than through chromeLauncher.launch(),
+  // whose launch starts Chrome, waits for its debugging port, and — when the
+  // port never opens — throws without killing the Chrome it started. That
+  // Chrome then keeps this thread, and so the whole process, alive: a CI job
+  // that runs every audit to the end, then never exits. Killed here in every
+  // case, launch included.
+  const chrome = new chromeLauncher.Launcher({
     chromeFlags: ['--headless=new', '--no-sandbox'],
   });
 
   try {
+    await chrome.launch();
     const formFactorConfig = formFactor === 'desktop' ? DESKTOP_CONFIG : {};
     const result = await lighthouse(url, {
       port: chrome.port,
@@ -52,7 +60,7 @@ async function audit({ url, formFactor, moduleIds }) {
 
     return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr)]));
   } finally {
-    await chrome.kill();
+    chrome.kill();
   }
 }
 

@@ -253,6 +253,36 @@ for (const [index, step] of STEPS.entries()) {
   });
 }
 
+// --- the same judgement, from the command line --------------------------------------
+
+// What the GitHub Action runs in a client's runner: the CLI, handed two build
+// directories it serves itself, writing the report the job summary shows. No
+// Kanso server, no preview host, no GitHub.
+test('the CLI serves two builds, fails the regressed one, and writes its report', { timeout: AUDIT_TIMEOUT_MS }, async (t) => {
+  const res = await run(process.execPath, [
+    join(REPO_ROOT, 'bin/kanso.js'), 'audit', 'tbt',
+    '--baseline', 'baseline',
+    '--config', configPath,
+    '--out', 'cli/report.md',
+    '--out', 'cli/result.json',
+  ], { cwd: workDir });
+  t.diagnostic(res.output.split('\n').filter((line) => /TBT|fail ·|pass ·|warn ·/.test(line)).join('\n'));
+
+  assert.equal(res.code, 1, `the CLI must exit 1 on a regression:\n${res.output.slice(-2000)}`);
+  const result = JSON.parse(await readFile(join(workDir, 'cli/result.json'), 'utf8'));
+  assert.deepEqual(result.served, { url: { dir: 'tbt' }, baseline: { dir: 'baseline' } });
+  assert.equal(result.modules.performance.levels.tbt, 'fail');
+  const findings = Object.values(result.modules).flatMap((mod) => mod.findings ?? []);
+  assert.deepEqual(findings.filter((finding) => finding.level !== 'pass').map((finding) => finding.rule), [],
+    'a finding the baseline build already has was held against the regressed one');
+
+  const report = await readFile(join(workDir, 'cli/report.md'), 'utf8');
+  assert.match(report, /🔗 `tbt` against `baseline`/);
+  // Budget, baseline, current, Δ: the budget is what the ❌ was read against.
+  assert.match(report, /\| Metric \| budget \| baseline \| current \| Δ \| \|/);
+  assert.match(report, /\| TBT \| \d+ms \| \d+ms \| \d+ms \| \+\d+ms \| ❌ \|/);
+});
+
 // --- what the PR ends up with ---------------------------------------------------
 
 test('the PR carries a single report, edited in place on every push', () => {

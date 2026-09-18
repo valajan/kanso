@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -94,8 +94,11 @@ test('announces its protocol version, its capabilities and its tools', async () 
 
   const tools = messages[1].result.tools;
   assert.deepEqual(tools.map((tool) => tool.name), ['audit_page', 'list_modules']);
-  assert.deepEqual(tools[0].inputSchema.required, ['url']);
-  assert.equal(tools[0].annotations.readOnlyHint, true);
+  assert.equal(tools[0].inputSchema.required, undefined, 'a project with a serve: block needs no url');
+  // It may run the command a project serves itself with, which no read-only
+  // hint should vouch for.
+  assert.equal(tools[0].annotations.readOnlyHint, false);
+  assert.equal(tools[1].annotations.readOnlyHint, true);
   assert.equal(tools[0].run, undefined, 'the handler is the server\'s business, not the host\'s');
 });
 
@@ -212,6 +215,56 @@ test('the project configuration is what list_modules reports', async () => {
   assert.deepEqual(payload.modules[3].config, { fail_on: 'serious' });
 });
 
+// --- serving the build ------------------------------------------------------
+
+// A project with its build on disk and a .kanso.yml saying where.
+function builtProject(kansoYml = 'serve:\n  dir: dist\n') {
+  const cwd = emptyProject();
+  mkdirSync(join(cwd, 'dist'));
+  writeFileSync(join(cwd, 'dist', 'index.html'), '<p>the build</p>');
+  writeFileSync(join(cwd, '.kanso.yml'), kansoYml);
+  return cwd;
+}
+
+// Loads what it is pointed at, the way Chrome would.
+async function loading(url, { modules }) {
+  assert.equal(await (await fetch(url)).text(), '<p>the build</p>');
+  return Object.fromEntries(modules.map((mod) => [mod.id, mod.id === 'performance' ? GOOD : null]));
+}
+
+test('with no url, the project is served the way its serve: block says', async () => {
+  const [message] = await session([call(1, 'audit_page', {})], { runLighthouse: loading, cwd: builtProject() });
+
+  assert.equal(message.result.isError, false);
+  const payload = message.result.structuredContent;
+  assert.deepEqual(payload.served, { url: { dir: 'dist' } });
+  assert.match(payload.url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+  await assert.rejects(fetch(payload.url), 'stopped once the audit is done');
+});
+
+test('a directory named in the call is served too', async () => {
+  const cwd = builtProject('');
+
+  const [message] = await session([call(1, 'audit_page', { url: 'dist' })], { runLighthouse: loading, cwd });
+
+  assert.deepEqual(message.result.structuredContent.served, { url: { dir: 'dist' } });
+});
+
+test('a project Kanso could not serve is the tool failing, saying what to do', async () => {
+  const cwd = builtProject('serve:\n  dir: build\n');
+
+  const [message] = await session([call(1, 'audit_page', {})], { cwd });
+
+  assert.equal(message.result.isError, true);
+  assert.match(message.result.content[0].text, /there is no build directory to serve — build the project first/);
+});
+
+test('list_modules says how the project is served', async () => {
+  const [message] = await session([call(1, 'list_modules', {})], { cwd: builtProject() });
+
+  assert.deepEqual(message.result.structuredContent.serve, { dir: 'dist' });
+});
+
 // --- a call that takes a minute ---------------------------------------------
 
 test('progress is reported to a host that asked for it, and only then', async () => {
@@ -233,10 +286,10 @@ test('progress is reported to a host that asked for it, and only then', async ()
 
 test('a call Kanso cannot make is an invalid-params error naming what is wrong', async () => {
   const cases = [
-    [{ name: 'audit_page', args: {} }, /url is required/],
-    [{ name: 'audit_page', args: { url: 'not-a-url' } }, /url is not a valid URL/],
+    [{ name: 'audit_page', args: {} }, /url is required: the project has no serve: block/],
+    [{ name: 'audit_page', args: { url: 'not-a-url' } }, /url is neither a URL nor a directory: not-a-url/],
     [{ name: 'audit_page', args: { url: 'file:///etc/passwd' } }, /url must be http or https/],
-    [{ name: 'audit_page', args: { url: 'http://a', baseline: 'nope' } }, /baseline is not a valid URL/],
+    [{ name: 'audit_page', args: { url: 'http://a', baseline: 'nope' } }, /baseline is neither a URL nor a directory: nope/],
     [{ name: 'audit_page', args: { url: 'http://a', runs: 9 } }, /between 1 and 5/],
     [{ name: 'lighthouse', args: {} }, /unknown tool: lighthouse/],
   ];

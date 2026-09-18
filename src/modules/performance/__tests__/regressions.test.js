@@ -16,7 +16,8 @@ test('against a baseline, a failure within 10% of it is not a regression', () =>
 
   assert.deepEqual(result.map((r) => r.metric), ['tbt']);
   assert.equal(result[0].delta, 25);
-  assert.equal(result[0].threshold, null);
+  // No TBT budget set: it failed Lighthouse's "poor" boundary, and says so.
+  assert.equal(result[0].threshold, 600);
 });
 
 test('against the budgets alone, every failure counts', () => {

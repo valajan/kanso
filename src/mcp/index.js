@@ -6,7 +6,7 @@ import { createTools } from './tools.js';
 // purpose: it is prompt, and every line of it is paid for on every turn.
 const INSTRUCTIONS = `Kanso audits a web page in Chrome and returns a verdict — pass, warn or fail — on how fast it is, what it breaks for assistive technology, and what search engines and browsers make of it.
 
-Use it to check a frontend change rather than describe one: build, serve the build, audit the URL. Auditing a dev server measures the dev server, not the page a user gets.
+Use it to check a frontend change rather than describe one: build, then audit the build — the URL serving it, its directory, or no url at all when the project's .kanso.yml says how to serve it. Auditing a dev server measures the dev server, not the page a user gets.
 
 An audit needs a baseline to tell a regression from a page's existing debt. When a before-and-after is available — the same build without the change, the main branch's preview, production — pass it as \`baseline\`.
 

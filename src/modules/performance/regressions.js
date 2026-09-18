@@ -1,4 +1,5 @@
 import { getMetric } from './metrics.js';
+import { failThreshold } from './status.js';
 
 const SIGNIFICANT_DEGRADATION_PCT = 10;
 
@@ -31,7 +32,8 @@ export function detectSignificantRegressions({ statuses, current, reference, bud
     const referenceVal = reference == null ? null : normalize(metric, reference[metric]);
     const delta = degradationPct(metric, currentVal, referenceVal);
     if (!againstBudgets && (delta == null || delta <= SIGNIFICANT_DEGRADATION_PCT)) continue;
-    out.push({ metric, formFactor, current: currentVal, reference: referenceVal, delta, threshold: budget?.[metric] ?? null });
+    // The threshold the metric failed, even one the repo left to Lighthouse.
+    out.push({ metric, formFactor, current: currentVal, reference: referenceVal, delta, threshold: failThreshold(getMetric(metric), budget ?? {}) });
   }
   return out.sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0));
 }

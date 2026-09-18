@@ -1,0 +1,4 @@
+# A performance score is at most 100: no page meets this, so an audit under it
+# must fail — which is what the self-test checks the Action does with a failure.
+budgets:
+  performance: 101

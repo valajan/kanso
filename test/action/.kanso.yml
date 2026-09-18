@@ -1,0 +1,4 @@
+# The Action's self-test project (.github/workflows/action.yml). With no url,
+# the Action serves what this says.
+serve:
+  dir: site

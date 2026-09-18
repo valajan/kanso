@@ -1,7 +1,7 @@
 name: Acceptance
 
 # Kanso end to end against the real kanso-frontend build: real Nuxt build, real
-# Chrome and Lighthouse, real Kanso server and CI client. GitHub itself is
+# Chrome and Lighthouse, real Kanso server, CI client and CLI. GitHub itself is
 # faked, so no pull request is ever touched. The suite and what each step
 # asserts are described in test/acceptance/kanso-frontend.test.mjs.
 
@@ -9,6 +9,7 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'bin/**'
       - 'integrations/**'
       - 'test/acceptance/**'
       - 'config.yml'
@@ -18,6 +19,7 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'bin/**'
       - 'integrations/**'
       - 'test/acceptance/**'
       - 'config.yml'

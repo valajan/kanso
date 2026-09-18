@@ -55,6 +55,29 @@ test('audits a page against a baseline, with no forge or PR involved', async () 
   assert.equal(runLighthouse.calls.length, 4);
 });
 
+// A baseline gives Δ its meaning, never the verdict: the budgets the levels were
+// read against come back with them, compared or not — including the metrics
+// the config left to Lighthouse's "poor" boundary.
+test('the budgets a verdict was read against come back with it, baseline or not', async () => {
+  const runLighthouse = fakeRunner({
+    'http://localhost:3000/': { performance: GOOD },
+    'http://localhost:4000/': { performance: GOOD },
+  });
+
+  const result = await audit({
+    url: 'http://localhost:3000/',
+    baseline: 'http://localhost:4000/',
+    config: { budgets: { performance: 101 } },
+    modules: [performance],
+    runLighthouse,
+  });
+
+  const perf = result.modules.performance;
+  assert.equal(perf.referenceKind, 'baseline');
+  assert.equal(perf.levels.performance, 'fail', 'equal to the baseline, and still under the budget');
+  assert.deepEqual(perf.budgets, { performance: 101, lcp: 4000, tbt: 600, cls: 0.25, fcp: 3000 });
+});
+
 test('a module that can judge from its config alone skips the baseline load', async () => {
   const runLighthouse = fakeRunner({ 'http://localhost:3000/': { performance: GOOD } });
 
