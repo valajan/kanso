@@ -12,6 +12,7 @@ on:
       - 'bin/**'
       - 'integrations/**'
       - 'test/acceptance/**'
+      - 'test/probes/**'
       - 'config.yml'
       - 'package-lock.json'
       - '.github/workflows/acceptance.yml'
@@ -22,6 +23,7 @@ on:
       - 'bin/**'
       - 'integrations/**'
       - 'test/acceptance/**'
+      - 'test/probes/**'
       - 'config.yml'
       - 'package-lock.json'
       - '.github/workflows/acceptance.yml'
@@ -75,8 +77,17 @@ jobs:
         working-directory: kanso-frontend
         run: npm ci
 
+      # What the probes run inside a page, on pages with known answers: ten
+      # seconds, and the quickest way to tell a probe that broke from a page
+      # that changed. Chrome comes preinstalled on the runner image.
+      - name: Run the probes against their pages
+        working-directory: kanso-api
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run test:probes
+
       # The suite builds kanso-frontend itself, so the audit always measures the
-      # checked-out sources. Chrome comes preinstalled on the runner image.
+      # checked-out sources.
       - name: Run the acceptance suite
         working-directory: kanso-api
         env:

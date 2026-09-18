@@ -150,6 +150,23 @@ The first three failing elements are printed under each rule, with what axe says
 is wrong with them — for a contrast failure, the ratio and both colours — so you
 know where to start. `--json` carries every element.
 
+axe reads the page at one size. What only shows at another, Kanso checks itself,
+in a page of its own after Lighthouse is done — about a second per audit — and
+reports under accessibility, on the same scale:
+
+| Rule | What it means | Impact |
+|---|---|---|
+| `reflow-scroll` | laid out 320 CSS pixels wide — a 1280 px window zoomed to 400% — the page scrolls sideways (WCAG 1.4.10) | `serious` |
+| `reflow-clip` | at that width, text runs past an edge that cuts it — an `overflow: hidden` box, a fixed bar, the screen — and is lost | `moderate` |
+
+Each names the element to fix: the box too wide for the screen, the code block
+that neither wraps nor scrolls, the card that hides the end of its lines. What
+WCAG lets need two dimensions — images, video, maps, data tables — is left out,
+and so is anything that scrolls on its own or is truncated on purpose with an
+ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next
+slide looks the same to it. If a check cannot run on a page, the report says so
+and lists the rules it left unchecked, rather than showing a clean section.
+
 SEO and best practices give you findings too, read and judged exactly the same
 way. Lighthouse ranks none of their rules, so Kanso places each one on the same
 impact scale — which is what lets one `fail_on` mean the same thing everywhere:

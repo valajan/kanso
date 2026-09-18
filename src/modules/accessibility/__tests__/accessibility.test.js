@@ -125,3 +125,64 @@ test('a rule is ranked by the impact axe gave it', () => {
 
   assert.deepEqual(findings.map((f) => f.impact), ['serious', null]);
 });
+
+// --- what the probes add ------------------------------------------------------------
+
+const REFLOW = { rule: 'reflow-scroll', impact: 'serious', nodes: [{ selector: 'div.wide', snippet: '<div class="wide">', label: '', explanation: '400px wide', path: '1,HTML,1,BODY,0,DIV' }] };
+const REFLOW_FAILED = { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], error: 'timed out after 30s' };
+
+test('the probes\' findings join axe\'s in the sample, and a load without probes has only axe\'s', () => {
+  const report = { categories: { accessibility: { auditRefs: [] } }, audits: {} };
+
+  const probed = accessibility.extract(report, { probed: { findings: [REFLOW], failures: [] } });
+  assert.deepEqual(probed, { findings: [REFLOW] });
+
+  const failed = accessibility.extract(report, { probed: { findings: [], failures: [REFLOW_FAILED] } });
+  assert.deepEqual(failed, { findings: [], probeFailures: [REFLOW_FAILED] });
+
+  assert.deepEqual(accessibility.extract(report, { probed: null }), { findings: [] });
+  assert.deepEqual(accessibility.extract(report), { findings: [] });
+});
+
+test('a probe finding is judged like any other: new against a baseline without it, inherited against one with it', () => {
+  const page = sample(REFLOW);
+
+  assert.equal(evaluate({ mobile: page, desktop: sample(), baseline: sample() }).findings[0].state, 'new');
+  assert.equal(evaluate({ mobile: page, desktop: sample(), baseline: sample(REFLOW) }).levels['reflow-scroll'], 'pass');
+});
+
+// A probe that did not run checked nothing, which is not finding nothing.
+test('what a probe could not check on the baseline is judged as the page stands, and said', () => {
+  const result = evaluate({
+    mobile: sample(REFLOW),
+    desktop: sample(),
+    baseline: { ...sample(), probeFailures: [REFLOW_FAILED] },
+  });
+
+  assert.equal(result.findings[0].state, null, 'not "new": the baseline was never looked at');
+  assert.equal(result.levels['reflow-scroll'], 'fail');
+  assert.deepEqual(result.probeFailures.map(({ probe, side }) => [probe, side]), [['reflow', 'baseline'], ['reflow', 'baseline']]);
+});
+
+test('what a probe could not check on the page is never said fixed', () => {
+  const result = evaluate({
+    mobile: { ...sample(), probeFailures: [REFLOW_FAILED] },
+    desktop: sample(),
+    baseline: sample(REFLOW),
+  });
+
+  assert.deepEqual(result.fixed, []);
+  assert.deepEqual(result.probeFailures, [{ ...REFLOW_FAILED, side: 'current', formFactor: 'mobile' }]);
+});
+
+test('a failed probe whose rules are all ignored is not worth reporting', () => {
+  const result = evaluate({
+    mobile: { ...sample(), probeFailures: [REFLOW_FAILED] },
+    desktop: sample(),
+    config: { ignore: ['reflow-scroll', 'reflow-clip'] },
+  });
+  assert.deepEqual(result.probeFailures, []);
+
+  const partly = evaluate({ mobile: { ...sample(), probeFailures: [REFLOW_FAILED] }, desktop: sample(), config: { ignore: ['reflow-clip'] } });
+  assert.deepEqual(partly.probeFailures[0].rules, ['reflow-scroll']);
+});

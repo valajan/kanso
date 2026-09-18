@@ -43,6 +43,10 @@ const semaphore = new Semaphore(MAX_CONCURRENT);
 //
 // Rejects only when every run failed — a partial set still yields a usable
 // median, and reporting four metrics from two good runs beats reporting none.
+//
+// The modules' probes run on the first load that succeeds, and no other: what
+// they check does not vary from one load to the next, and each costs a page
+// load of its own.
 export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES } = {}) {
   const count = clampRuns(runs);
   const samples = [];
@@ -50,7 +54,7 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
 
   for (let i = 0; i < count; i++) {
     try {
-      samples.push(await runOnce(url, formFactor, modules.map((m) => m.id)));
+      samples.push(await runOnce(url, formFactor, modules.map((m) => m.id), samples.length === 0));
     } catch (err) {
       lastError = err;
     }
@@ -61,12 +65,12 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
 }
 
 // One audit, in its own worker thread.
-async function runOnce(url, formFactor, moduleIds) {
+async function runOnce(url, formFactor, moduleIds, probe) {
   await semaphore.acquire();
   try {
     return await new Promise((resolve, reject) => {
       const worker = new Worker(WORKER_URL, {
-        workerData: { url, formFactor, moduleIds },
+        workerData: { url, formFactor, moduleIds, probe },
       });
 
       worker.once('message', (msg) => {

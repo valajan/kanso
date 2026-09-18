@@ -41,6 +41,17 @@ export const FIXTURES = {
     )),
   },
 
+  // A block with a fixed width a phone does not have: the page scrolls sideways
+  // at 320 CSS pixels, which is Kanso's reflow probe to catch — axe runs at one
+  // width and cannot. Placed after the app, at the end of the page, so that no
+  // metric moves.
+  reflow: {
+    description: 'a block laid out 400 px wide at the end of the page',
+    apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html,
+      '<div class="kanso-acceptance-wide" style="width:400px">A block laid out 400 pixels wide, whatever the screen</div>'
+    )),
+  },
+
   // A multi-megabyte image as the first, largest element: the unoptimized hero.
   // Its pixels are random so no compression can shrink it, and explicit
   // dimensions keep it from also causing a layout shift.

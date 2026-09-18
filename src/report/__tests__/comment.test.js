@@ -248,6 +248,15 @@ test('a missing tag is listed by what is missing, with no empty place before it'
   assert.ok(body.includes('**`open-graph`** — Open Graph tags are missing or unusable\n- og:description is missing\n- `head > meta` `<meta property="og:image" content="/og.png">` — og:image is not an absolute URL: /og.png'));
 });
 
+test('a probe that did not run is said under its section, with the rules it left unchecked', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: accessibility([], { probeFailures: [{ probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], side: 'baseline', formFactor: 'mobile', error: 'timed out after 30s' }] }),
+  });
+
+  assert.ok(body.includes('_failing from `serious` up_\n_⚠️ `reflow` did not run on the mobile reference (timed out after 30s): `reflow-scroll`, `reflow-clip` unchecked_'));
+});
+
 test('each module reporting findings gets its own section, and says what it ignored', () => {
   const body = formatComment(scoresPrOnly, {
     headRef: 'feature',

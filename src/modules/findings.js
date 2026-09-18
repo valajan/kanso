@@ -2,9 +2,11 @@ import { impactRank, parseFailOn, reaches } from './impact.js';
 
 // What the modules that report findings share — accessibility, SEO and best
 // practices. Each reads one Lighthouse category, and every rule of it the page
-// breaks is a finding. They differ in the category they read and in where a
-// rule's impact comes from; extracting, folding, comparing and judging are the
-// same code, here.
+// breaks is a finding; Kanso's own checks — what Lighthouse holds but does not
+// report, what a probe finds on the page — add findings of the same shape.
+// The modules differ in the category they read and in where a rule's impact
+// comes from; extracting, folding, comparing and judging are the same code,
+// here.
 //
 // A finding is described in src/modules/index.js. An element — one entry of a
 // finding's `nodes`, one place the rule failed — carries:
@@ -180,9 +182,22 @@ function plain(value) {
 }
 
 // Deterministic checks have nothing to fold across repeated loads: the first
-// sample that came back is the answer.
+// sample that came back is the answer. It is also the one the probes ran on.
 export function firstSample(samples) {
   return samples.find((sample) => sample != null) ?? null;
+}
+
+// A module's sample, with what its probes made of the same page:
+// `probed` is { findings, failures }, or null when no probe ran on this load
+// (src/probes/index.js). A failure — { probe, rules, error } — is carried
+// along, for the verdict to know which rules nobody checked.
+export function withProbed(sample, probed) {
+  if (!probed) return sample;
+  return {
+    ...sample,
+    findings: [...sample.findings, ...probed.findings],
+    ...(probed.failures.length > 0 ? { probeFailures: probed.failures } : {}),
+  };
 }
 
 // Judges one module's findings — the `evaluate` of every module that reports
@@ -194,6 +209,8 @@ export function firstSample(samples) {
 // - comparedToBaseline:  whether a baseline was actually loaded and compared
 // - failOn:              the impact threshold used, after config resolution
 // - ignore:              the rules left unjudged, after config resolution
+// - probeFailures:       the probes that did not run, on either page —
+//                        { probe, rules, side, formFactor, error }
 //
 // `ignore` is for a rule the project has decided not to be held to — the
 // `noindex` every preview host adds to its deployments, say. An ignored rule is
@@ -205,7 +222,7 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
   const sides = Object.entries(formFactors);
 
   if (sides.every(([, { current }]) => current == null)) {
-    return { levels: {}, findings: null, fixed: [], comparedToBaseline: false, failOn, ignore };
+    return { levels: {}, findings: null, fixed: [], comparedToBaseline: false, failOn, ignore, probeFailures: [] };
   }
 
   const fold = (side) => aggregate(Object.fromEntries(sides.map(([formFactor, loads]) => [
@@ -217,7 +234,21 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
   // Comparing against a baseline that never answered would read every
   // inherited violation as new, and fail a change that touched none of them.
   const compared = baselineAudited && sides.some(([, { baseline }]) => baseline != null);
-  const { findings, fixed } = compare(fold('current'), compared ? fold('baseline') : null);
+
+  // A probe that did not run checked nothing, which is not the same as finding
+  // nothing. On the page under audit, the rules it covers cannot be said fixed;
+  // on the baseline, they cannot be said inherited — the same rule as for a
+  // baseline that never loaded.
+  const probeFailures = [
+    ...failuresOn(sides, 'current', ignore),
+    ...(compared ? failuresOn(sides, 'baseline', ignore) : []),
+  ];
+  const unchecked = (side) => new Set(probeFailures.filter((failure) => failure.side === side).flatMap((failure) => failure.rules));
+
+  const { findings, fixed } = compare(fold('current'), compared ? fold('baseline') : null, {
+    uncheckedNow: unchecked('current'),
+    uncheckedBefore: unchecked('baseline'),
+  });
   const judged = sortFindings(findings.map((finding) => ({ ...finding, level: levelFor(finding, failOn) })));
 
   return {
@@ -227,7 +258,16 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
     comparedToBaseline: compared,
     failOn,
     ignore,
+    probeFailures,
   };
+}
+
+// The probes that did not run on one side, each with the form factor it was
+// for and the rules it would have checked — minus the ones nobody asked for.
+function failuresOn(sides, side, ignore) {
+  return sides.flatMap(([formFactor, loads]) => (loads[side]?.probeFailures ?? [])
+    .map((failure) => ({ ...failure, rules: failure.rules.filter((rule) => !ignore.includes(rule)), side, formFactor }))
+    .filter((failure) => failure.rules.length > 0));
 }
 
 // An `ignore:` value from a config file: a list of rule ids, or a single one.
@@ -298,7 +338,11 @@ export function aggregate(byFormFactor) {
 //
 // Returns the current findings, each with its state, plus the rules the
 // baseline breaks and the audited page no longer does.
-export function compare(current, baseline) {
+//
+// A rule a probe could not check on one of the two pages has nothing to be
+// compared with: `uncheckedBefore` leaves its findings without a state, judged
+// as the page stands, and `uncheckedNow` keeps it out of `fixed`.
+export function compare(current, baseline, { uncheckedNow = new Set(), uncheckedBefore = new Set() } = {}) {
   if (baseline == null) {
     return { findings: current.map((finding) => ({ ...finding, state: null, baselineCount: null })), fixed: [] };
   }
@@ -306,6 +350,7 @@ export function compare(current, baseline) {
   const byRule = new Map(baseline.map((finding) => [finding.rule, finding]));
 
   const findings = current.map((finding) => {
+    if (uncheckedBefore.has(finding.rule)) return { ...finding, state: null, baselineCount: null };
     const before = byRule.get(finding.rule);
     const state = before == null ? 'new' : finding.count > before.count ? 'worse' : 'inherited';
     return { ...finding, state, baselineCount: before?.count ?? 0 };
@@ -313,7 +358,7 @@ export function compare(current, baseline) {
 
   const seen = new Set(current.map((finding) => finding.rule));
   const fixed = baseline
-    .filter((finding) => !seen.has(finding.rule))
+    .filter((finding) => !seen.has(finding.rule) && !uncheckedNow.has(finding.rule))
     .map(({ rule, title, impact, count }) => ({ rule, title, impact, count }));
 
   return { findings, fixed };

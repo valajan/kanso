@@ -45,6 +45,11 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
       + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
       + 'the unthrottled load, so they tell proportions, not the simulated metrics. '
+      + 'Beyond Lighthouse, Kanso checks the page itself: laid out 320 CSS pixels wide (WCAG 1.4.10), whether '
+      + 'it scrolls sideways (reflow-scroll) or cuts text off (reflow-clip), and which element does it — '
+      + 'reported as accessibility findings. SEO also reports a page naming no canonical URL and missing Open '
+      + 'Graph tags. A check that could not run is listed under probeFailures with the rules it left unchecked: '
+      + 'nothing found there is not a clean page. '
       + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
       + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
       + 'would, so their absence there says nothing about production. '
@@ -173,6 +178,9 @@ function listModules({ cwd }) {
           id: mod.id,
           label: mod.label,
           lighthouseCategories: mod.categories,
+          // What the module checks on the page itself, beyond Lighthouse, and
+          // the rules each check can report.
+          probes: (mod.probes ?? []).map(({ id, rules }) => ({ id, rules })),
           // Each module sees only the section carrying its id, so this is the
           // whole of what judges it — see src/config/module-config.js.
           config: moduleConfig(config, mod.id),

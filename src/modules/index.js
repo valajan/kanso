@@ -14,12 +14,26 @@ import seo from './seo/index.js';
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   extract(lhr, { artifacts }) → sample
+//   probes      optional [{ id, rules, formFactors?, viewport?, media?, run(page, context) }]
+//               What the module checks on the page itself, for what Lighthouse
+//               does not look at: how it reflows at 320 CSS pixels, what a
+//               keyboard can reach. Each runs in the audit worker after
+//               Lighthouse, on the same Chrome, in a fresh page of its own —
+//               laid out as Lighthouse laid it out, unless it asks for another
+//               `viewport` or emulated `media` features — and resolves to
+//               findings. `rules` are the ones it can report: when it fails,
+//               they are what nobody checked. `formFactors` restricts it to
+//               some loads. Probes run on the first load of a page that
+//               succeeds, not on every repeated run: what they check does not
+//               vary from one load to the next. See src/probes/index.js.
+//
+//   extract(lhr, { artifacts, probed }) → sample
 //     Runs inside the audit worker, once per page load. `lhr` is the Lighthouse
 //     report; `artifacts` is what Lighthouse gathered from the page to run its
 //     audits, for the facts it holds and does not report — the page's meta
-//     tags, say. The sample crosses a thread boundary, so keep only what the
-//     module needs.
+//     tags, say. `probed` is what the module's probes made of the page,
+//     { findings, failures }, or null when none ran on this load. The sample
+//     crosses a thread boundary, so keep only what the module needs.
 //
 //   combine(samples) → data
 //     Folds the samples of repeated loads into one result: a noisy measure

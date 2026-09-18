@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hides its horizontal scroll at 320 px</title>
+<style>
+  /* The usual "fix" for a page that scrolls sideways: the scroll goes, and so
+     does whatever was past the edge. */
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; overflow-x: hidden; }
+  .banner { width: 480px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Nothing scrolls</h1>
+  <div class="banner"><p>This banner is laid out 480 pixels wide, and its end is never seen.</p></div>
+</main>
+</body>
+</html>

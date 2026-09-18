@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrolls sideways at 320 px</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  .fixed-width { width: 400px; }
+  pre { margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Two reasons to scroll</h1>
+  <div class="fixed-width"><p>A box laid out 400 pixels wide, <strong>whatever the screen</strong>.</p></div>
+  <pre class="yaml">apiVersion: kanso/v1   # a line that neither wraps nor scrolls</pre>
+</main>
+</body>
+</html>

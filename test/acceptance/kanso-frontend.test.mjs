@@ -53,13 +53,15 @@ const PR = 1;
 const WRITE_TOKEN = 'acceptance-write-token';
 const READ_TOKEN = 'acceptance-read-token';
 
-// One push per step. `fails` lists the metrics that must come out as `fail`;
-// an empty list means no metric may fail — the false-positive check.
+// One push per step. `fails` lists the metrics that must come out as `fail`,
+// `findings` the findings, as `module: rule`, that must be held against the
+// push; empty lists mean nothing may fail — the false-positive check.
 const STEPS = [
   { fixture: 'baseline', label: 'the landing page as shipped passes', fails: [] },
   { fixture: 'tbt', label: 'a main-thread busy loop fails on TBT', fails: ['tbt'] },
   { fixture: 'cls', label: 'a late-inserted block fails on CLS', fails: ['cls'] },
   { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'] },
+  { fixture: 'reflow', label: 'a block wider than a phone fails on reflow', fails: [], findings: ['accessibility: reflow-scroll'] },
   { fixture: 'baseline', label: 'reverting the regressions passes again', fails: [] },
 ];
 
@@ -217,7 +219,8 @@ for (const [index, step] of STEPS.entries()) {
     // Findings the reference already has must never fail a push: a repo with
     // existing violations would otherwise be red on every PR, and the report
     // would be read as noise within a week. That holds for every module that
-    // reports findings — none of this suite's regressions touches a rule.
+    // reports findings — only the step that breaks a rule on purpose may have
+    // one held against it, and only that one.
     const findings = Object.entries(verdict.modules ?? {})
       .flatMap(([id, result]) => (result.findings ?? []).map((finding) => ({ id, ...finding })));
     assert.ok(
@@ -226,11 +229,20 @@ for (const [index, step] of STEPS.entries()) {
     );
     assert.deepEqual(
       findings.filter((finding) => finding.level !== 'pass').map((finding) => `${finding.id}: ${finding.rule}`),
+      step.findings ?? [],
+      'a finding the reference already has was held against the push, or the one this push added was missed'
+    );
+    for (const finding of findings.filter((f) => f.level !== 'pass')) {
+      assert.equal(finding.state, 'new', `${finding.rule} was added by this push`);
+      t.diagnostic(`${finding.id}: ${finding.rule} ${finding.state} ${finding.level} — ${finding.nodes.map((node) => node.explanation).join(' | ')}`);
+    }
+    assert.deepEqual(
+      Object.values(verdict.modules ?? {}).flatMap((result) => result.probeFailures ?? []),
       [],
-      'a finding the reference already has was held against the push'
+      'every probe ran, on both pages'
     );
 
-    if (step.fails.length === 0) {
+    if (step.fails.length === 0 && (step.findings ?? []).length === 0) {
       assert.deepEqual(failing, [], `false positive — unchanged page failed on ${failing.join(', ')}`);
       assert.equal(res.code, 0, 'the CI client must exit 0 when nothing fails');
     } else {
@@ -245,7 +257,7 @@ for (const [index, step] of STEPS.entries()) {
     }
 
     // The status for this push went pending first, then settled on the verdict.
-    const expected = step.fails.length === 0 ? 'success' : 'failure';
+    const expected = step.fails.length === 0 && (step.findings ?? []).length === 0 ? 'success' : 'failure';
     assert.deepEqual(
       github.state.statuses.filter((s) => s.sha === sha).map((s) => s.state),
       ['pending', expected]

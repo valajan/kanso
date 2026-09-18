@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reflows at 320 px</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  /* A code block that scrolls on its own: reachable, as WCAG wants it. */
+  pre { overflow-x: auto; }
+  /* A data table wider than the screen: WCAG lets it need two dimensions. */
+  table { width: 600px; border-collapse: collapse; }
+  /* Visually hidden, the usual way. */
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* An off-canvas menu, fixed and moved wholly off the screen. */
+  .drawer { position: fixed; top: 0; left: 100%; width: 280px; height: 100vh; }
+  /* A carousel showing one slide: the others are wholly outside its box. */
+  .carousel { overflow: hidden; width: 100%; }
+  .track { display: flex; width: 300%; }
+  .track > div { width: 33.333%; flex: none; }
+  /* Truncated on purpose, and said so. */
+  .ellipsis { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  img { max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+  <h1>A page that reflows</h1>
+  <p>Paragraphs wrap at any width, and <span style="overflow-wrap: anywhere">a_very_long_identifier_that_would_not_break_otherwise</span> breaks where it must.</p>
+  <pre><code>apiVersion: kanso/v1 kind: Audit metadata: name: a-line-long-enough-to-need-a-scrollbar</code></pre>
+  <div style="overflow-x: auto"><table><tr><th>Metric</th><th>Budget</th><th>Baseline</th><th>Current</th><th>Delta</th></tr></table></div>
+  <table><tr><td>A bare table, wider than the screen, making the page scroll.</td></tr></table>
+  <span class="sr-only">Only for screen readers, and long enough to overflow a one-pixel box</span>
+  <nav class="drawer"><a href="#">A menu off the screen until opened</a></nav>
+  <div class="carousel"><div class="track"><div>Slide one</div><div>Slide two, out of view</div><div>Slide three, out of view</div></div></div>
+  <p class="ellipsis">A title cut with an ellipsis, on purpose, because it runs longer than the column it sits in</p>
+</main>
+</body>
+</html>

@@ -207,7 +207,7 @@ const ELEMENTS_SHOWN = 5;
 // failed folded into a <details>, and a line saying what it was all judged
 // against — without which a reader cannot tell a clean page from a page whose
 // findings were all there before the change.
-function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [] }, baseRef) {
+function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [], probeFailures = [] }, baseRef) {
   const heading = `### ${MODULE_ICONS[mod.id] ?? '🔎'} ${mod.label}`;
 
   // What it was all judged against, found or not: without it, a section with
@@ -222,7 +222,11 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
     parts.push(`${fixed.length} fixed`);
   }
   if (ignore.length > 0) parts.push(`ignoring ${ignore.map((rule) => code(rule)).join(', ')}`);
-  const judged = `_${parts.join(' · ')}_`;
+  // A probe that did not run checked nothing, which a clean section must not
+  // be read as.
+  const unchecked = probeFailures.map(({ probe, rules, side, formFactor, error }) =>
+    `\n_⚠️ ${code(probe)} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'reference'} (${escapeMarkdown(error)}): ${rules.map((rule) => code(rule)).join(', ')} unchecked_`);
+  const judged = `_${parts.join(' · ')}_${unchecked.join('')}`;
 
   if (findings.length === 0) {
     return `${heading}\n\n_No findings — every rule checked passed._\n\n${judged}\n`;
