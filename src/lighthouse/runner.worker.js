@@ -26,8 +26,9 @@ const DESKTOP_CONFIG = {
 
 // One page load serves every requested module: Lighthouse collects the union
 // of their categories, then each module extracts its own sample. With `probe`,
-// the modules' probes run afterwards on the same Chrome.
-async function audit({ url, formFactor, moduleIds, probe }) {
+// the modules' probes run afterwards on the same Chrome; with `screenshot`, the
+// page as its load ended comes back beside the samples.
+async function audit({ url, formFactor, moduleIds, probe, screenshot }) {
   const modules = moduleIds.map(getModule);
 
   // The Launcher is built by hand rather than through chromeLauncher.launch(),
@@ -66,16 +67,20 @@ async function audit({ url, formFactor, moduleIds, probe }) {
 
     // The artifacts stay in this thread: a module keeps what it needs of them
     // in its sample, which is all that crosses back.
-    return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr, {
+    const samples = Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr, {
       artifacts: result.artifacts,
       probed: probed[m.id] ?? null,
     })]));
+    // The last frame of Lighthouse's trace: a JPEG data URI, the viewport as
+    // the load ended.
+    const shot = screenshot ? result.lhr.audits['final-screenshot']?.details?.data ?? null : null;
+    return { samples, screenshot: shot };
   } finally {
     chrome.kill();
   }
 }
 
 audit(workerData).then(
-  (samples) => parentPort.postMessage({ ok: true, samples }),
+  ({ samples, screenshot }) => parentPort.postMessage({ ok: true, samples, screenshot }),
   (err) => parentPort.postMessage({ ok: false, error: err?.message ?? String(err) }),
 );

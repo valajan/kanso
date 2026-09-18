@@ -5,6 +5,12 @@ import { clampRuns } from './runs.js';
 
 export const FORM_FACTORS = ['mobile', 'desktop'];
 
+// Where a runner puts the page's screenshot, beside what the modules made of
+// the load, when it was asked for one. A symbol, so that no module id can ever
+// be mistaken for it, and every runner that knows nothing of screenshots goes
+// on working.
+export const SCREENSHOT = Symbol('screenshot');
+
 // Audits one page with every module, optionally against a baseline page, and
 // returns the verdict. Nothing here knows about pull requests, forges or
 // servers: the PR report is one caller among others.
@@ -12,13 +18,18 @@ export const FORM_FACTORS = ['mobile', 'desktop'];
 // - url:           the page under audit
 // - baseline:      the page to compare against, or null
 // - config:        the resolved .kanso.yml
-// - runLighthouse: (url, { formFactor, runs, modules }) → { [moduleId]: data }
+// - runLighthouse: (url, { formFactor, runs, modules, screenshot }) → { [moduleId]: data },
+//                  plus, under SCREENSHOT, the page as its load ended — a JPEG
+//                  data URI — when `screenshot` asked for it
 // - modules:       defaults to every registered module
 // - alwaysCompare: load the baseline even for modules that could judge without
 //                  it. A baseline named in the configuration is a hint, and
 //                  skipping it saves half the audit; a baseline the caller
 //                  asked for by hand is an instruction, and the comparison is
 //                  what they came for, verdict or no verdict.
+// - screenshots:   also return what the page under audit looked like at the
+//                  end of its load, on each form factor — never the
+//                  baseline's. For a surface that can show an image.
 //
 // All loads start together; the runner caps how many Chrome instances run at
 // once. A failed load only costs its own column: the audit is an error when
@@ -26,8 +37,9 @@ export const FORM_FACTORS = ['mobile', 'desktop'];
 //
 // Resolves to { ok: true, conclusion, modules: { [id]: { conclusion, levels, ... } }, failures }
 // or { ok: false, conclusion: 'error', error, failures }, where each failure is
-// { side: 'current' | 'baseline', formFactor, url, error }.
-export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false }) {
+// { side: 'current' | 'baseline', formFactor, url, error } — plus, when asked
+// for and the audit ran, `screenshots: { [formFactor]: dataUri | null }`.
+export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false, screenshots = false }) {
   const runs = clampRuns(config.runs);
   // Each module is judged by its own section of the config and never sees the
   // rest of the file — see src/config/module-config.js.
@@ -42,9 +54,12 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
       ? FORM_FACTORS.map((formFactor) => ({ side: 'baseline', formFactor, url: baseline, modules: baselineModules }))
       : []),
   ];
-  const settled = await Promise.allSettled(
-    loads.map((load) => runLighthouse(load.url, { formFactor: load.formFactor, runs, modules: load.modules }))
-  );
+  const settled = await Promise.allSettled(loads.map((load) => runLighthouse(load.url, {
+    formFactor: load.formFactor,
+    runs,
+    modules: load.modules,
+    ...(screenshots && load.side === 'current' ? { screenshot: true } : {}),
+  })));
 
   const loaded = Object.fromEntries(FORM_FACTORS.map((ff) => [ff, { current: null, baseline: null }]));
   const failures = [];
@@ -76,5 +91,8 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
     conclusion: worstLevel(Object.values(results).map((r) => r.conclusion)),
     modules: results,
     failures,
+    ...(screenshots
+      ? { screenshots: Object.fromEntries(FORM_FACTORS.map((ff) => [ff, loaded[ff].current?.[SCREENSHOT] ?? null])) }
+      : {}),
   };
 }

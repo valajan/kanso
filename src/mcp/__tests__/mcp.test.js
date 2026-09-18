@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { SCREENSHOT } from '../../core/audit.js';
 import { runMcpServer } from '../index.js';
 import { LATEST_PROTOCOL_VERSION } from '../protocol.js';
 
@@ -111,6 +112,62 @@ test('a protocol version Kanso does not know is answered with the one it speaks'
 });
 
 // --- auditing ---------------------------------------------------------------
+
+// A JPEG data URI as Lighthouse's final screenshot carries one.
+const JPEG = (label) => `data:image/jpeg;base64,${Buffer.from(label).toString('base64')}`;
+
+// Answers like fakeRunner, with a screenshot when one is asked for — or, for a
+// form factor listed in `without`, none.
+function screenshotRunner(page, { without = [] } = {}) {
+  const run = fakeRunner({ [page]: { performance: GOOD } });
+  const wrapped = async (url, options) => {
+    const data = await run(url, options);
+    if (options.screenshot && !without.includes(options.formFactor)) data[SCREENSHOT] = JPEG(`${options.formFactor} pixels`);
+    return data;
+  };
+  wrapped.calls = run.calls;
+  return wrapped;
+}
+
+test('with screenshot, the page comes back as one image per form factor, after the facts and out of them', async () => {
+  const runLighthouse = screenshotRunner('http://localhost:4173/');
+
+  const [message] = await session([
+    call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'http://localhost:4173', screenshot: true }),
+  ], { runLighthouse });
+
+  const [facts, ...rest] = message.result.content;
+  assert.equal(JSON.parse(facts.text).conclusion, 'pass');
+  assert.equal(message.result.structuredContent.screenshots, undefined, 'images are not facts to read');
+  assert.doesNotMatch(facts.text, /base64/);
+  assert.deepEqual(rest, [
+    { type: 'text', text: 'The page on mobile, as its load ended:' },
+    { type: 'image', data: Buffer.from('mobile pixels').toString('base64'), mimeType: 'image/jpeg' },
+    { type: 'text', text: 'The page on desktop, as its load ended:' },
+    { type: 'image', data: Buffer.from('desktop pixels').toString('base64'), mimeType: 'image/jpeg' },
+  ]);
+  assert.deepEqual(
+    runLighthouse.calls.map((c) => [c.formFactor, c.screenshot ?? false]),
+    [['mobile', true], ['desktop', true], ['mobile', false], ['desktop', false]],
+    'the page under audit, never its baseline'
+  );
+});
+
+test('without screenshot, nothing but the facts; a load without one is said', async () => {
+  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], {
+    runLighthouse: screenshotRunner('http://localhost:4173/'),
+  });
+  assert.equal(plain.result.content.length, 1);
+
+  const [partial] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', screenshot: true })], {
+    runLighthouse: screenshotRunner('http://localhost:4173/', { without: ['desktop'] }),
+  });
+  assert.deepEqual(partial.result.content.slice(3), [{ type: 'text', text: 'No desktop screenshot: that load produced none.' }]);
+
+  const [wrong] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', screenshot: 'yes' })]);
+  assert.equal(wrong.error.code, -32602);
+  assert.match(wrong.error.message, /screenshot must be true or false/);
+});
 
 test('audit_page returns the verdict, in the text block and the structured one', async () => {
   const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });

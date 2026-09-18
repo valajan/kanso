@@ -428,7 +428,7 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline` and `runs` | the whole verdict, as JSON |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `screenshot` | the whole verdict, as JSON — and with `screenshot: true`, the page as its load ended, on mobile and desktop, as two images |
 | `list_modules` | none | what Kanso checks, what this project judges it against, and how it is served |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
@@ -450,6 +450,10 @@ flagged read-only to the host.
 the host *is* the model, and it has the diff it just wrote in front of it — more
 context than any report could reconstruct. (The AI analysis in `src/ai-analysis/`
 belongs to the pull request surface, where there is no agent reading the numbers.)
+
+**Screenshots are opt-in.** They are small — the last frame of Lighthouse's
+trace, a few hundred pixels wide, about 20 KB each — but an image still costs
+the agent context, so it asks for them when how the page looks is the question.
 
 **A call takes 10 to 60 seconds** — one page load per form factor, times `runs`,
 doubled when you pass a `baseline`. Kanso sends progress notifications while it

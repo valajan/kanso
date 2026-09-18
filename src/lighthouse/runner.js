@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import { SCREENSHOT } from '../core/audit.js';
 import { clampRuns } from '../core/runs.js';
 import { MODULES } from '../modules/index.js';
 
@@ -46,35 +47,42 @@ const semaphore = new Semaphore(MAX_CONCURRENT);
 //
 // The modules' probes run on the first load that succeeds, and no other: what
 // they check does not vary from one load to the next, and each costs a page
-// load of its own.
-export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES } = {}) {
+// load of its own. The screenshot, when asked for, comes from that load too,
+// under SCREENSHOT in the result.
+export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES, screenshot = false } = {}) {
   const count = clampRuns(runs);
   const samples = [];
+  let shot = null;
   let lastError = null;
 
   for (let i = 0; i < count; i++) {
+    const first = samples.length === 0;
     try {
-      samples.push(await runOnce(url, formFactor, modules.map((m) => m.id), samples.length === 0));
+      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { probe: first, screenshot: first && screenshot });
+      samples.push(load.samples);
+      shot ??= load.screenshot;
     } catch (err) {
       lastError = err;
     }
   }
 
   if (samples.length === 0) throw lastError ?? new Error('lighthouse produced no result');
-  return Object.fromEntries(modules.map((m) => [m.id, m.combine(samples.map((s) => s[m.id]))]));
+  const data = Object.fromEntries(modules.map((m) => [m.id, m.combine(samples.map((s) => s[m.id]))]));
+  if (shot) data[SCREENSHOT] = shot;
+  return data;
 }
 
 // One audit, in its own worker thread.
-async function runOnce(url, formFactor, moduleIds, probe) {
+async function runOnce(url, formFactor, moduleIds, { probe, screenshot }) {
   await semaphore.acquire();
   try {
     return await new Promise((resolve, reject) => {
       const worker = new Worker(WORKER_URL, {
-        workerData: { url, formFactor, moduleIds, probe },
+        workerData: { url, formFactor, moduleIds, probe, screenshot },
       });
 
       worker.once('message', (msg) => {
-        if (msg.ok) resolve(msg.samples);
+        if (msg.ok) resolve({ samples: msg.samples, screenshot: msg.screenshot ?? null });
         else reject(new Error(msg.error));
         // Its answer is all a worker is for. Whatever it may still hold — a
         // Chrome that would not die, a socket to it — must not keep Kanso's

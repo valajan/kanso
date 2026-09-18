@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audit } from '../audit.js';
+import { audit, SCREENSHOT } from '../audit.js';
 import performance from '../../modules/performance/index.js';
 
 const GOOD = { performance: 96, lcp: 1500, tbt: 80, cls: 0.01, fcp: 800 };
@@ -174,4 +174,27 @@ test('a failed load is reported without failing the audit, unless every form fac
   assert.equal(total.ok, false);
   assert.equal(total.conclusion, 'error');
   assert.equal(total.error, 'chrome crashed');
+});
+
+// --- screenshots ----------------------------------------------------------------
+
+test('screenshots are asked of the page under audit only, and returned per form factor', async () => {
+  const calls = [];
+  const runLighthouse = async (url, { formFactor, modules, screenshot }) => {
+    calls.push([url, formFactor, screenshot ?? false]);
+    const data = Object.fromEntries(modules.map((m) => [m.id, GOOD]));
+    if (screenshot && formFactor === 'mobile') data[SCREENSHOT] = 'data:image/jpeg;base64,AAAA';
+    return data;
+  };
+
+  const result = await audit({
+    url: 'http://localhost:3000/', baseline: 'http://localhost:4000/', runLighthouse,
+    modules: [performance], alwaysCompare: true, screenshots: true,
+  });
+
+  assert.deepEqual(result.screenshots, { mobile: 'data:image/jpeg;base64,AAAA', desktop: null });
+  assert.deepEqual(calls.filter(([, , shot]) => shot).map(([url]) => url), ['http://localhost:3000/', 'http://localhost:3000/']);
+
+  const without = await audit({ url: 'http://localhost:3000/', runLighthouse, modules: [performance] });
+  assert.equal('screenshots' in without, false, 'nobody asked');
 });

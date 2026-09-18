@@ -81,6 +81,13 @@ function auditPage({ cwd, runLighthouse, now }) {
             'A second page to compare against, URL or directory: the same build before the change, the main '
             + 'branch, or production.',
         },
+        screenshot: {
+          type: 'boolean',
+          description:
+            'Also return the page as its load ended, on mobile and on desktop: two images, after the result. '
+            + 'They cost context — ask for them when how the page looks is the question: an element that '
+            + 'overlaps another, a hero that renders blank, a layout that breaks. Defaults to false.',
+        },
         runs: {
           type: 'integer',
           minimum: 1,
@@ -103,6 +110,7 @@ function auditPage({ cwd, runLighthouse, now }) {
     async run(args, { progress }) {
       const named = args.url == null ? null : site(args.url, 'url', cwd);
       const reference = args.baseline == null ? null : site(args.baseline, 'baseline', cwd);
+      if (args.screenshot != null && typeof args.screenshot !== 'boolean') throw new InvalidParams('screenshot must be true or false');
 
       const { config, source } = loadLocalConfig({ cwd });
       config.runs = clampRuns(runsArg(args.runs) ?? config.runs);
@@ -125,7 +133,7 @@ function auditPage({ cwd, runLighthouse, now }) {
           ...(served ? { served } : {}),
           // A baseline the caller named is always audited, as on the command
           // line: the comparison is what they asked for, budgets or no budgets.
-          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true }),
+          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true, screenshots: args.screenshot === true }),
         }));
       } catch (err) {
         return notServed(err);
@@ -134,19 +142,22 @@ function auditPage({ cwd, runLighthouse, now }) {
       }
 
       const { result, ...sites } = report;
+      const { screenshots, ...audited } = result;
       const payload = {
         ...sites,
         runs: config.runs,
         configSource: source,
         elapsedMs: now() - started,
-        ...result,
+        ...audited,
       };
 
       // The same facts twice, on purpose: hosts that read structured output
       // get the object, the others get it serialized in the text block, and
-      // neither ends up with a summary of the other.
+      // neither ends up with a summary of the other. The screenshots are
+      // images, not facts to read: they follow as image blocks, each named,
+      // and stay out of both.
       return {
-        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }, ...images(screenshots)],
         structuredContent: payload,
         // A page that never loaded is the tool failing, not a verdict on the
         // page — and the model is told so rather than reading four green rows.
@@ -215,6 +226,20 @@ function site(value, label, cwd) {
     if (err instanceof InvalidTarget) throw new InvalidParams(err.message);
     throw err;
   }
+}
+
+// Each screenshot as an image block, after a line saying which it is. A load
+// that produced none is said too, rather than silently missing.
+function images(screenshots) {
+  if (!screenshots) return [];
+  return Object.entries(screenshots).flatMap(([formFactor, uri]) => {
+    const image = /^data:(image\/[\w+.-]+);base64,(.+)$/.exec(uri ?? '');
+    if (!image) return [{ type: 'text', text: `No ${formFactor} screenshot: that load produced none.` }];
+    return [
+      { type: 'text', text: `The page on ${formFactor}, as its load ended:` },
+      { type: 'image', data: image[2], mimeType: image[1] },
+    ];
+  });
 }
 
 function runsArg(value) {

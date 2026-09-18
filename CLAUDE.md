@@ -162,7 +162,10 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `list_modules`. The result is the JSON of `kanso audit --json`, in both the
   text and the structured block, with nothing sampled out — an agent handed
   part of a finding reloads the page for the rest; a long call reports
-  progress, which is what keeps a host from abandoning it
+  progress, which is what keeps a host from abandoning it. With `screenshot:
+  true`, the page under audit as its load ended follows as image blocks, one
+  per form factor — `audit({ screenshots })` in the core, carried by the
+  runner under the `SCREENSHOT` symbol, never in the JSON
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`
