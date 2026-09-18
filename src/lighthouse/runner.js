@@ -72,6 +72,10 @@ async function runOnce(url, formFactor, moduleIds) {
       worker.once('message', (msg) => {
         if (msg.ok) resolve(msg.samples);
         else reject(new Error(msg.error));
+        // Its answer is all a worker is for. Whatever it may still hold — a
+        // Chrome that would not die, a socket to it — must not keep Kanso's
+        // process alive after the audit is over.
+        worker.terminate();
       });
 
       worker.once('error', reject);
