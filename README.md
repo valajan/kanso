@@ -103,6 +103,19 @@ numbers, read against your budgets:
 | **CLS** | how much the layout jumps around | 0.1 |
 | **FCP** | when the first pixel of content appears | 1,800 ms |
 
+When one of them does not pass, Kanso prints what Lighthouse found behind it:
+
+```
+  LCP element      body > img  <img src="/hero.png" width="1600" height="900">
+  LCP, observed    32ms = 2ms to first byte + 4ms load delay + 7ms load duration + 19ms render delay
+  render-blocking  http://localhost:4173/assets/index.css  152ms
+  layout shifts    main  0.365  Unsized image element: body > img  <img src="/hero.png" …>
+```
+
+Those timings come from the page load as it happened, while the table's numbers
+are Lighthouse's simulation of a slower device: read them as where the time
+goes, not as the metric itself.
+
 Accessibility gives you **findings**: a rule broken, on named elements. No
 average, no median — a rule is violated or it is not. Each one carries the
 impact axe gives it, the engine Lighthouse runs:

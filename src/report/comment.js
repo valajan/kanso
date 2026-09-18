@@ -1,4 +1,4 @@
-import { elementText, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
+import { elementHint, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
 import { MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, metricsWithStatus } from '../modules/performance/status.js';
@@ -189,9 +189,10 @@ function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }
         `**\`${finding.rule}\`** — ${finding.title}`,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {
-          const text = elementText(node);
+          const hint = elementHint(node);
+          const detail = hint?.text ? ` “${escapeMarkdown(hint.text)}”` : hint?.tag ? ` ${code(hint.tag)}` : '';
           const reason = shared ? '' : explanationLine(node.explanation);
-          return `- \`${node.selector || node.snippet}\`${text ? ` “${escapeMarkdown(text)}”` : ''}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
+          return `- ${code(node.selector || node.snippet)}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
         }),
         finding.count > shown.length ? `- _…and ${finding.count - shown.length} more_` : null,
       ].filter(Boolean).join('\n');
@@ -213,4 +214,12 @@ function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }
 // axe writes plain text, and a stray `<` or `*` in it would be read as markup.
 function escapeMarkdown(text) {
   return text.replace(/[\\`*_<>[\]]/g, '\\$&');
+}
+
+// Inline code that survives a backtick in what it quotes — an attribute value
+// in a tag can hold one — by fencing it with one backtick more.
+function code(text) {
+  const fence = '`'.repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${text}${pad}${fence}`;
 }

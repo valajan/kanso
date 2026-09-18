@@ -81,7 +81,10 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `performance/` is the first: `metrics.js` is the single source of truth for
   the five metrics (labels, units, thresholds), `status.js` derives
   `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
-  the failures worth an AI analysis.
+  the failures worth an AI analysis, `diagnostics.js` keeps what Lighthouse
+  says about why — the LCP element and breakdown, render-blocking requests,
+  layout shifts — from the load behind each median. They explain and are never
+  judged.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: `findings.js` reads the failed axe rules
   out of the Lighthouse report — every failing element with its selector, tag,

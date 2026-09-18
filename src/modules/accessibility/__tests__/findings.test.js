@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregate, compare, elementText, explanationLine, extractFindings, MAX_NODES, sortFindings } from '../findings.js';
+import { aggregate, compare, elementHint, explanationLine, extractFindings, MAX_NODES, sortFindings } from '../findings.js';
 
 const CONTRAST = 'Fix any of the following:\n  Element has insufficient color contrast of 4.27 (foreground color: #7a8088, background color: #1c1c1e, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1';
 
@@ -168,10 +168,13 @@ test('an explanation reads on one line, without axe\'s preamble', () => {
   assert.equal(explanationLine(undefined), '');
 });
 
-test('an element\'s text reads on one line, and is nothing when it is only the selector again', () => {
-  assert.equal(elementText({ selector: 'td', label: 'Metric\tmain\nLCP\t1.2s' }), 'Metric main LCP 1.2s');
-  assert.equal(elementText({ selector: 'body > img', label: 'body > img' }), '');
-  assert.equal(elementText({ selector: 'p' }), '');
+// Ten elements can share a selector; their text tells them apart, and an image,
+// which has none, is told apart by its tag.
+test('an element is told apart by its text, or by its tag when it has no text', () => {
+  assert.deepEqual(elementHint({ selector: 'td', label: 'Metric\tmain\nLCP\t1.2s', snippet: '<td>' }), { text: 'Metric main LCP 1.2s' });
+  assert.deepEqual(elementHint({ selector: 'body > img', label: 'body > img', snippet: '<img src="/hero.png">' }), { tag: '<img src="/hero.png">' });
+  assert.equal(elementHint({ selector: 'html', label: 'html', snippet: '<html>' }), null, 'a bare tag says nothing the selector did not');
+  assert.equal(elementHint({ selector: '', snippet: '<img src="/a.png">' }), null, 'a tag already standing in for the selector');
 });
 
 test('sortFindings puts what fails first, heaviest impact down', () => {

@@ -87,13 +87,19 @@ export function aggregate(byFormFactor) {
   return [...byRule.values()].map(({ seen, ...finding }) => finding);
 }
 
-// The element's text on one line — what tells apart the ten elements sharing a
-// selector — or nothing when Lighthouse had no text to give and fell back to
-// the selector. This and the next two are for the surfaces that print
-// findings; the audit itself returns the raw text.
-export function elementText({ label, selector }) {
+// What tells an element apart from the others sharing its selector: its text,
+// on one line — or, when it has none, as an image has none, its opening tag, as
+// long as the tag says more than its name. Lighthouse falls back to the
+// selector when there is no text, which is no text at all. Returns
+// { text } or { tag }, or null when there is nothing to add.
+//
+// This and the next two are for the surfaces that print elements; the audit
+// itself returns the raw fields.
+export function elementHint({ label, selector, snippet }) {
   const text = (label ?? '').replace(/\s+/g, ' ').trim();
-  return text === selector ? '' : text;
+  if (text && text !== selector) return { text };
+  if (snippet && selector && !/^<[\w-]+>$/.test(snippet)) return { tag: snippet };
+  return null;
 }
 
 // axe's explanation on one line: "Fix any of the following:" and its siblings
