@@ -104,6 +104,26 @@ test('renders a findings section with the failing elements folded away', () => {
   assert.ok(body.includes('_failing from `serious` up_'));
 });
 
+test('the failing elements say what is wrong with them, once when it is the same', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: accessibility([
+      { rule: 'image-alt', title: 't', impact: 'critical', count: 2, state: null, level: 'fail', nodes: [
+        { selector: 'img.logo', explanation: 'Fix any of the following:\n  Element does not have an alt attribute' },
+        { selector: 'img.hero', explanation: 'Fix any of the following:\n  Element does not have an alt attribute' },
+      ] },
+      { rule: 'color-contrast', title: 't', impact: 'serious', count: 2, state: null, level: 'fail', nodes: [
+        { selector: 'p.muted', label: 'Get\n  started', explanation: 'Fix any of the following:\n  Element has insufficient color contrast of 4.27' },
+        { selector: 'a.cta', explanation: 'Fix any of the following:\n  Element has an <svg> with role=*img*' },
+      ] },
+    ]),
+  });
+
+  assert.ok(body.includes('**`image-alt`** — t\nElement does not have an alt attribute\n- `img.logo`\n- `img.hero`'));
+  assert.ok(body.includes('- `p.muted` “Get started” — Element has insufficient color contrast of 4.27'));
+  assert.ok(body.includes('- `a.cta` — Element has an \\<svg\\> with role=\\*img\\*'), 'axe\'s text is not read as markup');
+});
+
 test('the verdict counts the findings alongside the metrics', () => {
   const body = formatComment(scoresPrOnly, {
     headRef: 'feature',

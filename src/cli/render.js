@@ -1,5 +1,6 @@
 import { moduleConfig } from '../config/module-config.js';
 import { FORM_FACTORS } from '../core/audit.js';
+import { elementText, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses } from '../modules/performance/status.js';
@@ -137,10 +138,16 @@ function renderFindings({ findings, fixed = [], comparedToBaseline, failOn }, c)
     const finding = findings[i];
     // A rule Lighthouse failed without naming an element has nothing to list.
     if (finding.level === 'pass' || finding.nodes.length === 0) return;
-    for (const node of finding.nodes.slice(0, ELEMENTS_SHOWN)) {
-      lines.push('      ' + c('dim', node.selector || node.snippet));
+    const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
+    const shared = sharedExplanation(shown);
+    if (shared) lines.push('      ' + shared);
+    for (const node of shown) {
+      const text = elementText(node);
+      lines.push('      ' + c('dim', (node.selector || node.snippet) + (text ? `  "${text}"` : '')));
+      const explanation = shared ? '' : explanationLine(node.explanation);
+      if (explanation) lines.push('        ' + explanation);
     }
-    const rest = finding.count - Math.min(finding.nodes.length, ELEMENTS_SHOWN);
+    const rest = finding.count - shown.length;
     if (rest > 0) lines.push('      ' + c('dim', `… and ${rest} more`));
   });
 

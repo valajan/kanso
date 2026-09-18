@@ -209,6 +209,37 @@ test('a finding the baseline already has does not fail the audit', async () => {
   assert.match(out, /1 already in the baseline · 0 fixed/);
 });
 
+// A missing alt is a missing alt, so it is said once; contrast ratios differ
+// from one element to the next, so each gets its own.
+test('what is wrong is printed once for the rule, or under each element when it differs', async () => {
+  const node = (selector, explanation, label = '') => ({ selector, snippet: '<p>', label, explanation });
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: { findings: [
+      { rule: 'image-alt', impact: 'critical', count: 2, title: 't', nodes: [
+        node('img.logo', 'Fix any of the following:\n  Element does not have an alt attribute\n  Element has no title attribute'),
+        node('img.hero', 'Fix any of the following:\n  Element does not have an alt attribute\n  Element has no title attribute'),
+      ] },
+      { rule: 'color-contrast', impact: 'serious', count: 2, title: 't', nodes: [
+        node('p.muted', 'Fix any of the following:\n  Element has insufficient color contrast of 4.27', 'Ticket'),
+        node('p.muted', 'Fix any of the following:\n  Element has insufficient color contrast of 3.9', 'Code'),
+      ] },
+    ] } },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  const lines = out.split('\n').map((line) => line.trim());
+  const alt = lines.indexOf('Element does not have an alt attribute; Element has no title attribute');
+  assert.deepEqual(lines.slice(alt, alt + 3), [
+    'Element does not have an alt attribute; Element has no title attribute', 'img.logo', 'img.hero',
+  ]);
+  // Two elements sharing a selector are told apart by their text.
+  const contrast = lines.indexOf('p.muted  "Ticket"');
+  assert.deepEqual(lines.slice(contrast, contrast + 4), [
+    'p.muted  "Ticket"', 'Element has insufficient color contrast of 4.27', 'p.muted  "Code"', 'Element has insufficient color contrast of 3.9',
+  ]);
+});
+
 test('a page breaking no rule says so', async () => {
   const runLighthouse = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: findings() },

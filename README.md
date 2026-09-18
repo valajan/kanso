@@ -72,11 +72,15 @@ desktop
 Accessibility  fail
 
   image-alt          critical  1 element   fail
+      Element does not have an alt attribute; aria-label attribute does not exist or is empty; …
       body > img.logo
   color-contrast     serious   2 elements  fail
-      main > p.note
-      footer > small
+      main > p.note  "Prices exclude tax"
+        Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1
+      footer > small  "© 2026 Acme"
+        Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1
   landmark-one-main  moderate  1 element   warn
+      Document does not have a main landmark
       html
 
   failing from serious up
@@ -111,8 +115,9 @@ impact axe gives it, the engine Lighthouse runs:
 | `minor` | hygiene — nothing that locks anyone out |
 
 By default a `serious` or `critical` finding fails the audit and the rest warn.
-The first three failing elements are printed under each rule, so you know where
-to start.
+The first three failing elements are printed under each rule, with what axe says
+is wrong with them — for a contrast failure, the ratio and both colours — so you
+know where to start. `--json` carries every element.
 
 ## 4. Compare two versions
 
