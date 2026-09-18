@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { medianScores } from '../runner.js';
+import { medianScores } from '../median.js';
 
 const score = (performance, lcp, tbt) => ({ performance, lcp, tbt, cls: 0.01, fcp: 900 });
 

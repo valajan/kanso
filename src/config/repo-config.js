@@ -1,18 +1,16 @@
 import yaml from 'js-yaml';
+import { deepMerge } from './merge.js';
 
 // Upper bound on a caller-supplied .kanso.yml. Real config files are a few
 // hundred bytes; anything larger is a mistake or an attempt to make the YAML
 // parser do expensive work.
 const MAX_CONFIG_BYTES = 64 * 1024;
 
-// Deep-merges a repo override on top of the static defaults.
-// budgets keys are merged individually so a client can override just one metric.
+// Deep-merges a repo override on top of the static defaults, so a client can
+// override one budget, or one key of one module's section, without restating
+// everything around it.
 export function mergeConfig(base, override) {
-  return {
-    ...base,
-    ...override,
-    budgets: { ...(base.budgets ?? {}), ...(override.budgets ?? {}) },
-  };
+  return deepMerge(base, override);
 }
 
 // Parses a .kanso.yml document. js-yaml's `load` uses the core schema, which

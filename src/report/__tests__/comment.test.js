@@ -80,3 +80,62 @@ test('reports a failed audit for a missing form factor', () => {
   assert.ok(body.includes('### 💻 Desktop'));
   assert.ok(body.includes('Lighthouse audit failed'));
 });
+
+// --- findings sections ------------------------------------------------------
+
+const accessibility = (findings, extra = {}) => ({
+  accessibility: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings, ...extra },
+});
+
+test('renders a findings section with the failing elements folded away', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: accessibility([
+      { rule: 'image-alt', title: 'Images lack an alt attribute.', impact: 'critical', count: 2, state: 'new', level: 'fail', nodes: [{ selector: 'img.logo' }, { selector: 'img.hero' }] },
+      { rule: 'heading-order', title: 'Headings skip a level.', impact: 'moderate', count: 1, state: 'new', level: 'warn', nodes: [{ selector: 'h3.sub' }] },
+    ]),
+  });
+
+  assert.ok(body.includes('### ♿ Accessibility'));
+  assert.ok(body.includes('| `image-alt` | critical | 2 | new | ❌ |'));
+  assert.ok(body.includes('| `heading-order` | moderate | 1 | new | ⚠️ |'));
+  assert.ok(body.includes('<details><summary>Failing elements</summary>'));
+  assert.ok(body.includes('- `img.logo`'));
+  assert.ok(body.includes('_failing from `serious` up_'));
+});
+
+test('the verdict counts the findings alongside the metrics', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: accessibility([
+      { rule: 'image-alt', title: 't', impact: 'critical', count: 1, state: 'new', level: 'fail', nodes: [] },
+      { rule: 'label', title: 't', impact: 'serious', count: 1, state: 'inherited', level: 'pass', nodes: [] },
+    ]),
+  });
+
+  assert.ok(body.includes('> ❌ 1 accessibility finding\n'), body.split('\n').slice(0, 6).join('\n'));
+});
+
+// A reader cannot tell a clean page from a page whose findings were all there
+// before, unless the report says which it is.
+test('a compared section says what was inherited and what was fixed', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature', baseRef: 'trunk',
+    modules: accessibility(
+      [{ rule: 'label', title: 't', impact: 'serious', count: 2, state: 'inherited', level: 'pass', nodes: [] }],
+      { comparedToBaseline: true, fixed: [{ rule: 'link-name', title: 't', impact: 'serious', count: 1 }] },
+    ),
+  });
+
+  assert.ok(body.includes('| `label` | serious | 2 | inherited | ✅ |'));
+  assert.ok(body.includes('_failing from `serious` up · 1 already on `trunk` · 1 fixed_'));
+  assert.ok(!body.includes('<details>'), 'nothing to fix, nothing to unfold');
+});
+
+test('a module that found nothing says so, and the ones that ran nothing say nothing', () => {
+  const clean = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility([]) });
+  assert.ok(clean.includes('_No findings — nothing failed an accessibility rule._'));
+
+  const absent = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility(null) });
+  assert.ok(!absent.includes('### ♿ Accessibility'));
+});

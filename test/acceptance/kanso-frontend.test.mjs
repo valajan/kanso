@@ -32,7 +32,8 @@ import { FIXTURES, materialize, serveDirectory } from './fixtures.mjs';
 // Each audit is a known-answer test: the landing page as shipped must pass, and
 // each deliberately regressed variant must fail on exactly the metric it
 // regresses. The steps run in order on a single simulated PR, one push per
-// step, the way a real branch evolves.
+// step, the way a real branch evolves, each compared against the unchanged
+// build as its reference.
 //
 //   npm run test:acceptance
 //
@@ -193,7 +194,13 @@ for (const [index, step] of STEPS.entries()) {
     const sha = shaFor(`step-${index}-${step.fixture}`);
     github.push(sha);
 
-    const res = await runClient({ sha, previewUrl: fixtures[step.fixture].url, token: WRITE_TOKEN });
+    // Every step is compared against the unchanged build, the way a PR is
+    // compared against its base. It is what the report needs to tell a finding
+    // this push introduced from one the page already carried — the landing page
+    // breaks a handful of axe rules, and no step of this suite touches them.
+    const res = await runClient({
+      sha, previewUrl: fixtures[step.fixture].url, baseUrl: fixtures.baseline.url, token: WRITE_TOKEN,
+    });
     const jobId = res.output.match(/job ([0-9a-f-]{36})/)?.[1];
     assert.ok(jobId, `the client did not queue an audit:\n${res.output}`);
 
@@ -206,6 +213,17 @@ for (const [index, step] of STEPS.entries()) {
     const failing = Object.entries(verdict.statuses ?? {})
       .filter(([, level]) => level === 'fail')
       .map(([metric]) => metric);
+
+    // Accessibility findings the reference already has must never fail a push:
+    // a repo with existing violations would otherwise be red on every PR, and
+    // the report would be read as noise within a week.
+    const inherited = verdict.modules?.accessibility?.findings ?? [];
+    assert.ok(inherited.length > 0, 'the landing page has axe findings — this is what proves they are inherited, not new');
+    assert.deepEqual(
+      inherited.filter((finding) => finding.level !== 'pass').map((finding) => finding.rule),
+      [],
+      'a finding the reference already has was held against the push'
+    );
 
     if (step.fails.length === 0) {
       assert.deepEqual(failing, [], `false positive — unchanged page failed on ${failing.join(', ')}`);
@@ -269,7 +287,7 @@ function originOf(url) {
 // Runs the CI client exactly as a pipeline would. The environment is scrubbed
 // of CI variables so a run inside GitHub Actions cannot leak the real
 // repository, PR or token into the client's defaults.
-function runClient({ sha, previewUrl, token }) {
+function runClient({ sha, previewUrl, token, baseUrl = null }) {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !/^(GITHUB_|CI_|KANSO_|GITLAB_|PR_NUMBER$)/.test(key))
   );
@@ -281,6 +299,7 @@ function runClient({ sha, previewUrl, token }) {
     '--pr', String(PR),
     '--sha', sha,
     '--preview-url', previewUrl,
+    ...(baseUrl ? ['--base-url', baseUrl] : []),
     '--source', 'Acceptance',
     '--config', configPath,
     '--fail-on', 'fail',

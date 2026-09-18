@@ -26,7 +26,8 @@ function fakeForge(overrides = {}) {
 }
 
 // Records what each audit was asked to measure so the tests can assert on the
-// targets rather than on log output.
+// targets rather than on log output. Results are keyed by module, as the real
+// runner returns them.
 function fakeRunner(byUrl) {
   const calls = [];
   const run = async (url, opts) => {
@@ -34,7 +35,7 @@ function fakeRunner(byUrl) {
     const result = byUrl[url];
     if (result instanceof Error) throw result;
     if (result === undefined) throw new Error(`unexpected audit target ${url}`);
-    return result;
+    return { performance: result };
   };
   run.calls = calls;
   return run;
@@ -86,12 +87,12 @@ test('the commit status goes pending before the audits and settles afterwards', 
   await orchestrator.runReport(baseArgs(forge));
 
   assert.deepEqual(forge.statuses.map((s) => s.state), ['pending', 'success']);
-  assert.equal(forge.statuses[1].description, 'All metrics within acceptable thresholds');
+  assert.equal(forge.statuses[1].description, 'All checks within acceptable thresholds');
 });
 
 // The commit status has to reflect the harshest outcome, not an average.
 test('the conclusion takes the worst level across form factors', async () => {
-  const runLighthouse = async (url, { formFactor }) => (formFactor === 'mobile' ? POOR : GOOD);
+  const runLighthouse = async (url, { formFactor }) => ({ performance: formFactor === 'mobile' ? POOR : GOOD });
   const forge = fakeForge();
   const orchestrator = build({ runLighthouse });
 
@@ -185,7 +186,7 @@ test('a preview that fails on both form factors reports a failed audit', async (
 test('one form factor failing still produces a report for the other', async () => {
   const runLighthouse = async (url, { formFactor }) => {
     if (formFactor === 'desktop') throw new Error('desktop died');
-    return GOOD;
+    return { performance: GOOD };
   };
   const forge = fakeForge();
   const orchestrator = build({ runLighthouse });
@@ -221,8 +222,9 @@ test('a request-supplied reference overrides the configured one', async () => {
 });
 
 // With every budget set there is nothing a reference audit can add to the
-// verdict, so it is skipped and the budgets become the comparison column.
-test('a complete budget set skips the reference audit entirely', async () => {
+// performance verdict, so the budgets become its comparison column — and the
+// reference is only loaded for the modules that still have a use for it.
+test('a complete budget set drops performance from the reference audit', async () => {
   const runLighthouse = fakeRunner({ 'https://preview.example': GOOD });
   const forge = fakeForge();
   const orchestrator = build({
@@ -235,7 +237,8 @@ test('a complete budget set skips the reference audit entirely', async () => {
 
   await orchestrator.runReport(baseArgs(forge));
 
-  assert.equal(runLighthouse.calls.length, 2);
+  const reference = runLighthouse.calls.filter((c) => c.url === 'https://prod.example');
+  assert.ok(reference.every((c) => !c.modules.some((m) => m.id === 'performance')));
   assert.match(forge.posted[0], /\| Metric \| budgets \| PR \|/);
 });
 

@@ -104,8 +104,10 @@ function report(result) {
     );
   }
 
-  const failing = Object.entries(result.statuses ?? {}).filter(([, level]) => level === 'fail');
-  if (failing.length > 0) console.log(`  over budget: ${failing.map(([m]) => m).join(', ')}`);
+  for (const [id, mod] of Object.entries(result.modules ?? { performance: { levels: result.statuses } })) {
+    const failing = Object.entries(mod?.levels ?? {}).filter(([, level]) => level === 'fail');
+    if (failing.length > 0) console.log(`  ${id} failed on: ${failing.map(([check]) => check).join(', ')}`);
+  }
 
   const shouldFail =
     (config.failOn === 'fail' && result.conclusion === 'fail') ||
