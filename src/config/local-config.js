@@ -1,21 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadStaticConfig } from '../config/static-config.js';
-import { parseRepoConfig } from '../config/repo-config.js';
+import { loadStaticConfig } from './static-config.js';
+import { parseRepoConfig } from './repo-config.js';
 
 // The defaults ship with Kanso, so they resolve against this file rather than
 // the directory the developer happens to be standing in.
 const DEFAULTS_PATH = fileURLToPath(new URL('../../config.yml', import.meta.url));
 
-// Resolves the configuration for a CLI run: Kanso's defaults, with the
+// Resolves the configuration for a local run: Kanso's defaults, with the
 // project's .kanso.yml layered on top when there is one. The same file the PR
-// surface reads, so a local run and a CI run judge a page identically.
+// surface reads, so a local run and a CI run judge a page identically — and the
+// same file for every local surface, the CLI and the MCP server alike.
 //
 // Nothing here touches src/config/env.js: that validates the GitHub App
 // credentials the server needs and throws without them, which would make the
 // CLI unusable for the developer it is meant for.
-export function loadCliConfig({ cwd = process.cwd(), configPath = null } = {}) {
+export function loadLocalConfig({ cwd = process.cwd(), configPath = null } = {}) {
   const defaults = loadStaticConfig(DEFAULTS_PATH);
   const path = configPath ? resolve(cwd, configPath) : join(cwd, '.kanso.yml');
 

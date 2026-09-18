@@ -1,6 +1,7 @@
+import { loadLocalConfig } from '../config/local-config.js';
 import { audit } from '../core/audit.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
-import { loadCliConfig } from './config.js';
+import { InvalidTarget, parseTarget } from '../core/target.js';
 import { renderResult } from './render.js';
 
 export const EXIT = { ok: 0, failed: 1, error: 2 };
@@ -13,13 +14,11 @@ const SEVERITY = { pass: 0, warn: 1, fail: 2 };
 // `runLighthouse` and `now` are injected for the tests; everything else the
 // command needs, it resolves itself.
 export async function runAuditCommand({ url, baseline = null, runs = null, configPath = null, failOn = 'fail', json = false, cwd, io, runLighthouse, now = Date.now }) {
-  // No URL guard here, unlike the server: the guard exists because /v1/audit is
-  // a public endpoint that must not be pointed at private addresses on the
-  // operator's behalf. On a developer's machine, a private address is the point.
-  const target = parseTarget(url, 'url');
-  const reference = baseline ? parseTarget(baseline, 'baseline') : null;
+  // No URL guard here, unlike the server: see src/core/target.js.
+  const target = usage(() => parseTarget(url, 'url'));
+  const reference = baseline ? usage(() => parseTarget(baseline, 'baseline')) : null;
 
-  const { config, source } = loadCliConfig({ cwd, configPath });
+  const { config, source } = loadLocalConfig({ cwd, configPath });
   // Clamped here as well as in the core, so the run count printed in the
   // report is the one the audit will really do.
   config.runs = clampRuns(runs ?? config.runs);
@@ -61,17 +60,15 @@ function tick(io, json, started, now) {
   };
 }
 
-function parseTarget(value, label) {
-  let parsed;
+// A target the command line named wrong is a mistake in the invocation, and
+// reads as one: the message, and the pointer to --help.
+function usage(parse) {
   try {
-    parsed = new URL(value);
-  } catch {
-    throw new UsageError(`${label} is not a valid URL: ${value}`);
+    return parse();
+  } catch (err) {
+    if (err instanceof InvalidTarget) throw new UsageError(err.message);
+    throw err;
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new UsageError(`${label} must be http or https: ${value}`);
-  }
-  return parsed.href;
 }
 
 export function parseRuns(value) {

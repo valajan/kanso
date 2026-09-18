@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
+node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node 20+ built-in test runner)
@@ -33,10 +34,13 @@ Kanso audits a web page and judges it. **The audit is `src/core/audit.js` and
 knows nothing about pull requests, forges or servers**; everything else is a
 surface onto it.
 
-Two surfaces exist today:
+Three surfaces exist today:
 
 - **the CLI** (`bin/kanso.js`) — `kanso audit <url>`, on a developer's machine,
   against a local build. No server, no credentials, no network but the page.
+- **the MCP server** (`kanso mcp`) — the same audit over stdio, so the agent
+  that wrote the code can measure it. Facts only: in MCP the host is the model,
+  so nothing here calls one.
 - **the PR report**, with **two triggers into one pipeline**:
   1. **`POST /v1/audit`** — a CI job posts the preview URL it just deployed.
      Platform-agnostic, stateless, and the preferred path.
@@ -46,8 +50,9 @@ Two surfaces exist today:
   Both converge on the same orchestrator and the same report.
 
 **Entry points:** `server.js` — a thin bootstrap that loads config, wires
-dependencies, and starts the server — and `bin/kanso.js` for the CLI. All
-application logic lives under `src/`.
+dependencies, and starts the server — and `bin/kanso.js` for the CLI and the
+MCP server it also starts (`kanso mcp`). All application logic lives under
+`src/`.
 
 ### Module layout (`src/`)
 
@@ -55,6 +60,8 @@ application logic lives under `src/`.
   `/health`, `/webhook` and `/v1/audit` routes
 - `config/` — `env.js` (env validation), `static-config.js` (config.yml),
   `repo-config.js` (`.kanso.yml` merge, from the forge or supplied inline),
+  `local-config.js` (defaults + the `.kanso.yml` of the directory a local
+  surface runs in — the CLI and the MCP server read the same one),
   `module-config.js` (the section of it a given module reads), `merge.js`
 - `forge/` — **the only place that knows what platform we are talking to.**
   `index.js` documents the interface and registers adapters; `github.js`
@@ -63,8 +70,9 @@ application logic lives under `src/`.
 - `core/` — **the audit, with no knowledge of PRs, forges or servers.**
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
-  worst-of; `runs.js` holds how many loads a measure is worth. The CLI and the
-  PR report are two callers; an MCP server will be a third.
+  worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
+  what every surface accepts as a page to audit. The CLI, the MCP server and the
+  PR report are its three callers.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`) and the two shapes of detail every surface can render — `scores`
@@ -86,6 +94,14 @@ application logic lives under `src/`.
   the verdict — 0 audited and clean, 1 audited and over `--fail-on`, 2 the
   audit could not run — which is what makes it usable in a pre-commit hook or a
   CI job. `--json` prints the audit result and nothing else
+- `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
+  the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
+  rather than depended on: the reference SDK drags express, hono, jose and ajv
+  in for transports Kanso does not serve), `tools.js` exposes `audit_page` and
+  `list_modules`. The result is the JSON of `kanso audit --json`, in both the
+  text and the structured block, with a sample of the elements under each
+  finding; a long call reports progress, which is what keeps a host from
+  abandoning it
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`
@@ -218,10 +234,11 @@ at the root on purpose: it counts page loads, and one load feeds every module.
 
 The CLI reads that same `.kanso.yml` from the working directory (or `--config
 <path>`), so a developer's local run and the CI's run judge a page by the same
-numbers. On the API path the CI sends that file's contents inline — one fewer
-API call, and it works with a token that has no contents scope. Config controls
-budgets, each module's own thresholds, the reference URL, `runs`, and whether AI
-analysis is enabled.
+numbers; the MCP server reads it from the directory its host started it in, so
+an agent's audit is judged by them too. On the API path the CI sends that file's
+contents inline — one fewer API call, and it works with a token that has no
+contents scope. Config controls budgets, each module's own thresholds, the
+reference URL, `runs`, and whether AI analysis is enabled.
 
 **Environment variables** (see `.env.example`, validated in `src/config/env.js`):
 

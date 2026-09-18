@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { main } from '../index.js';
 
 const GOOD = { performance: 96, lcp: 1500, tbt: 80, cls: 0.01, fcp: 800 };
@@ -233,6 +234,8 @@ test('a mistake in the command line exits 2 and points at the help', async () =>
     [['audit', 'http://a', '--config', 'nope.yml'], /configuration file not found/],
     [['audit', 'http://a', '--nope'], /Unknown option/],
     [['serve', 'http://a'], /unknown command: serve/],
+    [['mcp', 'http://a'], /mcp takes no arguments/],
+    [['mcp', '--runs', '3'], /mcp takes no options/],
   ];
 
   for (const [argv, expected] of cases) {
@@ -241,6 +244,21 @@ test('a mistake in the command line exits 2 and points at the help', async () =>
     assert.equal(code, 2, argv.join(' '));
     assert.match(err, expected, argv.join(' '));
   }
+});
+
+// The MCP server is the third surface onto the same audit, and the command
+// line is how a host starts it. Its own tests are in src/mcp/__tests__.
+test('kanso mcp serves the audit on stdin and stdout', async () => {
+  const io = fakeIo();
+  io.stdin = new PassThrough();
+
+  const served = main(['mcp'], { io, cwd: emptyProject(), runLighthouse: async () => assert.fail('must not audit') });
+  io.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n');
+  io.stdin.end();
+
+  assert.equal(await served, 0);
+  const [message] = io.out.trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'list_modules']);
 });
 
 test('--help and --version are answered without auditing', async () => {

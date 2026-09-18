@@ -5,9 +5,10 @@ returns a verdict: `pass`, `warn` or `fail`. Performance and accessibility
 today, in a single page load; on mobile **and** desktop; against your own
 thresholds — and it can judge one version of a page against another.
 
-Three ways to run it, from the simplest to the most integrated: **locally**
-while you work, **in CI** to stop a regression, **on a pull request** so the
-measurement lands in the review.
+Four ways to run it, from the simplest to the most integrated: **locally**
+while you work, **from your coding agent** so it can measure what it just wrote,
+**in CI** to stop a regression, **on a pull request** so the measurement lands in
+the review.
 
 ---
 
@@ -225,7 +226,59 @@ whole result and nothing else:
 kanso audit http://localhost:4173 --json > audit.json
 ```
 
-## 7. On a pull request
+## 7. Give it to your coding agent
+
+`kanso mcp` serves the same audit over [MCP](https://modelcontextprotocol.io) on
+stdin and stdout. The agent that just wrote the component can measure it instead
+of telling you it looks fine.
+
+In Claude Code, from your web project:
+
+```bash
+claude mcp add kanso -- kanso mcp
+```
+
+In Cursor, Claude Desktop, or any other host — `.cursor/mcp.json`, `.mcp.json`,
+`claude_desktop_config.json`, same shape:
+
+```json
+{
+  "mcpServers": {
+    "kanso": { "command": "kanso", "args": ["mcp"] }
+  }
+}
+```
+
+> Without `npm link`, the command is `node` with
+> `["/path/to/kanso/bin/kanso.js", "mcp"]` as its arguments.
+
+Two tools:
+
+| Tool | Arguments | What comes back |
+|---|---|---|
+| `audit_page` | `url`, optional `baseline` and `runs` | the whole verdict, as JSON |
+| `list_modules` | none | what Kanso checks, and what this project judges it against |
+
+The server reads `.kanso.yml` from the directory the host started it in — your
+project — so the agent is held to the same numbers you are.
+
+Three things worth knowing before you wire it up:
+
+**Serve the build.** An agent auditing `npm run dev` measures the dev server:
+unbundled modules, no minification, numbers that mean nothing. Build first, serve
+the build, audit that.
+
+**It returns facts, not an opinion.** Kanso never calls a model from here. In MCP
+the host *is* the model, and it has the diff it just wrote in front of it — more
+context than any report could reconstruct. (The AI analysis in `src/ai-analysis/`
+belongs to the pull request surface, where there is no agent reading the numbers.)
+
+**A call takes 10 to 60 seconds** — one page load per form factor, times `runs`,
+doubled when you pass a `baseline`. Kanso sends progress notifications while it
+works, which is what stops a host giving up mid-audit; if yours times out anyway,
+raise its limit (`MCP_TOOL_TIMEOUT` in Claude Code) or leave `runs` at 1.
+
+## 8. On a pull request
 
 Kanso can post its report into the PR itself: one comment carrying the tables,
 edited on every push rather than stacked, and a commit status that blocks the
@@ -249,7 +302,7 @@ The details — token permissions, GitLab, waiting for the preview — are in
 > A second action that runs the CLI **inside the runner**, with nothing to host,
 > is planned. Today this path needs the instance.
 
-## 8. When the numbers move between runs
+## 9. When the numbers move between runs
 
 That is normal, and it is the classic trap: a single Lighthouse load swings by
 20–30% on TBT depending on what your machine is doing at that moment. Enough to
@@ -262,7 +315,7 @@ makes a small regression believable.
 Close whatever is running in the background during an audit — a build, another
 Chrome: they fight over the same CPU as the page being measured.
 
-## 9. When it does not work
+## 10. When it does not work
 
 | Symptom | Usual cause |
 |---|---|
@@ -272,11 +325,13 @@ Chrome: they fight over the same CPU as the page being measured.
 | `configuration file not found` | the path given to `--config` does not exist |
 | Huge gaps with `--baseline` | you are comparing two hostings, not two codebases |
 
-## 10. Under the hood
+## 11. Under the hood
 
 The audit is `src/core/audit.js`, and it knows nothing about pull requests,
-forges or servers: the CLI and the PR report are two surfaces onto the same
-core. Each concern Kanso checks is a module under `src/modules/` — performance
+forges or servers: the CLI, the MCP server and the PR report are three surfaces
+onto the same core.
+
+Each concern Kanso checks is a module under `src/modules/` — performance
 and accessibility today — and every module extracts what it needs from **the
 same page load**, so a second concern costs a Lighthouse category, not another
 audit.
@@ -295,5 +350,6 @@ kanso audit <url> --runs 3               # 3 loads, median kept
 kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --config other.yml     # another configuration file
+kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```

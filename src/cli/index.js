@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import { version } from '../version.js';
 import { runAuditCommand, parseRuns, parseFailOn, EXIT, UsageError } from './audit-command.js';
 
 const OPTIONS = {
@@ -15,11 +15,16 @@ const OPTIONS = {
 const USAGE = `Kanso — frontend audits, on your machine
 
   kanso audit <url> [options]
+  kanso mcp
 
 Audits a page on mobile and desktop and judges it against your budgets, or
 against a baseline page when you name one. The url is the audit command's
 only required argument, and \`audit\` may be left out when the first argument
 is already a URL.
+
+\`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
+stdout, so the agent that just wrote the code can measure it. It reads the
+project configuration from the directory it is started in.
 
 Options
   -b, --baseline <url>  page to compare against: production, the main branch's
@@ -61,12 +66,27 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
 
     // `kanso audit <url>` and `kanso <url>` are the same command.
     const [head, ...rest] = positionals;
+    if (head !== 'audit' && head !== 'mcp' && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
+
+    const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
+
+    if (head === 'mcp') {
+      // Every option above belongs to one audit, and an MCP client passes them
+      // call by call — accepting them here would silently fix what the agent
+      // is meant to choose.
+      if (rest.length > 0) throw new UsageError(`mcp takes no arguments, got ${rest.join(' ')}`);
+      if (Object.keys(values).length > 0) throw new UsageError('mcp takes no options: an MCP client passes them call by call');
+
+      const { runMcpServer } = await import('../mcp/index.js');
+      // The server answers until the host closes stdin.
+      await runMcpServer({ input: io.stdin, output: io.stdout, cwd, runLighthouse: lighthouse });
+      return EXIT.ok;
+    }
+
     const args = head === 'audit' ? rest : positionals;
-    if (head !== 'audit' && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
     if (args.length === 0) throw new UsageError('audit needs a URL');
     if (args.length > 1) throw new UsageError(`audit takes one URL, got ${args.length}`);
 
-    const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
     return await runAuditCommand({
       url: args[0],
       baseline: values.baseline ?? null,
@@ -83,9 +103,4 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     io.stderr.write(`kanso: ${err.message}\n${usage ? 'Try `kanso --help`.\n' : ''}`);
     return EXIT.error;
   }
-}
-
-function version() {
-  const path = new URL('../../package.json', import.meta.url);
-  return JSON.parse(readFileSync(path, 'utf8')).version;
 }
