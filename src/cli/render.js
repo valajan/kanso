@@ -177,7 +177,7 @@ function renderFindings(moduleResult, c) {
   const { findings } = moduleResult;
   if (findings == null) return ['', '  ' + c('dim', 'no result')];
   if (findings.length === 0) {
-    return ['', '  ' + c('green', 'no findings'), '', '  ' + c('dim', summary(moduleResult))];
+    return ['', '  ' + c('green', 'no findings'), '', '  ' + c('dim', summary(moduleResult)), ...unchecked(moduleResult, c)];
   }
 
   // The state column only exists when a baseline gave the findings one.
@@ -201,16 +201,29 @@ function renderFindings(moduleResult, c) {
     const shared = sharedExplanation(shown);
     if (shared) lines.push('      ' + shared);
     for (const node of shown) {
-      lines.push('      ' + c('dim', describe(node)));
+      const where = describe(node);
       const explanation = shared ? '' : explanationLine(node.explanation);
+      // A tag the page lacks is nowhere: its explanation is all there is.
+      if (!where) {
+        if (explanation) lines.push('      ' + explanation);
+        continue;
+      }
+      lines.push('      ' + c('dim', where));
       if (explanation) lines.push('        ' + explanation);
     }
     const rest = finding.count - shown.length;
     if (rest > 0) lines.push('      ' + c('dim', `… and ${rest} more`));
   });
 
-  lines.push('', '  ' + c('dim', summary(moduleResult)));
+  lines.push('', '  ' + c('dim', summary(moduleResult)), ...unchecked(moduleResult, c));
   return lines;
+}
+
+// A probe that did not run checked nothing: said, with the rules it left
+// unchecked, so that a clean section is never read as a clean page.
+function unchecked({ probeFailures = [] }, c) {
+  return probeFailures.map(({ probe, rules, side, formFactor, error }) => '  ' + c('yellow',
+    `! ${probe} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rules.join(', ')} unchecked`));
 }
 
 // Says what the numbers were judged against, which is the difference between a

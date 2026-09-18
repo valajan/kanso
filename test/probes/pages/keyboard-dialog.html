@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A modal dialog holding focus</title>
+<style>body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }</style>
+</head>
+<body>
+<main>
+  <h1>Behind the dialog</h1>
+  <p><a href="#">A link the dialog makes inert</a></p>
+</main>
+<div role="dialog" aria-modal="true" aria-labelledby="title" class="consent">
+  <h2 id="title">Your choices</h2>
+  <button class="accept">Accept</button>
+  <button class="refuse">Refuse</button>
+</div>
+<script>
+  // What focus-trapping libraries do for a modal: Tab goes round its buttons.
+  const buttons = [...document.querySelectorAll('.consent button')];
+  buttons[0].focus();
+  document.querySelector('.consent').addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    const next = (buttons.indexOf(document.activeElement) + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+    buttons[next].focus();
+  });
+</script>
+</body>
+</html>

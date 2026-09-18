@@ -45,6 +45,14 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
       + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
       + 'the unthrottled load, so they tell proportions, not the simulated metrics. '
+      + 'Beyond Lighthouse, Kanso checks the page itself, and reports it as accessibility findings: laid out '
+      + '320 CSS pixels wide (WCAG 1.4.10), whether it scrolls sideways (reflow-scroll) or cuts text off '
+      + '(reflow-clip), and which element does it; gone through with the Tab key, whether focus gets trapped '
+      + '(focus-trap), shows no sign or lands out of sight (focus-visible), or ends up behind a banner or a '
+      + 'sticky bar (focus-obscured); loaded and scrolled through under prefers-reduced-motion: reduce, what '
+      + 'still moves (reduced-motion). SEO also reports a page naming no canonical URL and missing Open '
+      + 'Graph tags. A check that could not run is listed under probeFailures with the rules it left unchecked: '
+      + 'nothing found there is not a clean page. '
       + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
       + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
       + 'would, so their absence there says nothing about production. '
@@ -73,6 +81,13 @@ function auditPage({ cwd, runLighthouse, now }) {
             'A second page to compare against, URL or directory: the same build before the change, the main '
             + 'branch, or production.',
         },
+        screenshot: {
+          type: 'boolean',
+          description:
+            'Also return the page as its load ended, on mobile and on desktop: two images, after the result. '
+            + 'They cost context — ask for them when how the page looks is the question: an element that '
+            + 'overlaps another, a hero that renders blank, a layout that breaks. Defaults to false.',
+        },
         runs: {
           type: 'integer',
           minimum: 1,
@@ -95,6 +110,7 @@ function auditPage({ cwd, runLighthouse, now }) {
     async run(args, { progress }) {
       const named = args.url == null ? null : site(args.url, 'url', cwd);
       const reference = args.baseline == null ? null : site(args.baseline, 'baseline', cwd);
+      if (args.screenshot != null && typeof args.screenshot !== 'boolean') throw new InvalidParams('screenshot must be true or false');
 
       const { config, source } = loadLocalConfig({ cwd });
       config.runs = clampRuns(runsArg(args.runs) ?? config.runs);
@@ -117,7 +133,7 @@ function auditPage({ cwd, runLighthouse, now }) {
           ...(served ? { served } : {}),
           // A baseline the caller named is always audited, as on the command
           // line: the comparison is what they asked for, budgets or no budgets.
-          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true }),
+          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true, screenshots: args.screenshot === true }),
         }));
       } catch (err) {
         return notServed(err);
@@ -126,19 +142,22 @@ function auditPage({ cwd, runLighthouse, now }) {
       }
 
       const { result, ...sites } = report;
+      const { screenshots, ...audited } = result;
       const payload = {
         ...sites,
         runs: config.runs,
         configSource: source,
         elapsedMs: now() - started,
-        ...result,
+        ...audited,
       };
 
       // The same facts twice, on purpose: hosts that read structured output
       // get the object, the others get it serialized in the text block, and
-      // neither ends up with a summary of the other.
+      // neither ends up with a summary of the other. The screenshots are
+      // images, not facts to read: they follow as image blocks, each named,
+      // and stay out of both.
       return {
-        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }, ...images(screenshots)],
         structuredContent: payload,
         // A page that never loaded is the tool failing, not a verdict on the
         // page — and the model is told so rather than reading four green rows.
@@ -173,6 +192,9 @@ function listModules({ cwd }) {
           id: mod.id,
           label: mod.label,
           lighthouseCategories: mod.categories,
+          // What the module checks on the page itself, beyond Lighthouse, and
+          // the rules each check can report.
+          probes: (mod.probes ?? []).map(({ id, rules }) => ({ id, rules })),
           // Each module sees only the section carrying its id, so this is the
           // whole of what judges it — see src/config/module-config.js.
           config: moduleConfig(config, mod.id),
@@ -204,6 +226,20 @@ function site(value, label, cwd) {
     if (err instanceof InvalidTarget) throw new InvalidParams(err.message);
     throw err;
   }
+}
+
+// Each screenshot as an image block, after a line saying which it is. A load
+// that produced none is said too, rather than silently missing.
+function images(screenshots) {
+  if (!screenshots) return [];
+  return Object.entries(screenshots).flatMap(([formFactor, uri]) => {
+    const image = /^data:(image\/[\w+.-]+);base64,(.+)$/.exec(uri ?? '');
+    if (!image) return [{ type: 'text', text: `No ${formFactor} screenshot: that load produced none.` }];
+    return [
+      { type: 'text', text: `The page on ${formFactor}, as its load ended:` },
+      { type: 'image', data: image[2], mimeType: image[1] },
+    ];
+  });
 }
 
 function runsArg(value) {

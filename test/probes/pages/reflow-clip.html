@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cuts text off at 320 px</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  /* The card hides what does not fit: the long line is lost. */
+  .card { overflow: hidden; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; }
+  .card pre { margin: 0; }
+  /* A fixed header whose links do not fit, and cannot be scrolled to. */
+  header { position: fixed; top: 0; left: 0; right: 0; background: #fff; }
+  header nav { display: flex; gap: 2rem; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header><nav><a href="#">Features</a><a href="#">Documentation</a><a href="#">Pricing</a><a href="#">Changelog</a></nav></header>
+<main style="margin-top: 4rem">
+  <h1>Lost at the edge</h1>
+  <div class="card yaml-card"><pre>apiVersion: kanso/v1
+kind: Audit
+budgets: { performance: 90, lcp: 2500, tbt: 200, cls: 0.1 }</pre></div>
+</main>
+</body>
+</html>

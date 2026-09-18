@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion that stays still when asked</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  @keyframes slide-in { from { transform: translateY(40px); } to { transform: none; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  /* Movement only for those who did not ask for less. */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero { animation: slide-in 800ms ease-out; }
+    html { scroll-behavior: smooth; }
+  }
+  /* A fade is what reduced motion leaves in place of a movement. */
+  .note { animation: fade-in 600ms; }
+  /* Shorter than a blink. */
+  .nudge { animation: slide-in 120ms; }
+  .spacer { height: 1600px; }
+  .reveal { opacity: 0; transition: opacity 400ms; }
+  .reveal.shown { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1 class="hero">Nothing moves</h1>
+  <p class="note">This paragraph fades in.</p>
+  <p class="nudge">This one moves for 120 ms.</p>
+  <div class="spacer"></div>
+  <p class="reveal">Revealed on scroll, by fading.</p>
+</main>
+<script>
+  new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && e.target.classList.add('shown')))
+    .observe(document.querySelector('.reveal'));
+</script>
+</body>
+</html>

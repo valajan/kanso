@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus you cannot see</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  /* The outline removed, and nothing in its place. */
+  .bare { outline: none; }
+  /* A closed off-canvas menu whose links still take focus. */
+  .drawer { position: fixed; top: 0; left: 0; width: 240px; transform: translateX(-100%); }
+  /* A link faded out, but still in the tab order. */
+  .ghost { opacity: 0; }
+  /* A menu folded away by its height alone: its links still take focus, in a
+     box with no room to show them. */
+  .folded { max-height: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<nav class="drawer"><a class="menu-link" href="#">Menu entry, off the screen</a></nav>
+<main>
+  <h1>Where is focus?</h1>
+  <p><a href="#ok">A link with the browser's ring</a></p>
+  <p><button class="bare">A button with no sign of focus</button></p>
+  <p><a class="ghost" href="#">A link nobody can see</a></p>
+  <ul class="folded"><li><a class="folded-link" href="#two">An entry of a folded menu</a></li></ul>
+</main>
+</body>
+</html>

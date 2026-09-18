@@ -2,6 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
 import { getModule } from '../modules/index.js';
+import { runProbes } from '../probes/index.js';
 
 // Lighthouse desktop preset — matches `lighthouse --preset=desktop` defaults.
 const DESKTOP_CONFIG = {
@@ -24,8 +25,10 @@ const DESKTOP_CONFIG = {
 };
 
 // One page load serves every requested module: Lighthouse collects the union
-// of their categories, then each module extracts its own sample.
-async function audit({ url, formFactor, moduleIds }) {
+// of their categories, then each module extracts its own sample. With `probe`,
+// the modules' probes run afterwards on the same Chrome; with `screenshot`, the
+// page as its load ended comes back beside the samples.
+async function audit({ url, formFactor, moduleIds, probe, screenshot }) {
   const modules = moduleIds.map(getModule);
 
   // The Launcher is built by hand rather than through chromeLauncher.launch(),
@@ -58,13 +61,26 @@ async function audit({ url, formFactor, moduleIds }) {
       throw new Error(`${runtimeError.code}: ${runtimeError.message}`);
     }
 
-    return Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr)]));
+    const probed = probe
+      ? await runProbes({ port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules })
+      : {};
+
+    // The artifacts stay in this thread: a module keeps what it needs of them
+    // in its sample, which is all that crosses back.
+    const samples = Object.fromEntries(modules.map((m) => [m.id, m.extract(result.lhr, {
+      artifacts: result.artifacts,
+      probed: probed[m.id] ?? null,
+    })]));
+    // The last frame of Lighthouse's trace: a JPEG data URI, the viewport as
+    // the load ended.
+    const shot = screenshot ? result.lhr.audits['final-screenshot']?.details?.data ?? null : null;
+    return { samples, screenshot: shot };
   } finally {
     chrome.kill();
   }
 }
 
 audit(workerData).then(
-  (samples) => parentPort.postMessage({ ok: true, samples }),
+  ({ samples, screenshot }) => parentPort.postMessage({ ok: true, samples, screenshot }),
   (err) => parentPort.postMessage({ ok: false, error: err?.message ?? String(err) }),
 );

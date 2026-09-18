@@ -207,7 +207,7 @@ const ELEMENTS_SHOWN = 5;
 // failed folded into a <details>, and a line saying what it was all judged
 // against — without which a reader cannot tell a clean page from a page whose
 // findings were all there before the change.
-function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [] }, baseRef) {
+function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [], probeFailures = [] }, baseRef) {
   const heading = `### ${MODULE_ICONS[mod.id] ?? '🔎'} ${mod.label}`;
 
   // What it was all judged against, found or not: without it, a section with
@@ -222,7 +222,11 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
     parts.push(`${fixed.length} fixed`);
   }
   if (ignore.length > 0) parts.push(`ignoring ${ignore.map((rule) => code(rule)).join(', ')}`);
-  const judged = `_${parts.join(' · ')}_`;
+  // A probe that did not run checked nothing, which a clean section must not
+  // be read as.
+  const unchecked = probeFailures.map(({ probe, rules, side, formFactor, error }) =>
+    `\n_⚠️ ${code(probe)} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'reference'} (${escapeMarkdown(error)}): ${rules.map((rule) => code(rule)).join(', ')} unchecked_`);
+  const judged = `_${parts.join(' · ')}_${unchecked.join('')}`;
 
   if (findings.length === 0) {
     return `${heading}\n\n_No findings — every rule checked passed._\n\n${judged}\n`;
@@ -246,10 +250,13 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
         finding.detail ? escapeMarkdown(finding.detail) : null,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {
+          const where = elementWhere(node);
+          const reason = shared ? '' : explanationLine(node.explanation);
+          // A tag the page lacks is nowhere: its explanation is all there is.
+          if (!where) return reason ? `- ${escapeMarkdown(reason)}` : null;
           const hint = elementHint(node);
           const detail = hint?.text ? ` “${escapeMarkdown(hint.text)}”` : hint?.tag ? ` ${code(hint.tag)}` : '';
-          const reason = shared ? '' : explanationLine(node.explanation);
-          return `- ${code(elementWhere(node))}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
+          return `- ${code(where)}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
         }),
         finding.count > shown.length ? `- _…and ${finding.count - shown.length} more_` : null,
       ].filter(Boolean).join('\n');

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus you can see</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  /* A skip link: out of sight until it has focus, then on screen. */
+  .skip { position: absolute; left: -9999px; }
+  .skip:focus { left: 1rem; top: 1rem; background: #fff; }
+  /* The outline removed, and something else in its place. */
+  .ring { outline: none; transition: box-shadow 200ms; }
+  .ring:focus-visible { box-shadow: 0 0 0 3px #1a56db; }
+  .underline { outline: none; text-decoration: none; }
+  .underline:focus-visible { text-decoration: underline; }
+  /* The sign carried by the parent, and by a pseudo-element. */
+  .card { border: 2px solid transparent; }
+  .card:focus-within { border-color: #1a56db; }
+  .card a { outline: none; }
+  /* Lit up two levels above the link. */
+  .panel { background: #fff; }
+  .panel:focus-within { background: #eef; }
+  .panel a { outline: none; }
+  .arrow { outline: none; position: relative; }
+  .arrow::after { content: ''; }
+  .arrow:focus-visible::after { content: ' →'; }
+  /* An off-canvas menu that is out of the tab order while closed. */
+  .drawer { position: fixed; top: 0; left: 100%; visibility: hidden; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<nav class="drawer"><a href="#">Hidden until opened</a></nav>
+<main id="main">
+  <h1>Every stop shows it has focus</h1>
+  <p><a href="#one">The browser's own focus ring</a></p>
+  <p><button class="ring">A ring in place of the outline</button></p>
+  <p><a class="underline" href="#two">An underline in place of the outline</a></p>
+  <div class="card"><a href="#three">A card that lights up around its link</a></div>
+  <p><a class="arrow" href="#four">An arrow that appears</a></p>
+  <div class="panel"><ul><li><a href="#five">A panel lit up two levels above its link</a></li></ul></div>
+  <p><label>A field <input type="text"></label></p>
+</main>
+</body>
+</html>

@@ -12,13 +12,19 @@ npm start          # Start the server
 npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
+npm run test:probes      # The probes against a real Chrome, on pages with known answers (~10 s)
 npm run test:acceptance  # End-to-end suite against ../kanso-frontend (needs Chrome, ~5 min)
 ```
 
+`npm run test:probes` covers what `npm test` cannot: the code a probe runs
+inside the page, which only means something against a real layout engine. The
+pages in `test/probes/pages/` each break one thing on purpose, or carry every
+pattern that looks like a failure and is not.
+
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
-kanso-frontend landing page, injects known regressions (TBT, CLS, LCP) into the
-build, and asserts Kanso fails each one on the right metric while the unchanged
-page passes. Every push is audited against the unchanged build as its reference,
+kanso-frontend landing page, injects known regressions (TBT, CLS, LCP, and a
+block too wide for a phone) into the build, and asserts Kanso fails each one on
+the right metric or rule while the unchanged page passes. Every push is audited against the unchanged build as its reference,
 the way a PR is judged against its base — which is also what proves the axe
 findings that page already carries are reported without failing a push that did
 not add them. Chrome, Lighthouse, the Kanso server and the CI client are real;
@@ -78,6 +84,16 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `index.js` documents the interface and registers adapters; `github.js`
   implements it. Nothing else in the codebase calls `octokit`.
 - `security/` — `url-guard.js` (SSRF), `rate-limit.js` (token bucket)
+- `probes/` — what Kanso checks on a page itself, beyond Lighthouse. A module
+  declares its probes; `index.js` runs them in the audit worker, after
+  Lighthouse, on the same Chrome — each in a fresh page and browser context,
+  laid out as Lighthouse laid it out unless it asks for another viewport or
+  media features, with a script of its own run before the page's if it needs
+  one, under a timeout. A probe that fails costs its own rules, reported as unchecked,
+  never as clean. `dom.js` is what a probe runs inside the page with: the call
+  goes as one DevTools expression, which no page CSP can refuse, and the
+  element helper describes a node the way Lighthouse does. Probes run on the
+  first successful load of a page only
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -106,8 +122,15 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   judged.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: a rule is broken or it is not, so nothing
-  is averaged and one load settles it. `seo/` and `best-practices/` are the
-  other two Lighthouse categories, reported the same way. What the three share
+  is averaged and one load settles it. It also carries Kanso's probes:
+  `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
+  `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
+  `keyboard.js` presses Tab from the top until focus leaves the page —
+  `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
+  scrolls through it under `prefers-reduced-motion: reduce` —
+  `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale. `seo/` and
+  `best-practices/` are the other two Lighthouse categories, reported the same
+  way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out
   of the Lighthouse report — every failing element with its selector, tag, text
   and what is wrong with it (axe's explanation, or the columns Lighthouse shows:
@@ -116,7 +139,10 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   is the one severity scale, axe's. What each keeps to itself is where a rule's
   impact comes from: axe gives one; for SEO and best practices, which Lighthouse
   does not rank, `rules.js` places each rule on axe's scale. SEO leaves
-  `document-title` and `image-alt` to accessibility, and best practices also
+  `document-title` and `image-alt` to accessibility, and adds two rules of its
+  own from what Lighthouse holds but does not report (`head.js`): a missing
+  canonical, and the Open Graph tags a link preview needs — `extract` gets
+  Lighthouse's artifacts as well as its report, for that. Best practices also
   passes through, unjudged, what Lighthouse says of the security headers
   without scoring them
 - `cli/` — the local surface. `index.js` parses the command line,
@@ -136,7 +162,10 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `list_modules`. The result is the JSON of `kanso audit --json`, in both the
   text and the structured block, with nothing sampled out — an agent handed
   part of a finding reloads the page for the rest; a long call reports
-  progress, which is what keeps a host from abandoning it
+  progress, which is what keeps a host from abandoning it. With `screenshot:
+  true`, the page under audit as its load ended follows as image blocks, one
+  per form factor — `audit({ screenshots })` in the core, carried by the
+  runner under the `SCREENSHOT` symbol, never in the JSON
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`

@@ -150,13 +150,36 @@ The first three failing elements are printed under each rule, with what axe says
 is wrong with them — for a contrast failure, the ratio and both colours — so you
 know where to start. `--json` carries every element.
 
+axe reads the page at one size. What only shows at another, Kanso checks itself,
+in a page of its own after Lighthouse is done — about a second per audit — and
+reports under accessibility, on the same scale:
+
+| Rule | What it means | Impact |
+|---|---|---|
+| `reflow-scroll` | laid out 320 CSS pixels wide — a 1280 px window zoomed to 400% — the page scrolls sideways (WCAG 1.4.10) | `serious` |
+| `reflow-clip` | at that width, text runs past an edge that cuts it — an `overflow: hidden` box, a fixed bar, the screen — and is lost | `moderate` |
+| `focus-trap` | pressing Tab from the top, focus goes round part of the page, or stays on one element, and never gets past it (WCAG 2.1.2) — an open modal dialog is left alone | `critical` |
+| `focus-visible` | an element takes focus with nothing on it changing — no outline, ring, border, background or underline, on it or around it — or takes it off the screen, invisible, or folded out of sight (WCAG 2.4.7) | `serious` |
+| `focus-obscured` | a focused element is entirely behind something else: a cookie banner, a sticky bar (WCAG 2.4.11) | `moderate` |
+| `reduced-motion` | with `prefers-reduced-motion: reduce` set, something still moves — on load, as the page is scrolled through, or forever: a transform, a position, a size, or smooth scrolling. Fades and colour changes are left alone | `moderate` |
+
+Each names the element to fix: the box too wide for the screen, the code block
+that neither wraps nor scrolls, the card that hides the end of its lines, the
+button whose focus style was removed, the menu link that takes focus while the
+menu is closed. What
+WCAG lets need two dimensions — images, video, maps, data tables — is left out,
+and so is anything that scrolls on its own or is truncated on purpose with an
+ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next
+slide looks the same to it. If a check cannot run on a page, the report says so
+and lists the rules it left unchecked, rather than showing a clean section.
+
 SEO and best practices give you findings too, read and judged exactly the same
 way. Lighthouse ranks none of their rules, so Kanso places each one on the same
 impact scale — which is what lets one `fail_on` mean the same thing everywhere:
 
 | | Fails by default (`serious` and up) | Warns |
 |---|---|---|
-| **SEO** | the page tells search engines not to index it; an invalid canonical | no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text |
+| **SEO** | the page tells search engines not to index it; an invalid canonical | no canonical at all, no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text, missing Open Graph tags |
 | **Best practices** | not served over HTTPS; a field that refuses a paste | console errors, deprecated APIs, no doctype or charset, permission prompts on load, badly sized images |
 
 The full ranking, with the reason for each rule, is in
@@ -167,9 +190,13 @@ Kanso reports them once, under accessibility.
 Not every failure is an element: a console error is printed with the script and
 line that logged it, a missing doctype with what Lighthouse says of it.
 
-Two things Lighthouse does not check, and so neither does Kanso yet: a
-**missing** canonical (it only judges one that is there) and Open Graph tags. A
-page with neither scores 100 in SEO.
+Two SEO rules are Kanso's own, from the same page load: Lighthouse judges a
+canonical that is there but says nothing of a **missing** one, and ignores Open
+Graph tags — a page with neither scores 100. Kanso reports `canonical-missing`
+when the page names no canonical URL, in its head or in a `Link` header, and
+`open-graph` when a link preview would lack its title, its text or its image —
+or when `og:image` is a relative URL, which the sites fetching it cannot
+resolve. Both warn by default.
 
 Best practices also reports, without judging it, what Lighthouse says of the
 security headers the page was served with — CSP, HSTS, COOP, frame control,
@@ -401,7 +428,7 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline` and `runs` | the whole verdict, as JSON |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `screenshot` | the whole verdict, as JSON — and with `screenshot: true`, the page as its load ended, on mobile and desktop, as two images |
 | `list_modules` | none | what Kanso checks, what this project judges it against, and how it is served |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
@@ -423,6 +450,10 @@ flagged read-only to the host.
 the host *is* the model, and it has the diff it just wrote in front of it — more
 context than any report could reconstruct. (The AI analysis in `src/ai-analysis/`
 belongs to the pull request surface, where there is no agent reading the numbers.)
+
+**Screenshots are opt-in.** They are small — the last frame of Lighthouse's
+trace, a few hundred pixels wide, about 20 KB each — but an image still costs
+the agent context, so it asks for them when how the page looks is the question.
 
 **A call takes 10 to 60 seconds** — one page load per form factor, times `runs`,
 doubled when you pass a `baseline`. Kanso sends progress notifications while it

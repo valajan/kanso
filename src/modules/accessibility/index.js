@@ -1,4 +1,7 @@
-import { evaluateFindings, extractFindings, firstSample } from '../findings.js';
+import { evaluateFindings, extractFindings, firstSample, withProbed } from '../findings.js';
+import { keyboard } from './keyboard.js';
+import { motion } from './motion.js';
+import { reflow } from './reflow.js';
 
 // Accessibility: the axe rules Lighthouse runs on the page, judged by the
 // impact of what they found and by whether the baseline already had it.
@@ -8,13 +11,21 @@ import { evaluateFindings, extractFindings, firstSample } from '../findings.js';
 // page load is as good as five. What it shares with the other modules
 // reporting findings is in ../findings.js; what is its own is where an impact
 // comes from: axe gives one to every rule it breaks.
+//
+// axe reads the page at one size and never touches it. What only shows at
+// another size, or under a keyboard, Kanso's probes check — each in a page of
+// its own, after Lighthouse — and report as findings of this module, on the
+// same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide,
+// keyboard.js goes through it with the Tab key, motion.js watches it under
+// `prefers-reduced-motion: reduce`.
 export default {
   id: 'accessibility',
   label: 'Accessibility',
   categories: ['accessibility'],
+  probes: [reflow, keyboard, motion],
 
-  extract(lhr) {
-    return { findings: extractFindings(lhr, { category: 'accessibility', impactOf: axeImpact }) };
+  extract(lhr, { probed } = {}) {
+    return withProbed({ findings: extractFindings(lhr, { category: 'accessibility', impactOf: axeImpact }) }, probed);
   },
 
   combine: firstSample,

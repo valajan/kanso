@@ -340,6 +340,39 @@ test('a failure with no element is printed by what it names, or what Lighthouse 
   assert.match(out, /Description: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
 });
 
+// A tag the page lacks is nowhere: it is printed by its explanation alone,
+// rather than under an empty place.
+test('a missing tag is printed by what is missing', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': {
+      performance: GOOD,
+      seo: { findings: [{ rule: 'open-graph', impact: 'minor', count: 2, title: 't', nodes: [
+        { selector: '', snippet: '', label: '', explanation: 'og:description is missing' },
+        { selector: 'head > meta', snippet: '<meta property="og:image" content="/og.png">', label: '', explanation: 'og:image is not an absolute URL: /og.png' },
+      ] }] },
+    },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.match(out, /open-graph\s+minor\s+2 items\s+warn\n\s+og:description is missing\n\s+head > meta  <meta property="og:image" content="\/og\.png">\n\s+og:image is not an absolute URL: \/og\.png\n/);
+});
+
+// A probe that did not run found nothing because it looked at nothing: the
+// section says so, rather than reading as a clean page.
+test('a probe that did not run is said, with the rules it left unchecked', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': {
+      performance: GOOD,
+      accessibility: { findings: [], probeFailures: [{ probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], error: 'timed out after 30s' }] },
+    },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.match(out, /no findings\n\n\s+failing from serious up\n\s+! reflow did not run on the mobile page \(timed out after 30s\): reflow-scroll, reflow-clip unchecked\n/);
+});
+
 // --- serving the build ------------------------------------------------------
 
 // A project with its build on disk, as `npm run build` leaves it.

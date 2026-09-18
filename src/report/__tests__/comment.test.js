@@ -231,6 +231,32 @@ test('a failure with no DOM element is shown by what it names, or by what Lighth
   assert.ok(body.includes('Description: Failed to load resource: 404\n- `http://localhost:4173/favicon.ico:1:0`'));
 });
 
+test('a missing tag is listed by what is missing, with no empty place before it', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: {
+      seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
+        { rule: 'open-graph', title: 'Open Graph tags are missing or unusable', impact: 'minor', count: 2, state: null, level: 'warn', nodes: [
+          { selector: '', snippet: '', label: '', explanation: 'og:description is missing' },
+          { selector: 'head > meta', snippet: '<meta property="og:image" content="/og.png">', label: '', explanation: 'og:image is not an absolute URL: /og.png' },
+        ] },
+      ] },
+    },
+  });
+
+  assert.ok(body.includes('| `open-graph` | minor | 2 items | — | ⚠️ |'));
+  assert.ok(body.includes('**`open-graph`** — Open Graph tags are missing or unusable\n- og:description is missing\n- `head > meta` `<meta property="og:image" content="/og.png">` — og:image is not an absolute URL: /og.png'));
+});
+
+test('a probe that did not run is said under its section, with the rules it left unchecked', () => {
+  const body = formatComment(scoresPrOnly, {
+    headRef: 'feature',
+    modules: accessibility([], { probeFailures: [{ probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], side: 'baseline', formFactor: 'mobile', error: 'timed out after 30s' }] }),
+  });
+
+  assert.ok(body.includes('_failing from `serious` up_\n_⚠️ `reflow` did not run on the mobile reference (timed out after 30s): `reflow-scroll`, `reflow-clip` unchecked_'));
+});
+
 test('each module reporting findings gets its own section, and says what it ignored', () => {
   const body = formatComment(scoresPrOnly, {
     headRef: 'feature',
