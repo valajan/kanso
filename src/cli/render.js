@@ -1,5 +1,6 @@
 import { moduleConfig } from '../config/module-config.js';
 import { FORM_FACTORS } from '../core/audit.js';
+import { elementHint, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses } from '../modules/performance/status.js';
@@ -84,11 +85,61 @@ function renderScores(moduleResult, config, c) {
       lines.push('  ' + c('dim', 'no result'));
       continue;
     }
-    const rows = metricRows(current, reference, config.budgets ?? {}, refLabel);
+    const budget = config.budgets ?? {};
+    const rows = metricRows(current, reference, budget, refLabel);
     lines.push(...table(rows, ['left', 'right', 'right', 'right', 'left'], c));
+
+    const statuses = evaluateStatuses(roundScore(current), budget);
+    const why = diagnosticRows(moduleResult.diagnostics?.[formFactor]?.current, statuses);
+    if (why.length > 0) lines.push('', ...table(why, ['left', 'left'], c));
   }
 
   return lines;
+}
+
+// How Lighthouse names the parts of an LCP, in the words of a sentence.
+const LCP_SUBPARTS = {
+  timeToFirstByte: 'to first byte',
+  resourceLoadDelay: 'load delay',
+  resourceLoadDuration: 'load duration',
+  elementRenderDelay: 'render delay',
+};
+
+// Why a metric that did not pass is what it is, from Lighthouse's diagnostics
+// — src/modules/performance/diagnostics.js. A metric that passed needs no
+// explaining, and gets none.
+function diagnosticRows(diagnostics, statuses) {
+  if (!diagnostics) return [];
+  const { lcp, renderBlocking = [], cls } = diagnostics;
+  const rows = [];
+  const row = (label, text) => rows.push([{ text: label, color: 'dim' }, { text }]);
+
+  if (statuses.lcp !== 'pass' && lcp) {
+    if (lcp.element) row('LCP element', describe(lcp.element));
+    const parts = Object.entries(lcp.subparts).map(([part, ms]) => `${ms}ms ${LCP_SUBPARTS[part] ?? part}`);
+    row('LCP, observed', `${lcp.observedMs}ms = ${parts.join(' + ')}`);
+  }
+  // A stylesheet the first render waits for delays the LCP as much as the FCP.
+  if (statuses.lcp !== 'pass' || statuses.fcp !== 'pass') {
+    renderBlocking.forEach(({ url, wastedMs }, i) => row(i === 0 ? 'render-blocking' : '', `${url}  ${wastedMs ?? '?'}ms`));
+  }
+  if (statuses.cls !== 'pass' && cls) {
+    cls.shifts.forEach((shift, i) => row(i === 0 ? 'layout shifts' : '', [
+      shift.element ? describe(shift.element) : '?',
+      shift.score.toFixed(3),
+      ...shift.causes.map(({ cause, element, url }) => [cause, element ? describe(element) : url].filter(Boolean).join(': ')),
+    ].join('  ')));
+  }
+
+  return rows;
+}
+
+// An element by its selector, and by what tells it apart from the others
+// sharing that selector: its text, or its tag when it has none.
+function describe(element) {
+  const hint = elementHint(element);
+  const detail = hint?.text ? `"${hint.text}"` : hint?.tag;
+  return (element.selector || element.snippet) + (detail ? `  ${detail}` : '');
 }
 
 function metricRows(current, reference, budget, refLabel) {
@@ -137,10 +188,15 @@ function renderFindings({ findings, fixed = [], comparedToBaseline, failOn }, c)
     const finding = findings[i];
     // A rule Lighthouse failed without naming an element has nothing to list.
     if (finding.level === 'pass' || finding.nodes.length === 0) return;
-    for (const node of finding.nodes.slice(0, ELEMENTS_SHOWN)) {
-      lines.push('      ' + c('dim', node.selector || node.snippet));
+    const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
+    const shared = sharedExplanation(shown);
+    if (shared) lines.push('      ' + shared);
+    for (const node of shown) {
+      lines.push('      ' + c('dim', describe(node)));
+      const explanation = shared ? '' : explanationLine(node.explanation);
+      if (explanation) lines.push('        ' + explanation);
     }
-    const rest = finding.count - Math.min(finding.nodes.length, ELEMENTS_SHOWN);
+    const rest = finding.count - shown.length;
     if (rest > 0) lines.push('      ' + c('dim', `… and ${rest} more`));
   });
 

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregate, compare, extractFindings, MAX_NODES, sortFindings } from '../findings.js';
+import { aggregate, compare, elementHint, explanationLine, extractFindings, MAX_NODES, sortFindings } from '../findings.js';
+
+const CONTRAST = 'Fix any of the following:\n  Element has insufficient color contrast of 4.27 (foreground color: #7a8088, background color: #1c1c1e, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1';
 
 // The shape Lighthouse returns for an axe rule: a score of 0 with the failing
 // elements in details.items, and the rule's impact in details.debugData.
@@ -11,7 +13,13 @@ function lhr(rules) {
       score: 'score' in rule ? rule.score : 0,
       title: rule.title ?? `${id} is broken`,
       details: {
-        items: (rule.selectors ?? []).map((selector) => ({ node: { selector, snippet: `<p class="${selector}">` } })),
+        items: (rule.selectors ?? []).map((selector, i) => ({ node: {
+          selector,
+          snippet: `<p class="${selector}">`,
+          nodeLabel: `text ${i}`,
+          explanation: CONTRAST,
+          path: `1,HTML,1,BODY,${i},P`,
+        } })),
         ...(rule.impact ? { debugData: { type: 'debugdata', impact: rule.impact } } : {}),
       },
     }])),
@@ -32,6 +40,20 @@ test('extract keeps the rules the page failed, with their impact and elements', 
   assert.deepEqual(findings[0].nodes.map((n) => n.selector), ['p.intro', 'a.cta']);
 });
 
+// What an agent needs to fix a contrast failure without reloading the page: the
+// ratio and both colours, and the text to find the element by.
+test('extract keeps what axe says is wrong with each element, and its text', () => {
+  const [finding] = extractFindings(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label'] } }));
+
+  assert.deepEqual(finding.nodes[0], {
+    selector: 'span.label',
+    snippet: '<p class="span.label">',
+    label: 'text 0',
+    explanation: CONTRAST,
+    path: '1,HTML,1,BODY,0,P',
+  });
+});
+
 // A rule with no impact reported is still a violation; it is judged as
 // `serious` rather than slipping under the default threshold.
 test('extract survives a rule Lighthouse reported without an impact', () => {
@@ -45,6 +67,28 @@ test('extract keeps the whole element count but not every element', () => {
 
   assert.equal(finding.count, MAX_NODES + 20);
   assert.equal(finding.nodes.length, MAX_NODES);
+});
+
+// Lighthouse shortens selectors, so ten spans in ten cards share one. Keyed on
+// the selector, a page's 51 contrast failures once came out as 19.
+test('aggregate keeps every element, however many share a selector', () => {
+  const findings = extractFindings(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label', 'span.label'] } }));
+
+  const [finding] = aggregate({ mobile: findings, desktop: null });
+
+  assert.deepEqual(finding.nodes.map((n) => n.label), ['text 0', 'text 1', 'text 2']);
+});
+
+// The same element on both form factors is listed once, and the DOM path that
+// said so is not reported: it names nothing a reader can search for.
+test('aggregate lists an element failing on both form factors once', () => {
+  const mobile = extractFindings(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label'] } }));
+  const desktop = extractFindings(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label', 'span.label'] } }));
+
+  const [finding] = aggregate({ mobile, desktop });
+
+  assert.deepEqual(finding.nodes.map((n) => n.label), ['text 0', 'text 1', 'text 2']);
+  assert.ok(finding.nodes.every((n) => !('path' in n)));
 });
 
 test('aggregate folds the same rule seen on both form factors into one finding', () => {
@@ -109,6 +153,28 @@ test('compare without a baseline leaves every state unset', () => {
   const { findings, fixed } = compare([{ rule: 'image-alt', count: 1, nodes: [] }], null);
   assert.equal(findings[0].state, null);
   assert.deepEqual(fixed, []);
+});
+
+test('an explanation reads on one line, without axe\'s preamble', () => {
+  assert.equal(
+    explanationLine(CONTRAST),
+    'Element has insufficient color contrast of 4.27 (foreground color: #7a8088, background color: #1c1c1e, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1',
+  );
+  assert.equal(
+    explanationLine('Fix all of the following:\n  Element is focusable\n\nFix any of the following:\n  Element has no alt\n  Element has no title'),
+    'Element is focusable; Element has no alt; Element has no title',
+  );
+  assert.equal(explanationLine(''), '');
+  assert.equal(explanationLine(undefined), '');
+});
+
+// Ten elements can share a selector; their text tells them apart, and an image,
+// which has none, is told apart by its tag.
+test('an element is told apart by its text, or by its tag when it has no text', () => {
+  assert.deepEqual(elementHint({ selector: 'td', label: 'Metric\tmain\nLCP\t1.2s', snippet: '<td>' }), { text: 'Metric main LCP 1.2s' });
+  assert.deepEqual(elementHint({ selector: 'body > img', label: 'body > img', snippet: '<img src="/hero.png">' }), { tag: '<img src="/hero.png">' });
+  assert.equal(elementHint({ selector: 'html', label: 'html', snippet: '<html>' }), null, 'a bare tag says nothing the selector did not');
+  assert.equal(elementHint({ selector: '', snippet: '<img src="/a.png">' }), null, 'a tag already standing in for the selector');
 });
 
 test('sortFindings puts what fails first, heaviest impact down', () => {

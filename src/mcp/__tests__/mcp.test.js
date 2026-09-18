@@ -43,7 +43,10 @@ function fakeRunner(byUrl) {
 function findings(...rules) {
   return { findings: rules.map(([rule, impact, count = 1]) => ({
     rule, impact, count, title: `${rule} is broken`,
-    nodes: Array.from({ length: count }, (_, i) => ({ selector: `p.${rule}-${i}`, snippet: '<p>' })),
+    nodes: Array.from({ length: count }, (_, i) => ({
+      selector: `p.${rule}-${i}`, snippet: '<p>', label: `text ${i}`,
+      explanation: 'Fix any of the following:\n  Element has insufficient color contrast of 3.1',
+    })),
   })) };
 }
 
@@ -152,7 +155,9 @@ test('a baseline is audited too, and says what the change added', async () => {
   assert.equal(message.result.structuredContent.conclusion, 'fail');
 });
 
-test('a finding lists a sample of its elements, and the whole count', async () => {
+// Handed five of fifty-one elements, an agent reloaded the page in Lighthouse
+// for the rest. Every element goes out, with what is wrong with it.
+test('a finding lists every one of its elements, and what is wrong with each', async () => {
   const runLighthouse = fakeRunner({
     'http://localhost:4173/': { performance: GOOD, accessibility: findings(['color-contrast', 'serious', 12]) },
   });
@@ -160,8 +165,9 @@ test('a finding lists a sample of its elements, and the whole count', async () =
   const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
 
   const [finding] = message.result.structuredContent.modules.accessibility.findings;
-  assert.equal(finding.count, 12, 'the count is what the verdict rests on');
-  assert.equal(finding.nodes.length, 5, 'an agent needs a place to start, not twelve selectors');
+  assert.equal(finding.count, 12);
+  assert.equal(finding.nodes.length, 12);
+  assert.match(finding.nodes[11].explanation, /contrast of 3\.1/);
 });
 
 test('runs comes from the call, then from the project configuration', async () => {

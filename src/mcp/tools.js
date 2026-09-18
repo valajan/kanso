@@ -12,10 +12,10 @@ import { InvalidParams } from './protocol.js';
 // of it, which is more than a report could ever reconstruct, and an opinion
 // written here would only be one it has to read around.
 
-// Elements listed under a finding before the rest is left to the count. The
-// audit keeps up to fifty; an agent's context is worth more than two hundred
-// selectors, and `count` — what the verdict actually rests on — stays whole.
-const NODES_PER_FINDING = 5;
+// Nothing is sampled on the way out. An agent handed five of a rule's
+// fifty-one elements reloaded the page in Lighthouse for the other forty-six,
+// and read them outside Kanso's judgement — no threshold, no new or inherited.
+// The whole result costs less context than that detour.
 
 // Silence is how a host decides a call has died. Every couple of seconds, the
 // audit says how long it has been going, which is both a sign of life and the
@@ -34,7 +34,11 @@ function auditPage({ cwd, runLighthouse, now }) {
     title: 'Audit a page',
     description:
       'Loads a URL in Chrome on mobile and desktop, measures it and checks it, and returns the verdict: '
-      + 'pass, warn or fail, with every metric and every accessibility finding behind it. '
+      + 'pass, warn or fail, with every metric and every accessibility finding behind it — each failing '
+      + 'element with its selector, its opening tag, its text and what axe says is wrong with it. '
+      + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
+      + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
+      + 'the unthrottled load, so they tell proportions, not the simulated metrics. '
       + 'Point it at a served build (a preview server, a container, a deployed URL), never at a dev server — '
       + 'the numbers of an unbundled page mean nothing. '
       + 'Name a baseline to judge what a change did rather than what the page has always been: without one, '
@@ -91,7 +95,7 @@ function auditPage({ cwd, runLighthouse, now }) {
         runs: config.runs,
         configSource: source,
         elapsedMs: now() - started,
-        ...sample(result),
+        ...result,
       };
 
       // The same facts twice, on purpose: hosts that read structured output
@@ -170,22 +174,4 @@ function tick(progress, started, now) {
   const timer = setInterval(() => progress(elapsed(), `auditing… ${elapsed()}s`), PROGRESS_INTERVAL_MS);
   timer.unref?.();
   return () => clearInterval(timer);
-}
-
-// Every rule and every measure, with a sample of the elements under each
-// finding rather than all of them.
-function sample(result) {
-  if (!result.ok) return result;
-
-  const modules = Object.fromEntries(Object.entries(result.modules).map(([id, moduleResult]) => [
-    id,
-    Array.isArray(moduleResult.findings)
-      ? {
-        ...moduleResult,
-        findings: moduleResult.findings.map((finding) => ({ ...finding, nodes: finding.nodes.slice(0, NODES_PER_FINDING) })),
-      }
-      : moduleResult,
-  ]));
-
-  return { ...result, modules };
 }

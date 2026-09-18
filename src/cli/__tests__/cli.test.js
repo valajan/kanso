@@ -71,6 +71,37 @@ test('a page over budget exits 1, naming what failed', async () => {
   assert.match(out, /fail · Performance, LCP, TBT, CLS, FCP/);
 });
 
+// What Lighthouse found behind a metric, as the performance module reports it.
+const DIAGNOSTICS = {
+  lcp: {
+    element: { selector: 'body > img', snippet: '<img src="/hero.png">', label: 'body > img' },
+    observedMs: 32,
+    subparts: { timeToFirstByte: 2, resourceLoadDelay: 4, resourceLoadDuration: 7, elementRenderDelay: 19 },
+  },
+  renderBlocking: [{ url: 'http://localhost:3000/style.css', totalBytes: 314, wastedMs: 152 }],
+  cls: { score: 0.365, shifts: [{
+    element: { selector: 'main', snippet: '<main>', label: '' },
+    score: 0.365,
+    causes: [{ cause: 'Web font', url: 'http://localhost:3000/font.woff2' }],
+  }] },
+};
+
+test('a metric that did not pass is explained, and one that passed is not', async () => {
+  const { out } = await run(['audit', 'http://localhost:3000'], {
+    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...POOR, diagnostics: DIAGNOSTICS } }),
+  });
+
+  assert.match(out, /LCP element\s+body > img {2}<img src="\/hero\.png">/);
+  assert.match(out, /LCP, observed\s+32ms = 2ms to first byte \+ 4ms load delay \+ 7ms load duration \+ 19ms render delay/);
+  assert.match(out, /render-blocking\s+http:\/\/localhost:3000\/style\.css {2}152ms/);
+  assert.match(out, /layout shifts\s+main {2}0\.365 {2}Web font: http:\/\/localhost:3000\/font\.woff2/);
+
+  const { out: clean } = await run(['audit', 'http://localhost:3000'], {
+    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...GOOD, diagnostics: DIAGNOSTICS } }),
+  });
+  assert.doesNotMatch(clean, /LCP element|render-blocking|layout shifts/);
+});
+
 test('a warning passes by default, and fails on --fail-on warn', async () => {
   const runLighthouse = fakeRunner({ 'http://localhost:3000/': MEH });
 
@@ -207,6 +238,37 @@ test('a finding the baseline already has does not fail the audit', async () => {
   assert.equal(code, 0);
   assert.match(out, /color-contrast\s+serious\s+3 elements\s+inherited\s+pass/);
   assert.match(out, /1 already in the baseline · 0 fixed/);
+});
+
+// A missing alt is a missing alt, so it is said once; contrast ratios differ
+// from one element to the next, so each gets its own.
+test('what is wrong is printed once for the rule, or under each element when it differs', async () => {
+  const node = (selector, explanation, label = '') => ({ selector, snippet: '<p>', label, explanation });
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': { performance: GOOD, accessibility: { findings: [
+      { rule: 'image-alt', impact: 'critical', count: 2, title: 't', nodes: [
+        node('img.logo', 'Fix any of the following:\n  Element does not have an alt attribute\n  Element has no title attribute'),
+        node('img.hero', 'Fix any of the following:\n  Element does not have an alt attribute\n  Element has no title attribute'),
+      ] },
+      { rule: 'color-contrast', impact: 'serious', count: 2, title: 't', nodes: [
+        node('p.muted', 'Fix any of the following:\n  Element has insufficient color contrast of 4.27', 'Ticket'),
+        node('p.muted', 'Fix any of the following:\n  Element has insufficient color contrast of 3.9', 'Code'),
+      ] },
+    ] } },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  const lines = out.split('\n').map((line) => line.trim());
+  const alt = lines.indexOf('Element does not have an alt attribute; Element has no title attribute');
+  assert.deepEqual(lines.slice(alt, alt + 3), [
+    'Element does not have an alt attribute; Element has no title attribute', 'img.logo', 'img.hero',
+  ]);
+  // Two elements sharing a selector are told apart by their text.
+  const contrast = lines.indexOf('p.muted  "Ticket"');
+  assert.deepEqual(lines.slice(contrast, contrast + 4), [
+    'p.muted  "Ticket"', 'Element has insufficient color contrast of 4.27', 'p.muted  "Code"', 'Element has insufficient color contrast of 3.9',
+  ]);
 });
 
 test('a page breaking no rule says so', async () => {

@@ -1,3 +1,4 @@
+import { elementHint, explanationLine, sharedExplanation } from '../modules/accessibility/findings.js';
 import { MODULES } from '../modules/index.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, metricsWithStatus } from '../modules/performance/status.js';
@@ -181,11 +182,21 @@ function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }
   const elements = findings
     // A rule Lighthouse failed without naming an element has nothing to unfold.
     .filter((finding) => finding.level !== 'pass' && finding.nodes.length > 0)
-    .map((finding) => [
-      `**\`${finding.rule}\`** — ${finding.title}`,
-      ...finding.nodes.slice(0, ELEMENTS_SHOWN).map((node) => `- \`${node.selector || node.snippet}\``),
-      finding.count > ELEMENTS_SHOWN ? `- _…and ${finding.count - ELEMENTS_SHOWN} more_` : null,
-    ].filter(Boolean).join('\n'));
+    .map((finding) => {
+      const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
+      const shared = sharedExplanation(shown);
+      return [
+        `**\`${finding.rule}\`** — ${finding.title}`,
+        shared ? escapeMarkdown(shared) : null,
+        ...shown.map((node) => {
+          const hint = elementHint(node);
+          const detail = hint?.text ? ` “${escapeMarkdown(hint.text)}”` : hint?.tag ? ` ${code(hint.tag)}` : '';
+          const reason = shared ? '' : explanationLine(node.explanation);
+          return `- ${code(node.selector || node.snippet)}${detail}${reason ? ` — ${escapeMarkdown(reason)}` : ''}`;
+        }),
+        finding.count > shown.length ? `- _…and ${finding.count - shown.length} more_` : null,
+      ].filter(Boolean).join('\n');
+    });
 
   const details = elements.length > 0
     ? `\n<details><summary>Failing elements</summary>\n\n${elements.join('\n\n')}\n\n</details>\n`
@@ -198,4 +209,17 @@ function renderFindings(id, { findings, fixed = [], comparedToBaseline, failOn }
   }
 
   return `${heading}\n\n${table}\n${details}\n_${parts.join(' · ')}_\n`;
+}
+
+// axe writes plain text, and a stray `<` or `*` in it would be read as markup.
+function escapeMarkdown(text) {
+  return text.replace(/[\\`*_<>[\]]/g, '\\$&');
+}
+
+// Inline code that survives a backtick in what it quotes — an attribute value
+// in a tag can hold one — by fencing it with one backtick more.
+function code(text) {
+  const fence = '`'.repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${text}${pad}${fence}`;
 }

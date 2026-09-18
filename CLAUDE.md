@@ -81,12 +81,17 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `performance/` is the first: `metrics.js` is the single source of truth for
   the five metrics (labels, units, thresholds), `status.js` derives
   `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
-  the failures worth an AI analysis.
+  the failures worth an AI analysis, `diagnostics.js` keeps what Lighthouse
+  says about why — the LCP element and breakdown, render-blocking requests,
+  layout shifts — from the load behind each median. They explain and are never
+  judged.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: `findings.js` reads the failed axe rules
-  out of the Lighthouse report, folds both form factors into one list and
-  compares it to the baseline's; `impact.js` is the severity scale. A rule is
-  broken or it is not, so nothing is averaged and one load settles it
+  out of the Lighthouse report — every failing element with its selector, tag,
+  text and axe's explanation (for contrast: the ratio and both colours) — folds
+  both form factors into one list and compares it to the baseline's;
+  `impact.js` is the severity scale. A rule is broken or it is not, so nothing
+  is averaged and one load settles it
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config and runs `core/audit.js`, `render.js`
   prints the tables. It never loads `config/env.js`: that validates GitHub App
@@ -99,9 +104,9 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   rather than depended on: the reference SDK drags express, hono, jose and ajv
   in for transports Kanso does not serve), `tools.js` exposes `audit_page` and
   `list_modules`. The result is the JSON of `kanso audit --json`, in both the
-  text and the structured block, with a sample of the elements under each
-  finding; a long call reports progress, which is what keeps a host from
-  abandoning it
+  text and the structured block, with nothing sampled out — an agent handed
+  part of a finding reloads the page for the rest; a long call reports
+  progress, which is what keeps a host from abandoning it
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
 - `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
   `provider-dispatcher.js`, `pull-request-handler.js`
