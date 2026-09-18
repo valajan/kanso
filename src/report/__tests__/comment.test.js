@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatComment } from '../comment.js';
+import { formatComment, formatReport, REPORT_MARKER } from '../comment.js';
 
 const mobileScore  = { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 };
 const desktopScore = { performance: 98, lcp: 1500, tbt: 50,  cls: 0.02, fcp: 900 };
@@ -13,6 +13,18 @@ const scoresPrOnly = {
 test('renders the header with branch refs and source', () => {
   const body = formatComment(scoresPrOnly, { headRef: 'feature', baseRef: 'main', source: 'Netlify Preview' });
   assert.ok(body.includes('`feature` → `main` · Netlify Preview detected automatically'));
+});
+
+// The same report lands in a job summary through `kanso audit --out`, where no
+// re-run will ever look for a marker, and no branch names what was audited.
+test('the comment is the report behind its marker, and the report can name its own page', () => {
+  const options = { headRef: 'feature', baseRef: 'main', source: 'CI', detected: false };
+  assert.equal(formatComment(scoresPrOnly, options), `${REPORT_MARKER}\n${formatReport(scoresPrOnly, options)}`);
+
+  const report = formatReport(scoresPrOnly, { header: '🔗 `dist`', refLabel: 'budget', currentLabel: 'current' });
+  assert.match(report, /^## Kanso \| Audit Report\n\n🔗 `dist`\n/);
+  assert.match(report, /\| Metric \| budget \| current \| Δ \| \|/);
+  assert.doesNotMatch(report, /kanso:report/);
 });
 
 test('falls back to a URL header when no head ref is given', () => {

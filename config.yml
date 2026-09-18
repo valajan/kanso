@@ -75,6 +75,19 @@ best-practices:
 # audit rather than to any module in it — hence the root, not a section.
 runs: 1
 
+# How to serve the project when `kanso audit`, `audit_page` or the GitHub Action
+# is given no page: the directory the build writes, which Kanso serves itself,
+# or the command the project serves itself with and the URL it serves at, which
+# Kanso starts, waits for and stops. Relative to the .kanso.yml saying it.
+# Kanso builds nothing: build first.
+#
+#   serve:                        serve:
+#     dir: dist                     command: npm run preview
+#                                   url: http://localhost:4173
+#
+# Only the local surfaces read it. A Kanso server auditing a pull request never
+# runs a command a repository names.
+
 # Reference deployment every PR preview is compared against.
 #
 # Production is the obvious choice and the wrong one if you can avoid it: it

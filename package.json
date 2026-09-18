@@ -16,7 +16,7 @@
     "test:acceptance": "node --test --test-concurrency=1 --test-reporter=spec test/acceptance/kanso-frontend.test.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19"
   },
   "dependencies": {
     "@octokit/app": "^15.1.0",

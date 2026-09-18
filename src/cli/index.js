@@ -8,26 +8,29 @@ const OPTIONS = {
   config: { type: 'string', short: 'c' },
   'fail-on': { type: 'string' },
   json: { type: 'boolean' },
+  out: { type: 'string', short: 'o', multiple: true },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 };
 
 const USAGE = `Kanso — frontend audits, on your machine
 
-  kanso audit <url> [options]
+  kanso audit [url | dir] [options]
   kanso mcp
 
 Audits a page on mobile and desktop and judges it against your budgets, or
-against a baseline page when you name one. The url is the audit command's
-only required argument, and \`audit\` may be left out when the first argument
-is already a URL.
+against a baseline page when you name one. The page is a URL, or a directory
+of built files that Kanso serves itself for the length of the audit. Name
+neither, and Kanso serves the project the way the serve: block of its
+.kanso.yml says. \`audit\` may be left out when the first argument is a URL.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the
 project configuration from the directory it is started in.
 
 Options
-  -b, --baseline <url>  page to compare against: production, the main branch's
+  -b, --baseline <url | dir>
+                        page to compare against: production, the main branch's
                         preview, or a second local build
   -r, --runs <n>        loads per page and form factor, 1-5. Lighthouse swings
                         by 20-30% on TBT, so several runs and their median is
@@ -35,6 +38,8 @@ Options
   -c, --config <path>   configuration file (default: .kanso.yml, if present)
       --fail-on <level> exit 1 from this level up: warn or fail (default: fail)
       --json            print the whole result as JSON, and nothing else
+  -o, --out <file>      also write the result to a file: the Markdown report
+                        for a .md, the JSON for a .json. Repeatable
   -h, --help            print this
   -v, --version         print the version
 
@@ -84,16 +89,16 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     }
 
     const args = head === 'audit' ? rest : positionals;
-    if (args.length === 0) throw new UsageError('audit needs a URL');
-    if (args.length > 1) throw new UsageError(`audit takes one URL, got ${args.length}`);
+    if (args.length > 1) throw new UsageError(`audit takes one page, got ${args.length}`);
 
     return await runAuditCommand({
-      url: args[0],
+      target: args[0] ?? null,
       baseline: values.baseline ?? null,
       runs: values.runs == null ? null : parseRuns(values.runs),
       configPath: values.config ?? null,
       failOn: parseFailOn(values['fail-on'] ?? 'fail'),
       json: Boolean(values.json),
+      out: values.out ?? [],
       cwd,
       io,
       runLighthouse: lighthouse,

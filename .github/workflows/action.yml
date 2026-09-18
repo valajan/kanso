@@ -1,0 +1,82 @@
+name: Action
+
+# The GitHub Action at the root of this repository, run the way a client repo
+# runs it, on a real runner: its install, the runner's Chrome, a build served
+# from a directory, the job summary and the outputs. Once on a page that
+# passes, served as test/action/.kanso.yml says; once under a budget no page
+# meets, which must fail the step.
+
+on:
+  pull_request:
+    paths:
+      - 'action.yml'
+      - 'bin/**'
+      - 'src/**'
+      - 'test/action/**'
+      - 'config.yml'
+      - 'package-lock.json'
+      - '.github/workflows/action.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - 'bin/**'
+      - 'src/**'
+      - 'test/action/**'
+      - 'config.yml'
+      - 'package-lock.json'
+      - '.github/workflows/action.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Audit a page that passes
+        id: passing
+        uses: ./
+        with:
+          working-directory: test/action
+
+      - name: Audit under a budget no page meets
+        id: failing
+        continue-on-error: true
+        uses: ./
+        with:
+          working-directory: test/action
+          url: site
+          baseline: site
+          config: impossible.yml
+
+      - name: Check what the Action reported
+        env:
+          PASSING: ${{ steps.passing.outputs.conclusion }}
+          PASSING_REPORT: ${{ steps.passing.outputs.report }}
+          FAILING: ${{ steps.failing.outputs.conclusion }}
+          FAILING_OUTCOME: ${{ steps.failing.outcome }}
+          FAILING_REPORT: ${{ steps.failing.outputs.report }}
+          FAILING_RESULT: ${{ steps.failing.outputs.result }}
+        run: |
+          set -x
+          test "$PASSING" = pass
+          grep -q '^🔗 `site`$' "$PASSING_REPORT"
+          test "$FAILING" = fail
+          test "$FAILING_OUTCOME" = failure
+          grep -q '^🔗 `site` against `site`$' "$FAILING_REPORT"
+          node -e 'const r = require(process.argv[1]); if (r.modules.performance.levels.performance !== "fail") process.exit(1)' "$FAILING_RESULT"

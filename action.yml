@@ -1,0 +1,114 @@
+name: 'Kanso audit'
+description: 'Audit a web page in the runner — performance, accessibility, SEO, best practices — and fail the job on a regression. Nothing to host.'
+author: 'Kanso'
+branding:
+  icon: 'activity'
+  color: 'green'
+
+# The CLI, run in the job's own runner: Kanso serves the build it is pointed
+# at, audits it in the runner's Chrome, writes the report to the job summary and
+# exits with the verdict. No server, no token, no permission — which is also
+# why it runs the same on a pull request from a fork.
+#
+# Every input reaches the script through the environment, never through
+# `${{ }}` in the script itself: a value a workflow passes along from an event
+# (a branch name, a PR title) must not become shell code.
+
+inputs:
+  url:
+    description: >
+      The page to audit: a URL, or a directory of built files, which Kanso
+      serves itself. Defaults to what the serve: block of .kanso.yml says.
+    required: false
+  baseline:
+    description: >
+      The page to compare against, URL or directory: production, the base
+      branch's preview, or the base branch built in this job. Without one,
+      every finding the page already has counts against it.
+    required: false
+  runs:
+    description: 'Page loads per page and form factor, 1-5, median kept. Defaults to .kanso.yml.'
+    required: false
+  fail-on:
+    description: 'Fail the job from this verdict up: warn or fail.'
+    required: false
+    default: 'fail'
+  config:
+    description: 'Path to the configuration file (defaults to .kanso.yml in the working directory, when present).'
+    required: false
+  working-directory:
+    description: 'The project directory: where .kanso.yml is read, and what relative paths are relative to.'
+    required: false
+    default: '.'
+
+outputs:
+  conclusion:
+    description: 'pass, warn or fail — or error when the audit could not run.'
+    value: ${{ steps.audit.outputs.conclusion }}
+  report:
+    description: 'Path to the Markdown report, the one the job summary shows.'
+    value: ${{ steps.audit.outputs.report }}
+  result:
+    description: 'Path to the whole result as JSON, the one `kanso audit --json` prints.'
+    value: ${{ steps.audit.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Kanso
+      shell: bash
+      run: |
+        # Lighthouse 13 sets the floor, not Kanso.
+        node -e '
+          const [major, minor] = process.versions.node.split(".").map(Number);
+          if (major < 22 || (major === 22 && minor < 19)) {
+            console.log(`::error title=Kanso::Kanso needs Node 22.19 or later, and this job runs ${process.version}. Add actions/setup-node with node-version: 22 before this step.`);
+            process.exit(1);
+          }'
+        # Kanso's runtime dependencies, without its dev tooling. No install
+        # scripts: none of them needs one, and a dependency's script is code
+        # nobody here reviewed.
+        cd "$GITHUB_ACTION_PATH"
+        [ -d node_modules ] || npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error
+
+    - name: Audit
+      id: audit
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        KANSO_URL: ${{ inputs.url }}
+        KANSO_BASELINE: ${{ inputs.baseline }}
+        KANSO_RUNS: ${{ inputs.runs }}
+        KANSO_FAIL_ON: ${{ inputs.fail-on }}
+        KANSO_CONFIG: ${{ inputs.config }}
+      run: |
+        # One directory per use, so a job auditing two pages keeps both reports.
+        out=$(mktemp -d "$RUNNER_TEMP/kanso-XXXXXX")
+        echo "report=$out/report.md" >> "$GITHUB_OUTPUT"
+        echo "result=$out/result.json" >> "$GITHUB_OUTPUT"
+
+        args=(audit)
+        if [ -n "$KANSO_URL" ]; then args+=("$KANSO_URL"); fi
+        if [ -n "$KANSO_BASELINE" ]; then args+=(--baseline "$KANSO_BASELINE"); fi
+        if [ -n "$KANSO_RUNS" ]; then args+=(--runs "$KANSO_RUNS"); fi
+        if [ -n "$KANSO_CONFIG" ]; then args+=(--config "$KANSO_CONFIG"); fi
+        args+=(--fail-on "$KANSO_FAIL_ON" --out "$out/report.md" --out "$out/result.json")
+
+        code=0
+        node "$GITHUB_ACTION_PATH/bin/kanso.js" "${args[@]}" || code=$?
+
+        if [ -f "$out/report.md" ]; then
+          cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          conclusion=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).conclusion' "$out/result.json")
+        else
+          printf '## Kanso | Audit Report\n\n⚠️ The audit could not run — the step log says why.\n' >> "$GITHUB_STEP_SUMMARY"
+          conclusion=error
+        fi
+        echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+
+        case "$code" in
+          0) ;;
+          1) echo "::error title=Kanso::The audit concluded $conclusion — the job summary has the report." ;;
+          *) echo "::error title=Kanso::The audit could not run — the step log says why." ;;
+        esac
+        exit "$code"

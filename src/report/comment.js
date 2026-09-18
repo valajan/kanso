@@ -76,7 +76,7 @@ function findingParts(modules) {
 
 // Renders one form-factor section: heading + per-metric comparison table
 // (reference vs. PR, with delta and a pass/warn/fail/improvement icon).
-function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main') {
+function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main', currentLabel = 'PR') {
   const { icon, label } = FORM_FACTOR_LABELS[formFactor];
 
   if (prScore == null) {
@@ -98,24 +98,34 @@ function renderSection(formFactor, prScore, refScore, budget, refLabel = 'main')
     return `| ${metric.label} | ${formatValue(metric, refVal)} | ${formatValue(metric, prVal)} | ${deltaCell} | ${iconCell} |`;
   });
 
-  const table = [`| Metric | ${refLabel} | PR | Δ | |`, '|---|---|---|---|---|', ...rows].join('\n');
+  const table = [`| Metric | ${refLabel} | ${currentLabel} | Δ | |`, '|---|---|---|---|---|', ...rows].join('\n');
 
   return `### ${icon} ${label}\n\n${table}\n`;
 }
 
-// Builds the PR comment body: a header line, one comparison table per form
-// factor (mobile + desktop), then one section per module that reports findings.
+// Builds the PR comment body: the report, behind the marker a re-run looks for.
+export function formatComment(scores, options = {}) {
+  return `${REPORT_MARKER}\n${formatReport(scores, options)}`;
+}
+
+// Builds the report: a header line, one comparison table per form factor
+// (mobile + desktop), then one section per module that reports findings. The PR
+// comment is this behind a marker; `kanso audit --out report.md` is this alone,
+// which is what a CI job summary shows.
 // scores has the shape { mobile: { pr, ref }, desktop: { pr, ref } }.
 // refLabel overrides the reference column header (default 'main', use 'budgets' when comparing against budgets).
+// currentLabel heads the column of the page under audit: the PR's, by default.
+// `header` replaces the line naming what was audited, for a report that is not
+// about a pull request.
 // `modules` is the audit's per-module results, from which the findings sections
 // are built; a module that reports none contributes nothing.
 // `detected` distinguishes the two triggers: the webhook path works the preview
 // URL out from a provider's events, while a CI job simply tells us what it just
 // deployed. Claiming detection on the second would be untrue.
-export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main', detected = true, modules = {} } = {}) {
-  const headerLine = headRef
+export function formatReport(scores, { previewUrl, headRef, baseRef = 'main', source = 'Preview', budget = {}, refLabel = 'main', currentLabel = 'PR', header, detected = true, modules = {} } = {}) {
+  const headerLine = header ?? (headRef
     ? `\`${headRef}\` → \`${baseRef}\` · ${source}${detected ? ' detected automatically' : ''}`
-    : `🔗 URL: ${previewUrl}`;
+    : `🔗 URL: ${previewUrl}`);
 
   const hasAnyRef = scores.mobile?.ref != null || scores.desktop?.ref != null;
   const note = !hasAnyRef && Object.keys(budget).length === 0
@@ -123,8 +133,8 @@ export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', s
     : '';
 
   const sections = [
-    renderSection('mobile',  scores.mobile?.pr  ?? null, scores.mobile?.ref  ?? null, budget, refLabel),
-    renderSection('desktop', scores.desktop?.pr ?? null, scores.desktop?.ref ?? null, budget, refLabel),
+    renderSection('mobile',  scores.mobile?.pr  ?? null, scores.mobile?.ref  ?? null, budget, refLabel, currentLabel),
+    renderSection('desktop', scores.desktop?.pr ?? null, scores.desktop?.ref ?? null, budget, refLabel, currentLabel),
     // Findings are compared against the reference page, whatever the metrics
     // ended up being judged against — the two can differ, since budgets alone
     // can settle performance while accessibility still needs the comparison.
@@ -133,13 +143,20 @@ export function formatComment(scores, { previewUrl, headRef, baseRef = 'main', s
 
   const verdict = computeVerdict(scores, budget, modules);
 
-  return `${REPORT_MARKER}
-## ${REPORT_TITLE}
+  return `## ${REPORT_TITLE}
 
 ${headerLine}
 ${verdict}
 ${note}
 ${sections}`;
+}
+
+// The performance module's scores, { [formFactor]: { current, reference } }, in
+// the shape the report reads them.
+export function reportScores(scores = {}) {
+  return Object.fromEntries(
+    Object.entries(scores).map(([formFactor, { current, reference }]) => [formFactor, { pr: current, ref: reference }])
+  );
 }
 
 // The modules that report findings, in registry order — see src/modules/index.js.
@@ -226,7 +243,7 @@ function escapeMarkdown(text) {
 
 // Inline code that survives a backtick in what it quotes — an attribute value
 // in a tag can hold one — by fencing it with one backtick more.
-function code(text) {
+export function code(text) {
   const fence = '`'.repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
   const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
   return `${fence}${pad}${text}${pad}${fence}`;

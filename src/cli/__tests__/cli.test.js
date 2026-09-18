@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -314,14 +314,124 @@ test('a failure with no element is printed by what it names, or what Lighthouse 
   assert.match(out, /Description: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
 });
 
+// --- serving the build ------------------------------------------------------
+
+// A project with its build on disk, as `npm run build` leaves it.
+function builtProject(kansoYml = '') {
+  const cwd = emptyProject();
+  mkdirSync(join(cwd, 'dist'));
+  writeFileSync(join(cwd, 'dist', 'index.html'), '<p>the build</p>');
+  if (kansoYml) writeFileSync(join(cwd, '.kanso.yml'), kansoYml);
+  return cwd;
+}
+
+// A runner that loads what it is pointed at, the way Chrome would, and says
+// what it found there.
+function loadingRunner(score = GOOD) {
+  const loaded = [];
+  const run = async (url) => {
+    loaded.push({ url, body: await (await fetch(url)).text() });
+    return { performance: score };
+  };
+  run.loaded = loaded;
+  return run;
+}
+
+test('a directory is served for the audit, named in the report, and stopped after', async () => {
+  const cwd = builtProject();
+  const runLighthouse = loadingRunner();
+
+  const { code, out } = await run(['audit', 'dist'], { runLighthouse, cwd });
+
+  assert.equal(code, 0);
+  assert.equal(runLighthouse.loaded.length, 2);
+  assert.ok(runLighthouse.loaded.every(({ url, body }) => url.startsWith('http://127.0.0.1:') && body === '<p>the build</p>'));
+  assert.match(out, /Kanso · dist\n/, 'the directory, not the port it happened to get');
+  await assert.rejects(fetch(runLighthouse.loaded[0].url), 'nothing is left serving once the audit is done');
+});
+
+test('with no page named, the serve: block of .kanso.yml says what to audit', async () => {
+  const cwd = builtProject('serve:\n  dir: dist\n');
+  const runLighthouse = loadingRunner();
+
+  const { code, out } = await run(['audit', '--json'], { runLighthouse, cwd });
+
+  assert.equal(code, 0);
+  assert.ok(runLighthouse.loaded.every(({ body }) => body === '<p>the build</p>'));
+  const result = JSON.parse(out);
+  assert.deepEqual(result.served, { url: { dir: 'dist' } });
+  assert.match(result.url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+});
+
+test('a baseline directory is served alongside, and becomes the comparison', async () => {
+  const cwd = builtProject();
+  mkdirSync(join(cwd, 'base'));
+  writeFileSync(join(cwd, 'base', 'index.html'), '<p>before</p>');
+  const scores = { '<p>the build</p>': GOOD, '<p>before</p>': POOR };
+  const runLighthouse = async (url) => ({ performance: scores[await (await fetch(url)).text()] });
+
+  const { code, out } = await run(['audit', 'dist', '--baseline', 'base'], { runLighthouse, cwd });
+
+  assert.equal(code, 0);
+  assert.match(out, /against base · /);
+  assert.match(out, /LCP\s+6000ms\s+1500ms\s+-4500ms/);
+});
+
+test('a serve: block Kanso cannot serve is why the audit did not run', async () => {
+  const cases = [
+    ['serve:\n  dir: build\n', /there is no build directory to serve — build the project first/],
+    ['serve:\n  url: http://localhost:4173\n', /serve.url needs serve.command/],
+  ];
+  for (const [kansoYml, expected] of cases) {
+    const { code, err } = await run(['audit'], { runLighthouse: async () => assert.fail('must not audit'), cwd: builtProject(kansoYml) });
+    assert.equal(code, 2, kansoYml);
+    assert.match(err, expected);
+    assert.doesNotMatch(err, /--help/, 'a configuration mistake is not an invocation mistake');
+  }
+});
+
+test('--out writes the Markdown report and the JSON, next to what the terminal shows', async () => {
+  const cwd = emptyProject();
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': POOR });
+
+  const { code, out } = await run(
+    ['audit', 'http://localhost:3000', '--out', 'report.md', '-o', 'kanso/result.json'],
+    { runLighthouse, cwd },
+  );
+
+  assert.equal(code, 1);
+  assert.match(out, /fail · Performance/);
+  const markdown = readFileSync(join(cwd, 'report.md'), 'utf8');
+  assert.match(markdown, /^## Kanso \| Audit Report\n\n🔗 `http:\/\/localhost:3000\/`\n/);
+  assert.match(markdown, /\| Metric \| budget \| current \| Δ \| \|/);
+  assert.match(markdown, /\| LCP \| 4000ms \| 6000ms \| \+2000ms \| ❌ \|/);
+  assert.doesNotMatch(markdown, /kanso:report/, 'the marker belongs to the PR comment');
+  const json = JSON.parse(readFileSync(join(cwd, 'kanso', 'result.json'), 'utf8'));
+  assert.equal(json.conclusion, 'fail');
+});
+
+test('--out still says what happened when the page never loaded', async () => {
+  const cwd = emptyProject();
+
+  const { code } = await run(['audit', 'http://localhost:3000', '--out', 'report.md'], {
+    runLighthouse: async () => { throw new Error('CHROME_INTERSTITIAL_ERROR'); }, cwd,
+  });
+
+  assert.equal(code, 2);
+  assert.match(readFileSync(join(cwd, 'report.md'), 'utf8'), /The audit could not run: `CHROME_INTERSTITIAL_ERROR`/);
+});
+
 // --- invocation mistakes ----------------------------------------------------
 
 test('a mistake in the command line exits 2 and points at the help', async () => {
   const cases = [
-    [[], /kanso audit <url>/],
-    [['audit'], /needs a URL/],
-    [['audit', 'not-a-url'], /url is not a valid URL/],
-    [['audit', 'file:///etc/passwd'], /url must be http or https/],
+    [[], /kanso audit \[url \| dir\]/],
+    [['audit'], /needs a URL or a directory, or a serve: block in \.kanso\.yml/],
+    [['audit', 'not-a-url'], /target is neither a URL nor a directory: not-a-url/],
+    [['audit', 'file:///etc/passwd'], /target must be http or https/],
+    [['audit', 'http://a', '--baseline', 'nope'], /baseline is neither a URL nor a directory: nope/],
+    [['audit', 'http://a', 'http://b'], /audit takes one page, got 2/],
+    [['audit', 'http://a', '--out', 'report.txt'], /--out writes a \.md or a \.json file, not report\.txt/],
     [['audit', 'http://a', '--runs', '9'], /between 1 and 5/],
     [['audit', 'http://a', '--fail-on', 'always'], /fail-on must be warn or fail/],
     [['audit', 'http://a', '--config', 'nope.yml'], /configuration file not found/],
@@ -361,7 +471,7 @@ test('--help and --version are answered without auditing', async () => {
   const version = await run(['--version'], { runLighthouse });
 
   assert.equal(help.code, 0);
-  assert.match(help.out, /kanso audit <url>/);
+  assert.match(help.out, /kanso audit \[url \| dir\]/);
   assert.equal(version.code, 0);
   assert.match(version.out, /^\d+\.\d+\.\d+$/m);
 });

@@ -1,9 +1,11 @@
+import { dirname } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
 import { audit } from '../core/audit.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
-import { InvalidTarget, parseTarget } from '../core/target.js';
+import { InvalidTarget } from '../core/target.js';
 import { MODULES } from '../modules/index.js';
+import { ServeError, siteFromArgument, siteFromConfig, withSites } from '../serve/index.js';
 import { InvalidParams } from './protocol.js';
 
 // What Kanso hands an agent, and what it deliberately does not: facts, in the
@@ -44,8 +46,12 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
       + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
       + 'would, so their absence there says nothing about production. '
-      + 'Point it at a served build (a preview server, a container, a deployed URL), never at a dev server — '
-      + 'the numbers of an unbundled page mean nothing. '
+      + 'Point it at a build, never at a dev server — the numbers of an unbundled page mean nothing: a URL '
+      + '(a preview server, a container, a deployment), or a directory of built files, which Kanso serves '
+      + 'itself. Leave the url out when the project\'s .kanso.yml has a serve: block (list_modules shows it): '
+      + 'Kanso then serves the project as it says, starting and stopping its preview command if it names one. '
+      + 'Kanso serves what is on disk and builds nothing, so build after a change, or the audit measures the '
+      + 'build before it. '
       + 'Name a baseline to judge what a change did rather than what the page has always been: without one, '
       + 'every pre-existing finding counts against the page; with one, the ones the baseline already had are '
       + 'reported and not held against it. '
@@ -53,10 +59,17 @@ function auditPage({ cwd, runLighthouse, now }) {
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'The page to audit. http or https, localhost included.' },
+        url: {
+          type: 'string',
+          description:
+            'The page to audit: an http or https URL, localhost included, or a directory of built files, relative '
+            + 'to the project. Defaults to what the serve: block of the project\'s .kanso.yml says.',
+        },
         baseline: {
           type: 'string',
-          description: 'A second page to compare against: the same build before the change, the main branch, or production.',
+          description:
+            'A second page to compare against, URL or directory: the same build before the change, the main '
+            + 'branch, or production.',
         },
         runs: {
           type: 'integer',
@@ -68,35 +81,51 @@ function auditPage({ cwd, runLighthouse, now }) {
             + 'Defaults to the project configuration.',
         },
       },
-      required: ['url'],
       additionalProperties: false,
     },
-    // It loads a page and reports on it; it writes nothing, anywhere. The open
-    // world is the page: the same URL audited twice can differ.
-    annotations: { readOnlyHint: true, openWorldHint: true },
+    // Kanso writes nothing itself, but it is not read-only: with no url, it
+    // runs the command the project's .kanso.yml names to serve the build — a
+    // command it does not control, and a host should not approve unseen on the
+    // strength of this hint. What it starts, it stops. The open world is the
+    // page: the same URL audited twice can differ.
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
 
     async run(args, { progress }) {
-      if (args.url === undefined) throw new InvalidParams('url is required');
-      const url = target(args.url, 'url');
-      const baseline = args.baseline == null ? null : target(args.baseline, 'baseline');
+      const named = args.url == null ? null : site(args.url, 'url', cwd);
+      const reference = args.baseline == null ? null : site(args.baseline, 'baseline', cwd);
 
       const { config, source } = loadLocalConfig({ cwd });
       config.runs = clampRuns(runsArg(args.runs) ?? config.runs);
 
+      let page;
+      try {
+        page = named ?? siteFromConfig(config.serve, { configDir: source && dirname(source), cwd });
+      } catch (err) {
+        return notServed(err);
+      }
+      if (!page) throw new InvalidParams('url is required: the project has no serve: block in .kanso.yml saying how to serve it');
+
       const started = now();
       const stopTicking = tick(progress, started, now);
-      let result;
+      let report;
       try {
-        // A baseline the caller named is always audited, as on the command
-        // line: the comparison is what they asked for, budgets or no budgets.
-        result = await audit({ url, baseline, config, runLighthouse, alwaysCompare: true });
+        report = await withSites({ page, baseline: reference }, async ({ url, baseline, served }) => ({
+          url,
+          baseline,
+          ...(served ? { served } : {}),
+          // A baseline the caller named is always audited, as on the command
+          // line: the comparison is what they asked for, budgets or no budgets.
+          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true }),
+        }));
+      } catch (err) {
+        return notServed(err);
       } finally {
         stopTicking();
       }
 
+      const { result, ...sites } = report;
       const payload = {
-        url,
-        baseline,
+        ...sites,
         runs: config.runs,
         configSource: source,
         elapsedMs: now() - started,
@@ -124,8 +153,9 @@ function listModules({ cwd }) {
     description:
       'What Kanso checks on a page, and what it will judge it against: one module per concern — performance '
       + 'measures against budgets; accessibility, SEO and best-practices findings against an impact threshold, '
-      + 'minus the rules the project ignores — each with the configuration resolved for this project. Call it '
-      + 'to know what a verdict rests on before reading one.',
+      + 'minus the rules the project ignores — each with the configuration resolved for this project; and how '
+      + 'the project is served when audit_page is given no url, if it says. Call it to know what a verdict '
+      + 'rests on before reading one.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
 
@@ -133,6 +163,9 @@ function listModules({ cwd }) {
       const { config, source } = loadLocalConfig({ cwd });
       const payload = {
         configSource: source,
+        // As the file says it, paths relative to the file: what audit_page
+        // serves when it is given no url, or null when the project says nothing.
+        serve: config.serve ?? null,
         runs: clampRuns(config.runs),
         modules: MODULES.map((mod) => ({
           id: mod.id,
@@ -152,11 +185,19 @@ function listModules({ cwd }) {
   };
 }
 
-function target(value, label) {
+// A project Kanso could not serve is the tool failing, like a page that never
+// loaded — and the message says what to fix. Anything else is not Kanso's to
+// explain here.
+function notServed(err) {
+  if (err instanceof ServeError) return { content: [{ type: 'text', text: err.message }], isError: true };
+  throw err;
+}
+
+function site(value, label, cwd) {
   if (typeof value !== 'string') throw new InvalidParams(`${label} must be a string`);
   try {
     // No URL guard here, as on the command line: see src/core/target.js.
-    return parseTarget(value, label);
+    return siteFromArgument(value, label, cwd);
   } catch (err) {
     if (err instanceof InvalidTarget) throw new InvalidParams(err.message);
     throw err;

@@ -1,6 +1,15 @@
 # Kanso CI integrations
 
-Kanso has two triggers. This directory covers the second one.
+**For a check in CI with nothing to host**, you do not need this directory: the
+action at the repository root runs the CLI in your own runner, serves your build
+itself, writes the report to the job summary and fails the job on a regression —
+no server, no token, no permission. See the README, §6, and
+[`kanso-action.example.yml`](kanso-action.example.yml), which builds the pull
+request and its base branch and compares the two.
+
+What follows is for **a Kanso server**: the report posted in the pull request
+itself, and the GitHub App that finds the preview on its own. The server has two
+triggers, and this directory covers the second one.
 
 | | GitHub App webhook | CI trigger (`POST /v1/audit`) |
 |---|---|---|
@@ -59,6 +68,8 @@ trigger an AI analysis of a regression that was never there.
 
 ## Files
 
+- `kanso-action.example.yml` — the in-runner action, no server: the pull
+  request and its base branch, built and compared
 - `kanso-audit.mjs` — the client
 - `github-action/action.yml` — composite action wrapping it
 - `github-workflow.example.yml` — full workflow, deploy + audit

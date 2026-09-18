@@ -1,7 +1,7 @@
 import { audit, FORM_FACTORS } from '../core/audit.js';
 import { loadRepoConfig } from '../config/repo-config.js';
 import { moduleConfig } from '../config/module-config.js';
-import { formatComment, REPORT_MARKER, REPORT_TITLE } from '../report/comment.js';
+import { formatComment, REPORT_MARKER, REPORT_TITLE, reportScores } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
 import {
   analyzePerformanceRegression,
@@ -110,7 +110,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     }
 
     const perf = result.modules.performance;
-    const scores = toReportScores(perf.scores);
+    const scores = reportScores(perf.scores);
     const { regressions } = perf;
 
     const baseBody = formatComment(scores, {
@@ -215,12 +215,6 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
 }
 
 // The PR report and the /v1/audit response name the two sides `pr` and `ref`.
-function toReportScores(scores) {
-  return Object.fromEntries(
-    Object.entries(scores).map(([formFactor, { current, reference }]) => [formFactor, { pr: current, ref: reference }])
-  );
-}
-
 function summarizePerf(scores) {
   const parts = [];
   for (const ff of FORM_FACTORS) {

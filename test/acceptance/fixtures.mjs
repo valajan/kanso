@@ -1,8 +1,10 @@
-import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { cp, readFile, stat, writeFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
-import { deflateSync, gzipSync } from 'node:zlib';
+import { cp, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
+
+// The preview host stand-in is the one `kanso audit <dir>` serves a build with.
+export { serveDirectory } from '../../src/serve/static.js';
 
 // Known-answer fixtures for the acceptance suite.
 //
@@ -125,68 +127,4 @@ function crc32(buf) {
   let c = 0xffffffff;
   for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
-}
-
-// --- static server ----------------------------------------------------------
-
-const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json',
-  '.txt': 'text/plain; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-};
-const COMPRESSIBLE = new Set(['.html', '.css', '.js', '.json', '.txt', '.svg']);
-
-// Serves a build directory the way a CDN would for the purposes of an audit:
-// correct content types and gzip on text. Without compression the page would
-// be measured heavier than it ships, and the baseline could fail on transfer
-// size alone.
-export async function serveDirectory(root) {
-  const gzipped = new Map();
-
-  const server = createServer(async (req, res) => {
-    try {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://fixture').pathname);
-      let file = normalize(join(root, pathname));
-      if (file !== root && !file.startsWith(root + sep)) {
-        res.writeHead(403).end();
-        return;
-      }
-      if (pathname.endsWith('/')) file = join(file, 'index.html');
-
-      const info = await stat(file).catch(() => null);
-      if (!info?.isFile()) {
-        res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
-        return;
-      }
-
-      const ext = extname(file);
-      const headers = { 'content-type': TYPES[ext] ?? 'application/octet-stream' };
-      let body = await readFile(file);
-
-      if (COMPRESSIBLE.has(ext) && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
-        if (!gzipped.has(file)) gzipped.set(file, gzipSync(body));
-        body = gzipped.get(file);
-        headers['content-encoding'] = 'gzip';
-        headers.vary = 'accept-encoding';
-      }
-
-      res.writeHead(200, headers).end(body);
-    } catch (err) {
-      res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err));
-    }
-  });
-
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return {
-    url: `http://127.0.0.1:${server.address().port}/`,
-    close: () => new Promise((resolve) => server.close(resolve)),
-  };
 }
