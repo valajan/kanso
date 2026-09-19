@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out kanso-api
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: kanso-api
 
@@ -55,13 +55,13 @@ jobs:
       # this repository. FRONTEND_REPO_TOKEN must be a fine-grained token scoped
       # to valajan/kanso-frontend with read-only Contents permission.
       - name: Check out kanso-frontend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: valajan/kanso-frontend
           path: kanso-frontend
           token: ${{ secrets.FRONTEND_REPO_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
