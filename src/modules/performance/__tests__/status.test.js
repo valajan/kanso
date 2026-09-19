@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getMetric } from '../metrics.js';
-import { buildStatus, evaluateStatuses, hasStatus, metricsWithStatus } from '../status.js';
+import { buildStatus, evaluateStatuses, metricsWithStatus } from '../status.js';
 
 const performance = getMetric('performance'); // higher is better, good 90, poor 49
 const lcp = getMetric('lcp');                 // lower is better,  good 2500, poor 4000
@@ -33,9 +33,7 @@ test('evaluateStatuses returns a status for every metric', () => {
   assert.ok(Object.values(statuses).every((s) => s === 'pass'));
 });
 
-test('hasStatus and metricsWithStatus inspect the status map', () => {
+test('metricsWithStatus names the metrics that reached a level, in registry order', () => {
   const statuses = { performance: 'fail', lcp: 'warn', tbt: 'pass', cls: 'fail', fcp: 'pass' };
-  assert.equal(hasStatus(statuses, 'warn'), true);
-  assert.equal(hasStatus(statuses, 'fail'), true);
   assert.deepEqual(metricsWithStatus(statuses, 'fail'), ['performance', 'cls']);
 });
