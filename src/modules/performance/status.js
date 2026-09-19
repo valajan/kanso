@@ -34,11 +34,6 @@ export function evaluateStatuses(roundedScore, budget = {}) {
   return statuses;
 }
 
-// True if any metric in the status map reached the given level.
-export function hasStatus(statuses, level) {
-  return Object.values(statuses).includes(level);
-}
-
 // Metric keys that reached the given level, in registry order.
 export function metricsWithStatus(statuses, level) {
   return METRICS.map((m) => m.key).filter((key) => statuses[key] === level);

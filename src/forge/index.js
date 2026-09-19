@@ -39,8 +39,4 @@ export function createForge({ kind = 'github', ...options }) {
   return factory(options);
 }
 
-export function supportedForges() {
-  return Object.keys(ADAPTERS);
-}
-
 export { createGithubForge };
