@@ -16,7 +16,7 @@ export const IMPACTS = ['minor', 'moderate', 'serious', 'critical'];
 // otherwise. `serious` is where axe puts what actually locks a user out — no
 // alt text, unreachable controls, unreadable contrast — while `moderate` and
 // below are mostly hygiene a page should fix without a build failing on it.
-export const DEFAULT_FAIL_ON = 'serious';
+const DEFAULT_FAIL_ON = 'serious';
 
 // A rule reported without an impact is judged as `serious`: it is a real
 // violation either way, and silently treating it as the mildest thing on the

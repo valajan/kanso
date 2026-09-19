@@ -21,7 +21,7 @@ import { impactOf } from './rules.js';
 // ring, a border, a background, an underline. The browser's own focus ring
 // counts. Transitions are finished rather than waited for: what is compared is
 // where they end.
-export const MAX_STOPS = 150;
+const MAX_STOPS = 150;
 
 export const keyboard = {
   id: 'keyboard',
@@ -102,7 +102,7 @@ export function keyboardFindings({ stops, trap }) {
 
 // Starts at the top, from wherever the page put focus. Resolves to true when
 // that is somewhere.
-export function startWalk() {
+function startWalk() {
   const walk = { stops: [], repeats: 0, end: null };
   window[Symbol.for('kanso.keyboard')] = walk;
 
@@ -147,7 +147,7 @@ export function startWalk() {
 
 // Records where one Tab press left focus. Resolves to true when the walk is
 // over: focus left the page, came back round, or stopped moving.
-export function recordStop() {
+function recordStop() {
   const walk = window[Symbol.for('kanso.keyboard')];
 
   let element = document.activeElement;
@@ -225,7 +225,7 @@ export function recordStop() {
 
 // Ends the walk: takes focus away, reads every stop again without it, and
 // says what changed — and what the walk ended on.
-export function endWalk(dom) {
+function endWalk(dom) {
   const walk = window[Symbol.for('kanso.keyboard')];
   document.activeElement?.blur?.();
   walk.settle();

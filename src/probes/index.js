@@ -17,7 +17,7 @@ import puppeteer from 'puppeteer-core';
 // "nothing found".
 
 // How long one probe may take, page load included.
-export const PROBE_TIMEOUT_MS = 30_000;
+const PROBE_TIMEOUT_MS = 30_000;
 
 // How long a loaded page is given to go quiet on the network — the requests a
 // client-rendered page makes after `load` to draw itself — before a probe reads

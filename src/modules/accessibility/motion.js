@@ -15,7 +15,7 @@ import { impactOf } from './rules.js';
 // What a script moves frame by frame, by hand (requestAnimationFrame, a canvas,
 // a Lottie player), leaves no trace for the probe to read: only CSS animations
 // and transitions, and animations made with the Web Animations API.
-export const SHORTEST_MS = 200;
+const SHORTEST_MS = 200;
 
 export const motion = {
   id: 'motion',
@@ -61,7 +61,7 @@ function describeMotion({ kind, name, properties, duration, forever }) {
 
 // Installed before any of the page's scripts: keeps every animation the page
 // starts, CSS or scripted, with the element it runs on.
-export function watchMotion() {
+function watchMotion() {
   const seen = new Set();
   window[Symbol.for('kanso.motion')] = seen;
 
@@ -99,7 +99,7 @@ export async function sweep() {
 }
 
 // Everything that moved, grouped by the element it moved.
-export function collectMotion(dom, shortestMs) {
+function collectMotion(dom, shortestMs) {
   const seen = window[Symbol.for('kanso.motion')] ?? new Set();
   // What was set off before the watch could hear it, or is still in its delay.
   for (const animation of document.getAnimations()) seen.add(animation);

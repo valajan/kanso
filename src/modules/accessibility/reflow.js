@@ -17,7 +17,7 @@ import { impactOf } from './rules.js';
 // What WCAG lets need two dimensions — images, video, maps, data tables — is
 // left out, as is a region the reader can scroll on its own: a code block
 // with a scrollbar reflows as it should.
-export const VIEWPORT_WIDTH = 320;
+const VIEWPORT_WIDTH = 320;
 
 export const reflow = {
   id: 'reflow',

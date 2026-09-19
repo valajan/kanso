@@ -17,7 +17,7 @@ export const METRICS = [
   { key: 'fcp', label: 'FCP', unit: 'ms', lowerIsBetter: true, good: 1800, poor: 3000, decimals: 0, round: (v) => Math.round(v) },
 ];
 
-export const METRIC_KEYS = METRICS.map((m) => m.key);
+const METRIC_KEYS = METRICS.map((m) => m.key);
 
 const BY_KEY = new Map(METRICS.map((m) => [m.key, m]));
 
