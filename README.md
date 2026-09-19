@@ -542,3 +542,9 @@ kanso audit <url> --config other.yml     # another configuration file
 kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). It carries an express patent
+grant, so contributors license their patent claims along with their code, and
+users are covered.
