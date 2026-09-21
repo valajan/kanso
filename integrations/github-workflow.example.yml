@@ -48,7 +48,7 @@ jobs:
 
       # ---- the audit --------------------------------------------------------
       - name: Kanso performance audit
-        uses: your-org/kanso-api/integrations/github-action@main
+        uses: your-org/kanso/integrations/github-action@main
         with:
           preview-url: ${{ steps.deploy.outputs.url }}
           api-url: ${{ vars.KANSO_API_URL }}
