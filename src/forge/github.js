@@ -112,25 +112,5 @@ export function createGithubForge({ octokit, token, owner, repo, baseUrl }) {
       if (!res?.data?.content) return null;
       return Buffer.from(res.data.content, 'base64').toString('utf8');
     },
-
-    // Webhook-path helper: maps a deployment SHA back to the open PR it belongs
-    // to. GitHub-specific — the API trigger receives the PR number directly and
-    // never needs this.
-    async findOpenPullRequestForSha({ sha }) {
-      const res = await orNull(
-        client.request('GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls', {
-          ...scope, commit_sha: sha,
-        })
-      );
-      const pr = res?.data?.find((p) => p.state === 'open');
-      if (!pr) return null;
-      return {
-        number: pr.number,
-        state: pr.state,
-        headSha: pr.head.sha,
-        headRef: pr.head.ref,
-        baseRef: pr.base.ref,
-      };
-    },
   };
 }

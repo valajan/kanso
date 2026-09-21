@@ -481,8 +481,7 @@ The details — token permissions, GitLab, waiting for the preview — are in
 [`integrations/README.md`](integrations/README.md).
 
 > For a check in CI with nothing to host, the action of §6 runs the CLI in your
-> own runner instead. This path is for the report in the pull request itself,
-> and for the GitHub App that finds the preview on its own.
+> own runner instead. This path is for the report in the pull request itself.
 
 ## 9. When the numbers move between runs
 

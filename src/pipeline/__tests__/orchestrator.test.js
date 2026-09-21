@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOrchestrator } from '../orchestrator.js';
-import { PreviewStore } from '../state.js';
 import { UrlGuardError } from '../../security/url-guard.js';
 
 const log = { info() {}, warn() {}, error() {} };
@@ -41,7 +40,6 @@ function fakeRunner(byUrl) {
 
 function build({ runLighthouse, staticConfig = {}, verifyUrl = null }) {
   return createOrchestrator({
-    store: new PreviewStore(),
     staticConfig: { budgets: {}, ...staticConfig },
     runLighthouse,
     verifyUrl,

@@ -8,17 +8,9 @@ no server, no token, no permission. See the README, §6, and
 request and its base branch and compares the two.
 
 What follows is for **a Kanso server**: the report posted in the pull request
-itself, and the GitHub App that finds the preview on its own. The server has two
-triggers, and this directory covers the second one.
-
-| | GitHub App webhook | CI trigger (`POST /v1/audit`) |
-|---|---|---|
-| How the preview URL is found | reverse-engineered from the host's webhooks | the CI job passes it |
-| Hosts supported | the five with a provider module | any — the CI already knows the URL |
-| Platforms | GitHub only | GitHub, GitLab, Bitbucket, anything with a token |
-| Survives multiple instances | no — coordination state is per-process | yes — one request carries everything |
-| Can fail the build | no | yes, on the returned verdict |
-| Setup | install the App | ~10 lines of CI YAML |
+itself. The CI job passes the preview URL it just deployed to
+`POST /v1/audit`, with a token of its own — any host, any platform, and the
+returned verdict fails the build.
 
 ## The client
 

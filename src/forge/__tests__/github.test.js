@@ -108,16 +108,3 @@ test('getFileContent decodes base64 content', async () => {
   assert.equal(await forge.getFileContent({ path: '.kanso.yml', ref: 'abc' }), 'budgets:\n  lcp: 2500');
 });
 
-test('findOpenPullRequestForSha picks the open PR and normalizes it', async () => {
-  const forge = forgeWith({
-    'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls': () => ({
-      data: [
-        { number: 1, state: 'closed', head: { sha: 'x', ref: 'old' }, base: { ref: 'main' } },
-        { number: 2, state: 'open', head: { sha: 'y', ref: 'new' }, base: { ref: 'main' } },
-      ],
-    }),
-  });
-  assert.deepEqual(await forge.findOpenPullRequestForSha({ sha: 'y' }), {
-    number: 2, state: 'open', headSha: 'y', headRef: 'new', baseRef: 'main',
-  });
-});

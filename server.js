@@ -1,8 +1,6 @@
 import 'dotenv/config';
-import { App } from '@octokit/app';
 import { loadEnv } from './src/config/env.js';
 import { loadStaticConfig } from './src/config/static-config.js';
-import { PreviewStore } from './src/pipeline/state.js';
 import { JobQueue } from './src/pipeline/jobs.js';
 import { createOrchestrator } from './src/pipeline/orchestrator.js';
 import { runLighthouse } from './src/lighthouse/runner.js';
@@ -15,9 +13,6 @@ import { buildApp } from './src/app.js';
 const env = loadEnv();
 const staticConfig = loadStaticConfig();
 
-const githubApp = new App({ appId: env.appId, privateKey: env.privateKey });
-const store = new PreviewStore();
-
 const allowedHosts = parseAllowedHosts(env.runtime.allowedPreviewHosts);
 const verifyUrl = (url) => assertSafeUrl(url, { allowedHosts });
 
@@ -27,8 +22,8 @@ const queue = new JobQueue({
 });
 const rateLimiter = new RateLimiter({ capacity: env.runtime.rateLimitPerMinute, windowMs: 60_000 });
 
-const orchestrator = createOrchestrator({ store, staticConfig, runLighthouse, verifyUrl });
-const app = buildApp({ env, githubApp, store, orchestrator, queue, rateLimiter, verifyUrl });
+const orchestrator = createOrchestrator({ staticConfig, runLighthouse, verifyUrl });
+const app = buildApp({ env, orchestrator, queue, rateLimiter, verifyUrl });
 
 app
   .listen({ port: env.port, host: '0.0.0.0' })
@@ -39,7 +34,7 @@ app
       `Budgets (fail) — perf≥${b.performance ?? '—'} | LCP≤${b.lcp ?? '—'}s | TBT≤${b.tbt ?? '—'}ms | CLS≤${b.cls ?? '—'} | FCP≤${b.fcp ?? '—'}s`
     );
     app.log.info(
-      `Triggers — POST /webhook (GitHub App) · POST /v1/audit (any CI) — ${env.runtime.jobConcurrency} concurrent audits, ${env.runtime.maxQueued} queued max, ${env.runtime.rateLimitPerMinute}/min per repo`
+      `Trigger — POST /v1/audit (any CI) — ${env.runtime.jobConcurrency} concurrent audits, ${env.runtime.maxQueued} queued max, ${env.runtime.rateLimitPerMinute}/min per repo`
     );
     app.log.info(
       allowedHosts.length > 0

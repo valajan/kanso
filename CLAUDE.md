@@ -59,13 +59,9 @@ Three surfaces exist today:
 - **the MCP server** (`kanso mcp`) — the same audit over stdio, so the agent
   that wrote the code can measure it. Facts only: in MCP the host is the model,
   so nothing here calls one.
-- **the PR report**, with **two triggers into one pipeline**:
-  1. **`POST /v1/audit`** — a CI job posts the preview URL it just deployed.
-     Platform-agnostic, stateless, and the preferred path.
-  2. **`POST /webhook`** — the GitHub App, which works the preview URL out from
-     a preview host's webhook events. GitHub-only, and needs cross-request state.
-
-  Both converge on the same orchestrator and the same report.
+- **the PR report** — **`POST /v1/audit`**: a CI job posts the preview URL it
+  just deployed, with a token of its own, and Kanso writes the report into the
+  pull request. Platform-agnostic and stateless.
 
 **Entry points:** `server.js` — a thin bootstrap that loads config, wires
 dependencies, and starts the server — and `bin/kanso.js` for the CLI and the
@@ -74,8 +70,8 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
 
 ### Module layout (`src/`)
 
-- `app.js` — Fastify factory: logger, raw-body JSON parser, body limit, and the
-  `/health`, `/webhook` and `/v1/audit` routes
+- `app.js` — Fastify factory: logger, JSON parser, body limit, and the
+  `/health` and `/v1/audit` routes
 - `config/` — `env.js` (env validation), `static-config.js` (config.yml),
   `repo-config.js` (`.kanso.yml` merge, from the forge or supplied inline),
   `local-config.js` (defaults + the `.kanso.yml` of the directory a local
@@ -150,7 +146,7 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   `core/audit.js`, `render.js` prints the tables, `markdown.js` renders the
   report `--out report.md` writes — the PR comment's body, from
   `report/comment.js`, under a header naming what was audited. It never loads
-  `config/env.js`: that validates GitHub App credentials a developer auditing
+  `config/env.js`: that reads server knobs a developer auditing
   localhost does not have. The exit code is the verdict — 0 audited and clean,
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
@@ -167,16 +163,8 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   per form factor — `audit({ screenshots })` in the core, carried by the
   runner under the `SCREENSHOT` symbol, never in the JSON
 - `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
-- `webhook/` — `signature.js` (HMAC verify), `router.js` (event aiguillage),
-  `provider-dispatcher.js`, `pull-request-handler.js`
-- `providers/` — one module per preview host (Netlify, Vercel/Render,
-  Cloudflare, Amplify, Railway), registered in `index.js`. Each exposes
-  `resolve(payload, ctx)` and reacts to one webhook event. **Adding a host =
-  adding a module + one line in `index.js`.** Only the webhook trigger uses
-  these — the API trigger is told the URL.
-- `pipeline/` — `jobs.js` (bounded background queue), `state.js` (`PreviewStore`,
-  webhook-only coordination state), `orchestrator.js` (`core/audit.js`, then
-  report on the PR)
+- `pipeline/` — `jobs.js` (bounded background queue), `orchestrator.js`
+  (`core/audit.js`, then report on the PR)
 - `report/` — `comment.js` (PR comment + `REPORT_MARKER`), `commit-status.js`
 - `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
   in its own worker thread, collecting the union of the modules' Lighthouse
@@ -189,7 +177,7 @@ action wrapping it, and example GitHub and GitLab pipelines — plus
 
 ### Main flow
 
-1. A trigger fires: a CI job POSTs to `/v1/audit`, or a webhook arrives.
+1. A CI job POSTs the preview URL it just deployed to `/v1/audit`.
 2. The request is authorized, validated, and handed to the job queue; the
    caller gets an answer immediately.
 3. Four Lighthouse audits run in parallel — mobile + desktop × preview +
@@ -213,15 +201,11 @@ action wrapping it, and example GitHub and GitLab pipelines — plus
 ### The forge boundary
 
 Every read and write on a PR goes through a forge adapter, bound to one repo and
-carrying its own credentials. Two call sites build one:
+carrying its own credentials — **the caller's own CI token**, never Kanso's.
 
-- the webhook path, from a GitHub App installation token
-- `/v1/audit`, from **the caller's own CI token**
-
-The interface is 9 methods (`getPullRequest`, `findComment`, `postComment`,
-`editComment`, `setStatus`, `getPullRequestFiles`, `postReview`,
-`getFileContent`, plus the webhook-only `findOpenPullRequestForSha`). Supporting
-GitLab or Bitbucket means writing one adapter, not touching the pipeline.
+The interface is 6 methods (`getPullRequest`, `findComment`, `postComment`,
+`editComment`, `setStatus`, `getFileContent`). Supporting GitLab or Bitbucket
+means writing one adapter, not touching the pipeline.
 
 Adapters normalize errors: a missing resource resolves to `null`, so callers
 never branch on HTTP status codes. A 403 is only folded into `null` where "can't
@@ -262,16 +246,14 @@ on a developer's own machine, `http://localhost:4173` is the whole point.
 
 ### Capacity
 
-Audits are minutes long, so neither trigger holds a request open for one: both
-enqueue into `src/pipeline/jobs.js` and answer immediately (202 for the API,
-which also fixes the webhook deliveries GitHub was abandoning at its 10-second
-timeout). The queue is bounded in both concurrency and depth — past that the API
+Audits are minutes long, so the request is never held open for one: it enqueues
+into `src/pipeline/jobs.js` and answers 202 immediately. The queue is bounded in
+both concurrency and depth — past that the API
 returns 429 rather than growing a backlog that times every caller out. A
 per-repo token bucket is the first gate, evaluated before any network call.
 
 `GET /v1/audit/:id` returns the verdict, which is what lets a CI job fail its
-build on a regression — something the webhook trigger cannot offer, because
-nothing in the CI knows an audit is happening.
+build on a regression.
 
 ## Configuration
 

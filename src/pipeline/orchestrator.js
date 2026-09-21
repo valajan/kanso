@@ -6,7 +6,6 @@ import { commitStatusPayload } from '../report/commit-status.js';
 
 // Builds the report pipeline. External dependencies are injected so the
 // pipeline can be exercised in isolation:
-// - store:         PreviewStore coordinating webhook state (legacy trigger only)
 // - staticConfig:  parsed config.yml, the base for per-repo config merges
 // - runLighthouse: the audit runner, handed to src/core/audit.js
 // - verifyUrl:     async URL guard; re-checked here, immediately before the
@@ -15,7 +14,7 @@ import { commitStatusPayload } from '../report/commit-status.js';
 //
 // Every platform call goes through `forge` (src/forge), so nothing in this file
 // knows it is talking to GitHub.
-export function createOrchestrator({ store, staticConfig, runLighthouse, verifyUrl = null }) {
+export function createOrchestrator({ staticConfig, runLighthouse, verifyUrl = null }) {
   // Finds the report comment to write into: the id the caller already created,
   // else Kanso's previous report on this PR (located by its hidden marker),
   // else a fresh comment. The marker lookup is what keeps a PR to a single,
@@ -124,58 +123,8 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, verifyU
     return { ok: true, conclusion, statuses: perf.levels, modules: result.modules, scores, commentId: reportCommentId };
   }
 
-  // Handles a preview-ready provider event: maps the deployment SHA to its open
-  // PR, records the preview URL, and — if the PR was parked waiting for this
-  // deployment — runs the report.
-  //
-  // Returns as soon as the PR is resolved: the audit itself is handed to the
-  // caller's `schedule` callback so the webhook response is not held open for
-  // the minutes an audit takes.
-  async function handlePreviewUrl({ forge, sha, targetUrl, source, log, schedule }) {
-    const pr = await forge.findOpenPullRequestForSha({ sha });
-    if (!pr) return { ok: true, ignored: 'no open PR for sha' };
-
-    // A late-arriving status event for a superseded commit would otherwise make
-    // us run Lighthouse against the old build.
-    if (pr.headSha !== sha) {
-      log.info(`PR #${pr.number} — stale deployment ignored (${sha.slice(0, 7)} ≠ HEAD ${pr.headSha.slice(0, 7)})`);
-      return { ok: true, ignored: 'sha is not PR head' };
-    }
-
-    const prNumber = pr.number;
-    store.setPreviewUrl(prNumber, targetUrl);
-    log.info(`PR #${prNumber} — ${source} preview ready: ${targetUrl}`);
-
-    if (!store.isPending(prNumber)) {
-      return { ok: true, pr: prNumber, target_url: targetUrl };
-    }
-
-    const scheduled = schedule(async () => {
-      const repoConfig = await loadRepoConfig({ forge, staticConfig, ref: sha, log });
-      // Preview hosts report "ready" before the CDN has finished propagating
-      // assets; auditing immediately measures a half-warm deployment.
-      const previewWaitMs = (repoConfig.preview_wait_seconds ?? 15) * 1000;
-      log.info(`PR #${prNumber} — waiting ${previewWaitMs / 1000}s for assets to stabilize...`);
-      await new Promise((resolve) => setTimeout(resolve, previewWaitMs));
-      return runAndPostReport({
-        forge, prNumber, sha,
-        headRef: pr.headRef, baseRef: pr.baseRef,
-        previewUrl: targetUrl, source, log, repoConfig,
-      });
-    }, { prNumber, sha, previewUrl: targetUrl });
-
-    // Keep the PR parked when the queue refused the work, so the next
-    // deployment event for it still triggers a report.
-    if (!scheduled) {
-      log.warn(`PR #${prNumber} — audit not scheduled, staying pending`);
-      return { ok: true, pr: prNumber, target_url: targetUrl, queued: false };
-    }
-    store.takePending(prNumber);
-    return { ok: true, pr: prNumber, target_url: targetUrl, job: scheduled.id };
-  }
-
-  // Runs the report for a PR whose preview URL is already known (PR opened or
-  // reopened after the deployment landed), or requested directly through the API.
+  // Runs the report for a pull request whose preview URL the caller already
+  // knows: the CI job has just deployed it.
   async function runReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected, log, repoConfig, inlineConfig, commentId }) {
     const config = repoConfig ?? (await loadRepoConfig({ forge, staticConfig, ref: sha, log, inlineConfig }));
     return runAndPostReport({
@@ -184,7 +133,7 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, verifyU
     });
   }
 
-  return { handlePreviewUrl, runReport, postOrEditComment };
+  return { runReport, postOrEditComment };
 }
 
 // The PR report and the /v1/audit response name the two sides `pr` and `ref`.

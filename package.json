@@ -27,7 +27,6 @@
     "node": ">=22.19"
   },
   "dependencies": {
-    "@octokit/app": "^15.1.0",
     "@octokit/core": "^6.1.6",
     "chrome-launcher": "^1.2.1",
     "dotenv": "^16.4.5",
