@@ -1,0 +1,38 @@
+name: Tests
+
+# The hermetic suite: every test under src/**/__tests__, with no Chrome, no
+# build and no secret. Chrome, GitHub and OpenAI are replaced by doubles, so
+# the job is the cheap one — and the only one a fork can run while
+# kanso-frontend is private. No path filter on purpose: the suite covers the
+# whole of src/, and a change anywhere can break it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
