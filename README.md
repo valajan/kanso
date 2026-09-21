@@ -368,7 +368,7 @@ goes to the job summary, and the job fails on a regression:
   with:
     node-version: 22
 - run: npm ci && npm run build
-- uses: valajan/kanso-api@main
+- uses: valajan/kanso@main
   with:
     url: dist                          # or leave it out, with serve: in .kanso.yml
     baseline: https://example.com      # optional: judge the change, not the page

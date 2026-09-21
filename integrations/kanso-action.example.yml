@@ -55,7 +55,7 @@ jobs:
         working-directory: head
         run: npm ci && npm run build
 
-      - uses: valajan/kanso-api@main
+      - uses: valajan/kanso@main
         with:
           working-directory: head
           url: dist
@@ -66,14 +66,14 @@ jobs:
 #   Against production, or the base branch's own preview deployment — the only
 #   way to compare a project Kanso serves with its command:
 #
-#       - uses: valajan/kanso-api@main
+#       - uses: valajan/kanso@main
 #         with:
 #           baseline: https://example.com
 #
 #   Against the budgets alone, with every finding the page carries counting —
 #   the page as it stands rather than what the change did to it:
 #
-#       - uses: valajan/kanso-api@main
+#       - uses: valajan/kanso@main
 #         with:
 #           url: dist
 #

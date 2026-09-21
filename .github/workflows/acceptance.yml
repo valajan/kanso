@@ -46,10 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Check out kanso-api
+      - name: Check out kanso
         uses: actions/checkout@v7
         with:
-          path: kanso-api
+          path: kanso
 
       # kanso-frontend is private, and the job's own GITHUB_TOKEN only reaches
       # this repository. FRONTEND_REPO_TOKEN must be a fine-grained token scoped
@@ -66,11 +66,11 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
-            kanso-api/package-lock.json
+            kanso/package-lock.json
             kanso-frontend/package-lock.json
 
-      - name: Install kanso-api
-        working-directory: kanso-api
+      - name: Install kanso
+        working-directory: kanso
         run: npm ci
 
       - name: Install kanso-frontend
@@ -81,7 +81,7 @@ jobs:
       # seconds, and the quickest way to tell a probe that broke from a page
       # that changed. Chrome comes preinstalled on the runner image.
       - name: Run the probes against their pages
-        working-directory: kanso-api
+        working-directory: kanso
         env:
           CHROME_PATH: /usr/bin/google-chrome
         run: npm run test:probes
@@ -89,7 +89,7 @@ jobs:
       # The suite builds kanso-frontend itself, so the audit always measures the
       # checked-out sources.
       - name: Run the acceptance suite
-        working-directory: kanso-api
+        working-directory: kanso
         env:
           CHROME_PATH: /usr/bin/google-chrome
         run: npm run test:acceptance

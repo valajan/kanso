@@ -1,12 +1,19 @@
 {
-  "name": "kanso-api",
+  "name": "@valajan/kanso",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
   "description": "Kanso \u2014 performance, accessibility, SEO and best-practices audits of a web page, from the terminal, your CI, or a pull request",
   "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valajan/kanso.git"
+  },
   "bin": {
     "kanso": "bin/kanso.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "kanso": "node bin/kanso.js",
