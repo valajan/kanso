@@ -134,8 +134,8 @@ run where the code is.
   without scoring them
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
-  `core/audit.js`, `render.js` prints the tables, `markdown.js` renders the
-  report `--out report.md` writes — from `report/comment.js`, under a header
+  `core/audit.js`, `render.js` prints the tables for a terminal and
+  `markdown.js` renders the report `--out report.md` writes, under a header
   naming what was audited — which is what a CI job summary shows. The exit code
   is the verdict — 0 audited and clean,
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
@@ -152,7 +152,6 @@ run where the code is.
   true`, the page under audit as its load ended follows as image blocks, one
   per form factor — `audit({ screenshots })` in the core, carried by the
   runner under the `SCREENSHOT` symbol, never in the JSON
-- `report/` — `comment.js`, the Markdown report `--out report.md` writes
 - `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
   in its own worker thread, collecting the union of the modules' Lighthouse
   categories and handing each module the report to `extract` from
@@ -180,7 +179,7 @@ directories to `action.yml`.
 
    Steps 2 and 3 are `src/core/audit.js`. Everything before and after is the
    surface: the terminal render (`cli/render.js`), the Markdown report
-   (`cli/markdown.js` + `report/comment.js`), or the MCP payload (`mcp/tools.js`).
+   (`cli/markdown.js`), or the MCP payload (`mcp/tools.js`).
 4. The verdict becomes an exit code — 0 pass, 1 over the `--fail-on` threshold,
    2 the audit could not run — which is what fails a CI job.
 
