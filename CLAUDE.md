@@ -24,16 +24,14 @@ pattern that looks like a failure and is not.
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
 kanso-frontend landing page, injects known regressions (TBT, CLS, LCP, and a
 block too wide for a phone) into the build, and asserts Kanso fails each one on
-the right metric or rule while the unchanged page passes. Every push is audited against the unchanged build as its reference,
-the way a PR is judged against its base — which is also what proves the axe
-findings that page already carries are reported without failing a push that did
-not add them. Chrome, Lighthouse, the Kanso server and the CI client are real;
-GitHub is faked (`test/acceptance/fake-github.mjs`), so no PR is touched. It runs
+the right metric or rule while the unchanged page passes. Every step is audited
+against the unchanged build as its reference, the way a change is judged against
+its base — which is also what proves the axe findings that page already carries
+are reported without failing a step that did not add them. Chrome, Lighthouse and the CLI are real, and the CLI serves both
+builds itself, the way the GitHub Action does — nothing is stood in. It runs
 in CI through `.github/workflows/acceptance.yml`, which needs the
 `FRONTEND_REPO_TOKEN` secret to check out the private frontend repo. Set
 `KANSO_ACCEPTANCE_SKIP_BUILD=1` to reuse an existing `dist/` while iterating.
-The suite also runs the CLI on two of those builds, as directories, the way the
-GitHub Action does.
 
 The GitHub Action at the repo root (`action.yml`) has its own self-test,
 `.github/workflows/action.yml`: it runs the action from the checkout on the

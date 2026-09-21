@@ -3,9 +3,6 @@ import { cp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
-// The preview host stand-in is the one `kanso audit <dir>` serves a build with.
-export { serveDirectory } from '../../src/serve/static.js';
-
 // Known-answer fixtures for the acceptance suite.
 //
 // Each fixture is the real kanso-frontend build with one deliberate regression
