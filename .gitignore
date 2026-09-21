@@ -1,7 +1,8 @@
 node_modules/
+# Nothing here reads an environment file or a key any more; both stay ignored so
+# a stray one from the server era can never be committed by accident.
 .env
 .env.*
-!.env.example
 *.pem
 .DS_Store
 npm-debug.log*

@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Kanso \u2014 performance, accessibility, SEO and best-practices audits of a web page, from the terminal, your CI, or a pull request",
-  "main": "server.js",
+  "description": "Kanso \u2014 performance, accessibility, SEO and best-practices audits of a web page, from the terminal, your coding agent, or your CI",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/valajan/kanso.git"
@@ -17,8 +16,6 @@
   },
   "scripts": {
     "kanso": "node bin/kanso.js",
-    "start": "node server.js",
-    "dev": "node --watch server.js",
     "test": "node --test \"src/**/__tests__/*.test.js\"",
     "test:probes": "node --test --test-reporter=spec test/probes/probes.test.mjs",
     "test:acceptance": "node --test --test-concurrency=1 --test-reporter=spec test/acceptance/kanso-frontend.test.mjs"
@@ -27,15 +24,9 @@
     "node": ">=22.19"
   },
   "dependencies": {
-    "@octokit/core": "^6.1.6",
     "chrome-launcher": "^1.2.1",
-    "dotenv": "^16.4.5",
-    "fastify": "^5.0.0",
     "js-yaml": "^4.1.1",
     "lighthouse": "^13.2.0",
     "puppeteer-core": "^24.42.0"
-  },
-  "devDependencies": {
-    "pino-pretty": "^13.1.3"
   }
 }

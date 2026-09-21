@@ -72,11 +72,11 @@ before(async () => {
 
   workDir = await mkdtemp(join(tmpdir(), 'kanso-acceptance-'));
 
-  // The repo's real budgets, minus the one setting an automated run must not
-  // inherit: no production reference — the suite never reaches out to kanso.sh.
+  // The repo's own budgets, at the run count the suite asks for. The reference
+  // is always the unchanged build beside it, never a deployment: the suite
+  // reaches out to nothing.
   const repoConfig = yaml.load(await readFile(join(FRONTEND_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
   const testConfig = { ...repoConfig, runs: RUNS };
-  delete testConfig.base_url;
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
 

@@ -8,8 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
-npm start          # Start the server
-npm run dev        # Start with --watch for auto-reload on file changes
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:probes      # The probes against a real Chrome, on pages with known answers (~10 s)
@@ -46,7 +44,7 @@ run directly with Node.
 ## Architecture
 
 Kanso audits a web page and judges it. **The audit is `src/core/audit.js` and
-knows nothing about pull requests, forges or servers**; everything else is a
+knows nothing about terminals, agents or runners**; everything else is a
 surface onto it.
 
 Three surfaces exist today:
@@ -59,28 +57,22 @@ Three surfaces exist today:
 - **the MCP server** (`kanso mcp`) — the same audit over stdio, so the agent
   that wrote the code can measure it. Facts only: in MCP the host is the model,
   so nothing here calls one.
-- **the PR report** — **`POST /v1/audit`**: a CI job posts the preview URL it
-  just deployed, with a token of its own, and Kanso writes the report into the
-  pull request. Platform-agnostic and stateless.
+- **the GitHub Action** (`action.yml`) — the CLI again, in a client's own
+  runner, writing the Markdown report to the job summary and exiting on the
+  verdict.
 
-**Entry points:** `server.js` — a thin bootstrap that loads config, wires
-dependencies, and starts the server — and `bin/kanso.js` for the CLI and the
-MCP server it also starts (`kanso mcp`). All application logic lives under
-`src/`.
+Kanso hosts nothing and holds no credential. There is no server: the surfaces
+run where the code is.
+
+**Entry point:** `bin/kanso.js`, for the CLI and the MCP server it also starts
+(`kanso mcp`). All application logic lives under `src/`.
 
 ### Module layout (`src/`)
 
-- `app.js` — Fastify factory: logger, JSON parser, body limit, and the
-  `/health` and `/v1/audit` routes
-- `config/` — `env.js` (env validation), `static-config.js` (config.yml),
-  `repo-config.js` (`.kanso.yml` merge, from the forge or supplied inline),
-  `local-config.js` (defaults + the `.kanso.yml` of the directory a local
-  surface runs in — the CLI and the MCP server read the same one),
+- `config/` — `static-config.js` (config.yml), `repo-config.js` (the
+  `.kanso.yml` merge), `local-config.js` (defaults + the `.kanso.yml` of the
+  directory a surface runs in — the CLI and the MCP server read the same one),
   `module-config.js` (the section of it a given module reads), `merge.js`
-- `forge/` — **the only place that knows what platform we are talking to.**
-  `index.js` documents the interface and registers adapters; `github.js`
-  implements it. Nothing else in the codebase calls `octokit`.
-- `security/` — `url-guard.js` (SSRF), `rate-limit.js` (token bucket)
 - `probes/` — what Kanso checks on a page itself, beyond Lighthouse. A module
   declares its probes; `index.js` runs them in the audit worker, after
   Lighthouse, on the same Chrome — each in a fresh page and browser context,
@@ -97,14 +89,13 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   waited for, stopped with everything it spawned). `index.js` reads a target
   named on the command line or in a tool call, reads the `serve:` block of
   `.kanso.yml`, and opens a page and its baseline for the length of one audit.
-  The core only ever sees a URL. **The server never comes here**: a
-  `.kanso.yml` read from a pull request must never get a command run
-- `core/` — **the audit, with no knowledge of PRs, forges or servers.**
+  The core only ever sees a URL
+- `core/` — **the audit, with no knowledge of terminals, agents or runners.**
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
   worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
-  what every surface accepts as a page to audit. The CLI, the MCP server and the
-  PR report are its three callers.
+  what every surface accepts as a page to audit. The CLI and the MCP server are
+  its two callers — and the Action is the CLI.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`) and the two shapes of detail every surface can render — `scores`
@@ -144,10 +135,9 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
   `core/audit.js`, `render.js` prints the tables, `markdown.js` renders the
-  report `--out report.md` writes — the PR comment's body, from
-  `report/comment.js`, under a header naming what was audited. It never loads
-  `config/env.js`: that reads server knobs a developer auditing
-  localhost does not have. The exit code is the verdict — 0 audited and clean,
+  report `--out report.md` writes — from `report/comment.js`, under a header
+  naming what was audited — which is what a CI job summary shows. The exit code
+  is the verdict — 0 audited and clean,
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
   result and nothing else
@@ -162,98 +152,37 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   true`, the page under audit as its load ended follows as image blocks, one
   per form factor — `audit({ screenshots })` in the core, carried by the
   runner under the `SCREENSHOT` symbol, never in the JSON
-- `api/` — `validate.js` (request validation), `audit-route.js` (`/v1/audit`)
-- `pipeline/` — `jobs.js` (bounded background queue), `orchestrator.js`
-  (`core/audit.js`, then report on the PR)
-- `report/` — `comment.js` (PR comment + `REPORT_MARKER`), `commit-status.js`
+- `report/` — `comment.js`, the Markdown report `--out report.md` writes
 - `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
   in its own worker thread, collecting the union of the modules' Lighthouse
   categories and handing each module the report to `extract` from
 
-At the repo root, `integrations/` is what client repos run, not part of the
-server: the CI client (`kanso-audit.mjs`, zero dependencies), a GitHub composite
-action wrapping it, and example GitHub and GitLab pipelines — plus
-`kanso-action.example.yml`, for the root `action.yml` that needs no server.
+At the repo root, `kanso-action.example.yml` is what a client repo copies: the
+workflow that builds the pull request and its base branch and hands both
+directories to `action.yml`.
 
 ### Main flow
 
-1. A CI job POSTs the preview URL it just deployed to `/v1/audit`.
-2. The request is authorized, validated, and handed to the job queue; the
-   caller gets an answer immediately.
-3. Four Lighthouse audits run in parallel — mobile + desktop × preview +
-   reference — each in its own worker thread. Worker isolation is what allows
+1. A surface resolves what to audit: a URL, a directory it serves itself, or the
+   command `serve:` names — `src/serve/`.
+2. Four Lighthouse audits run in parallel — mobile + desktop × page + reference
+   — each in its own worker thread. Worker isolation is what allows
    parallelism: Lighthouse (via marky) writes to Node's `performance` namespace,
    and audits sharing a thread corrupt each other's marks. Set `runs` above 1 to
    report the per-metric median of several runs instead of a single noisy one.
-   Steps 3 and 4 are `src/core/audit.js`; the rest is the PR surface.
-4. Each module judges its results. For performance, metrics (score, LCP, TBT,
+3. Each module judges its results. For performance, metrics (score, LCP, TBT,
    CLS, FCP) are compared against per-repo budgets; status is `pass` / `warn` /
    `fail`, worst-of across form factors, and worst-of across modules. For
    accessibility, SEO and best practices, each broken rule is judged on its
    impact — and, when a reference page was loaded, on whether that page already
    broke it: with a reference Kanso judges what the change did, without one it
    judges the page as it stands.
-5. Results post as a PR comment (badge + one table per form factor + one
-   section per module reporting findings) and a commit status. The comment
-   carries a hidden `REPORT_MARKER`, so a re-run finds and edits it rather than
-   stacking a new one.
 
-### The forge boundary
-
-Every read and write on a PR goes through a forge adapter, bound to one repo and
-carrying its own credentials — **the caller's own CI token**, never Kanso's.
-
-The interface is 6 methods (`getPullRequest`, `findComment`, `postComment`,
-`editComment`, `setStatus`, `getFileContent`). Supporting GitLab or Bitbucket
-means writing one adapter, not touching the pipeline.
-
-Adapters normalize errors: a missing resource resolves to `null`, so callers
-never branch on HTTP status codes. A 403 is only folded into `null` where "can't
-see it" and "not there" deserve the same handling — an optional config file, a
-comment scan. Elsewhere it propagates, so a mis-scoped token is reported as a
-permission problem rather than a missing PR.
-
-### Security model of `/v1/audit`
-
-The endpoint is public, so three things carry it:
-
-**Authorization is a write probe.** Kanso posts the placeholder comment *with
-the caller's token*, before scheduling any audit. A successful write proves the
-caller has comment access to the PR they named; a failure is a 403. There is no
-shared secret to distribute, no per-repo credential store, and no privilege for
-a confused-deputy attack to borrow — Kanso only ever acts with the caller's own
-token on the caller's own repo. It also means no CPU is spent before the caller
-is authorized.
-
-**Nothing the caller writes reaches the report.** Branch names, the head SHA and
-the PR state are re-read from the forge. The only caller-supplied value rendered
-into the comment is the preview URL, and `source`, which is constrained to a
-conservative character class.
-
-**Every URL is vetted before Chrome loads it** (`src/security/url-guard.js`).
-Without this the endpoint is an SSRF primitive: a caller could point Kanso at
-`http://169.254.169.254/` and read the cloud metadata service back out of the
-Lighthouse report rendered into their own PR. The guard resolves the hostname
-and refuses unless every address is publicly routable — including v4-mapped and
-NAT64 forms, which is where a naive IPv6 check leaks. Chrome resolves the name
-again when it loads the page, so DNS rebinding remains possible in principle;
-the guard re-checks immediately before the audit, and
-`KANSO_ALLOWED_PREVIEW_HOSTS` closes it completely for deployments that need it.
-
-The CLI deliberately skips the guard. It exists because `/v1/audit` is a public
-endpoint that must not be aimed at private addresses on the operator's behalf;
-on a developer's own machine, `http://localhost:4173` is the whole point.
-
-### Capacity
-
-Audits are minutes long, so the request is never held open for one: it enqueues
-into `src/pipeline/jobs.js` and answers 202 immediately. The queue is bounded in
-both concurrency and depth — past that the API
-returns 429 rather than growing a backlog that times every caller out. A
-per-repo token bucket is the first gate, evaluated before any network call.
-
-`GET /v1/audit/:id` returns the verdict, which is what lets a CI job fail its
-build on a regression.
+   Steps 2 and 3 are `src/core/audit.js`. Everything before and after is the
+   surface: the terminal render (`cli/render.js`), the Markdown report
+   (`cli/markdown.js` + `report/comment.js`), or the MCP payload (`mcp/tools.js`).
+4. The verdict becomes an exit code — 0 pass, 1 over the `--fail-on` threshold,
+   2 the audit could not run — which is what fails a CI job.
 
 ## Configuration
 
@@ -271,23 +200,15 @@ at the root on purpose: it counts page loads, and one load feeds every module.
 The CLI reads that same `.kanso.yml` from the working directory (or `--config
 <path>`), so a developer's local run and the CI's run judge a page by the same
 numbers; the MCP server reads it from the directory its host started it in, so
-an agent's audit is judged by them too. On the API path the CI sends that file's
-contents inline — one fewer API call, and it works with a token that has no
-contents scope. Config controls budgets, each module's own thresholds, the
-reference URL and `runs`.
+an agent's audit is judged by them too. Config controls budgets, each module's
+own thresholds and `runs`.
 
 `serve:` says how to serve the project when a local surface is given no page:
 `dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves
 it, and where), relative to the file. The CLI, the MCP server and the Action
-read it; the server path never does — it would be a repository naming a command
-for Kanso's own machine to run.
+all read it.
 
-**Environment variables** (see `.env.example`, validated in `src/config/env.js`):
-
-- Required: `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, and one of
-  `GITHUB_PRIVATE_KEY` / `GITHUB_PRIVATE_KEY_PATH`
-- Optional: `PORT` (3000), `LIGHTHOUSE_CONCURRENCY` (3)
-- Capacity: `KANSO_JOB_CONCURRENCY` (2), `KANSO_MAX_QUEUED` (20),
-  `KANSO_RATE_LIMIT_PER_MINUTE` (10)
-- Security: `KANSO_ALLOWED_PREVIEW_HOSTS` (unset ⇒ any public address),
-  `KANSO_GITHUB_API_URL` (GitHub Enterprise Server)
+**Environment:** one variable, `LIGHTHOUSE_CONCURRENCY` (default 3,
+`src/lighthouse/runner.js`) — how many headless Chromes may run at once, each
+~300-400 MB. Nothing else is read from the environment: no key, no token, no
+endpoint.

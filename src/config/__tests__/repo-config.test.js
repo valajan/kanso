@@ -4,7 +4,7 @@ import { loadRepoConfig, mergeConfig, parseRepoConfig } from '../repo-config.js'
 
 const staticConfig = {
   budgets: { performance: 90, lcp: 2500, tbt: 200 },
-  base_url: 'https://acme.com',
+  accessibility: { fail_on: 'serious' },
   runs: 1,
 };
 
@@ -12,7 +12,7 @@ test('mergeConfig overrides budgets metric by metric', () => {
   const merged = mergeConfig(staticConfig, { budgets: { lcp: 2000 }, runs: 3 });
   assert.deepEqual(merged.budgets, { performance: 90, lcp: 2000, tbt: 200 });
   assert.equal(merged.runs, 3);
-  assert.equal(merged.base_url, 'https://acme.com');
+  assert.deepEqual(merged.accessibility, { fail_on: 'serious' });
 });
 
 // A module's section merges the same way the budgets do: a repo setting one
