@@ -3,10 +3,9 @@
 // server and anything else pointing the core at a page agree on what a target
 // is — and report the same sentence when it is not one.
 //
-// This is not the SSRF guard (src/security/url-guard.js): that one exists
-// because /v1/audit is a public endpoint that must not be aimed at private
-// addresses on the operator's behalf. On a developer's own machine,
-// http://localhost:4173 is the whole point.
+// There is deliberately no SSRF guard here. Kanso runs where the code is — a
+// developer's machine or a CI runner — and audits what its own operator points
+// it at: http://localhost:4173 is the whole point, not something to refuse.
 export function parseTarget(value, label = 'url') {
   let parsed;
   try {
