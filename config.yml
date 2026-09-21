@@ -13,11 +13,6 @@
 # the section wins.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Delay in seconds before running Lighthouse on a PR preview.
-# Netlify marks a deployment as "success" before all assets are fully served,
-# so a small buffer avoids auditing a partially stale preview.
-preview_wait_seconds: 15
-
 # Performance budgets — hard limits that block a merge if exceeded (❌).
 # Values between the Lighthouse "good" threshold and this budget trigger a warning (⚠️).
 # Defaults are set to Lighthouse "poor" zone boundaries so that green/orange/red
@@ -53,7 +48,7 @@ accessibility:
 # Any of the three sections takes an `ignore:` list of rules the project is not
 # held to. Preview hosts — Vercel, Netlify, Cloudflare Pages — send
 # `X-Robots-Tag: noindex` with every preview deployment, so a preview audited
-# against production, or against nothing, fails `is-crawlable` on every PR:
+# against production, or against nothing, fails `is-crawlable` every time:
 #
 #   seo:
 #     ignore: [is-crawlable]
@@ -68,8 +63,8 @@ best-practices:
 
 # Number of Lighthouse runs per target, per form factor; the per-metric median
 # is reported. A single run swings by 20-30% on TBT, which is enough on its own
-# to fail a good PR or trigger an AI analysis of a regression that never
-# happened. 3 is the usual remedy; the cost is 3x the audit time. Max 5.
+# to fail a good change. 3 is the usual remedy; the cost is 3x the audit time.
+# Max 5.
 #
 # It counts page loads, and one load feeds every module, so it belongs to the
 # audit rather than to any module in it — hence the root, not a section.
@@ -84,17 +79,3 @@ runs: 1
 #   serve:                        serve:
 #     dir: dist                     command: npm run preview
 #                                   url: http://localhost:4173
-#
-# Only the local surfaces read it. A Kanso server auditing a pull request never
-# runs a command a repository names.
-
-# Reference deployment every PR preview is compared against.
-#
-# Production is the obvious choice and the wrong one if you can avoid it: it
-# differs from a preview in CDN, cache warmth and build flags, so part of every
-# delta is hosting rather than code. If your host builds a preview for the base
-# branch, point this at that instead — or pass --base-url from CI per run.
-# base_url: https://example.com
-
-# root-cause analysis on regressions
-ai_analysis: true

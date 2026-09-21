@@ -5,10 +5,9 @@ returns a verdict: `pass`, `warn` or `fail`. Performance, accessibility, SEO and
 best practices today, in a single page load; on mobile **and** desktop; against
 your own thresholds — and it can judge one version of a page against another.
 
-Four ways to run it, from the simplest to the most integrated: **locally**
+Three ways to run it, from the simplest to the most integrated: **locally**
 while you work, **from your coding agent** so it can measure what it just wrote,
-**in CI** to stop a regression, **on a pull request** so the measurement lands in
-the review.
+and **in CI** to stop a regression before it merges.
 
 ---
 
@@ -324,11 +323,10 @@ Kanso starts the command, waits until the URL answers, audits it, and stops the
 command and everything it started. It refuses to start one when something
 already answers at that URL: an audit of a server Kanso did not start could be
 an audit of anything. `serve:` is read by the CLI, the MCP server and the
-GitHub Action — never by a Kanso server auditing a pull request, which runs no
-command a repository names.
+GitHub Action alike.
 
-**The same file serves CI and pull requests.** A local audit and a PR audit
-therefore judge a page by the same numbers.
+**One file, every surface.** Your local audit, your agent's and your CI's all
+judge a page by the same numbers.
 
 ## 6. Fail a build on a regression
 
@@ -348,8 +346,8 @@ Which is all a CI job needs:
 ```
 
 `--fail-on warn` is stricter: it fails on the amber zone rather than waiting for
-red. `--out` writes the report to a file as well — Markdown for a `.md`, the one
-a pull request gets; JSON for a `.json` — and can be given twice. For a report
+red. `--out` writes the report to a file as well — Markdown for a `.md`, the one a
+job summary shows; JSON for a `.json` — and can be given twice. For a report
 meant for a script rather than a human, `--json` prints the whole result and
 nothing else:
 
@@ -395,8 +393,8 @@ report the first one uploaded.
 
 The fairest comparison builds the base branch in the same job and hands both
 directories to Kanso: same runner, same Chrome, same server, only the code
-differs. [`integrations/kanso-action.example.yml`](integrations/kanso-action.example.yml)
-does exactly that.
+differs. [`kanso-action.example.yml`](kanso-action.example.yml) does exactly
+that.
 
 ## 7. Give it to your coding agent
 
@@ -446,10 +444,9 @@ the build before it.
 Because `audit_page` may start the command your `.kanso.yml` names, it is not
 flagged read-only to the host.
 
-**It returns facts, not an opinion.** Kanso never calls a model from here. In MCP
-the host *is* the model, and it has the diff it just wrote in front of it — more
-context than any report could reconstruct. (The AI analysis in `src/ai-analysis/`
-belongs to the pull request surface, where there is no agent reading the numbers.)
+**It returns facts, not an opinion.** Kanso never calls a model. In MCP the host
+*is* the model, and it has the diff it just wrote in front of it — more context
+than any report could reconstruct.
 
 **Screenshots are opt-in.** They are small — the last frame of Lighthouse's
 trace, a few hundred pixels wide, about 20 KB each — but an image still costs
@@ -460,32 +457,7 @@ doubled when you pass a `baseline`. Kanso sends progress notifications while it
 works, which is what stops a host giving up mid-audit; if yours times out anyway,
 raise its limit (`MCP_TOOL_TIMEOUT` in Claude Code) or leave `runs` at 1.
 
-## 8. On a pull request
-
-Kanso can post its report into the PR itself: one comment carrying the tables,
-edited on every push rather than stacked, and a commit status that blocks the
-merge when something fails.
-
-That path needs a Kanso instance your CI can reach (`npm start`, or the
-`Dockerfile` in this repo). The CI job hands it the preview URL it just
-deployed:
-
-```yaml
-- uses: ./integrations/github-action
-  with:
-    api-url: https://kanso.example.com
-    preview-url: ${{ steps.deploy.outputs.url }}
-    base-url: https://example.com
-```
-
-The details — token permissions, GitLab, waiting for the preview — are in
-[`integrations/README.md`](integrations/README.md).
-
-> For a check in CI with nothing to host, the action of §6 runs the CLI in your
-> own runner instead. This path is for the report in the pull request itself,
-> and for the GitHub App that finds the preview on its own.
-
-## 9. When the numbers move between runs
+## 8. When the numbers move between runs
 
 That is normal, and it is the classic trap: a single Lighthouse load swings by
 20–30% on TBT depending on what your machine is doing at that moment. Enough to
@@ -498,7 +470,7 @@ makes a small regression believable.
 Close whatever is running in the background during an audit — a build, another
 Chrome: they fight over the same CPU as the page being measured.
 
-## 10. When it does not work
+## 9. When it does not work
 
 | Symptom | Usual cause |
 |---|---|
@@ -511,10 +483,10 @@ Chrome: they fight over the same CPU as the page being measured.
 | `` `…` did not answer at … within 60s `` | `serve.url` is not where the command serves the page |
 | Huge gaps with `--baseline` | you are comparing two hostings, not two codebases |
 
-## 11. Under the hood
+## 10. Under the hood
 
-The audit is `src/core/audit.js`, and it knows nothing about pull requests,
-forges or servers: the CLI, the MCP server and the PR report are three surfaces
+The audit is `src/core/audit.js`, and it knows nothing about terminals, agents
+or runners: the CLI, the MCP server and the GitHub Action are three surfaces
 onto the same core.
 
 Each concern Kanso checks is a module under `src/modules/` — performance,

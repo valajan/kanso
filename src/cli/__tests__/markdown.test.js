@@ -1,112 +1,74 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatComment, formatReport, REPORT_MARKER } from '../comment.js';
+import { formatReport } from '../markdown.js';
 
 const mobileScore  = { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 };
 const desktopScore = { performance: 98, lcp: 1500, tbt: 50,  cls: 0.02, fcp: 900 };
 
-const scoresPrOnly = {
-  mobile:  { pr: mobileScore,  ref: null },
-  desktop: { pr: desktopScore, ref: null },
+const noReference = {
+  mobile:  { current: mobileScore,  reference: null },
+  desktop: { current: desktopScore, reference: null },
 };
 
-test('renders the header with branch refs and source', () => {
-  const body = formatComment(scoresPrOnly, { headRef: 'feature', baseRef: 'main', source: 'Netlify Preview' });
-  assert.ok(body.includes('`feature` → `main` · Netlify Preview detected automatically'));
-});
+// The report is written by `kanso audit --out report.md`, and it is what a CI
+// job summary shows.
+const report = (scores, options = {}) => formatReport(scores, { header: '🔗 `dist`', ...options });
 
-// The same report lands in a job summary through `kanso audit --out`, where no
-// re-run will ever look for a marker, and no branch names what was audited.
-test('the comment is the report behind its marker, and the report can name its own page', () => {
-  const options = { headRef: 'feature', baseRef: 'main', source: 'CI', detected: false };
-  assert.equal(formatComment(scoresPrOnly, options), `${REPORT_MARKER}\n${formatReport(scoresPrOnly, options)}`);
-
-  const report = formatReport(scoresPrOnly, { header: '🔗 `dist`', refLabel: 'budget', referenceKind: 'budgets', currentLabel: 'current' });
-  assert.match(report, /^## Kanso \| Audit Report\n\n🔗 `dist`\n/);
-  assert.match(report, /\| Metric \| budget \| current \| Δ \| \|/);
-  assert.doesNotMatch(report, /kanso:report/);
-});
-
-test('falls back to a URL header when no head ref is given', () => {
-  const body = formatComment(scoresPrOnly, { previewUrl: 'https://preview.example' });
-  assert.ok(body.includes('🔗 URL: https://preview.example'));
+test('names what was audited under the title', () => {
+  const body = report(noReference);
+  assert.match(body, /^## Kanso \| Audit Report\n\n🔗 `dist`\n/);
 });
 
 test('renders Mobile and Desktop sections side by side', () => {
-  const body = formatComment(scoresPrOnly, { headRef: 'feature' });
+  const body = report(noReference);
   assert.ok(body.includes('### 📱 Mobile'));
   assert.ok(body.includes('### 💻 Desktop'));
-  // mobile perf cell: Lighthouse's "poor" boundary as the budget, no main score
+  // mobile perf cell: Lighthouse's "poor" boundary as the budget, no reference
   assert.ok(body.includes('| Performance | 49 | — | 95 |'));
   // desktop perf cell
   assert.ok(body.includes('| Performance | 49 | — | 98 |'));
 });
 
-test('shows the no-reference note when no form factor has a main score and no budget', () => {
-  const body = formatComment(scoresPrOnly, { headRef: 'feature' });
-  assert.ok(body.includes('No reference score for main yet'));
-});
-
-test('omits the no-reference note once a budget is configured', () => {
-  const body = formatComment(scoresPrOnly, { headRef: 'feature', budget: { lcp: 3000 } });
-  assert.ok(!body.includes('No reference score for main yet'));
-});
-
-test('omits the no-reference note when at least one form factor has a main score', () => {
+test('renders deltas and a pass icon when the page improves on its baseline', () => {
   const scores = {
-    mobile:  { pr: mobileScore,  ref: { performance: 90, lcp: 2500, tbt: 150, cls: 0.08, fcp: 1500 } },
-    desktop: { pr: desktopScore, ref: null },
+    mobile:  { current: mobileScore,  reference: { performance: 90, lcp: 2500, tbt: 150, cls: 0.08, fcp: 1500 } },
+    desktop: { current: desktopScore, reference: null },
   };
-  const body = formatComment(scores, { headRef: 'feature' });
-  assert.ok(!body.includes('No reference score for main yet'));
-});
-
-test('renders deltas and a pass icon when the PR improves on main', () => {
-  const refMobile = { performance: 90, lcp: 2500, tbt: 150, cls: 0.08, fcp: 1500 };
-  const scores = {
-    mobile:  { pr: mobileScore,  ref: refMobile },
-    desktop: { pr: desktopScore, ref: null },
-  };
-  const body = formatComment(scores, { headRef: 'feature' });
-  assert.ok(body.includes('| Metric | budget | main | PR | Δ | |'));
+  const body = report(scores);
+  assert.ok(body.includes('| Metric | budget | baseline | current | Δ | |'));
   assert.ok(body.includes('| Performance | 49 | 90 | 95 | +5 | ✅ |'));
   assert.ok(body.includes('| LCP | 4000ms | 2500ms | 2000ms | -500ms | ✅ |'));
 });
 
 test('marks a metric outside its budget as failed', () => {
-  const refMobile = { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 };
-  const regressed = { ...mobileScore, lcp: 5000 };
   const scores = {
-    mobile:  { pr: regressed,    ref: refMobile },
-    desktop: { pr: desktopScore, ref: null },
+    mobile:  { current: { ...mobileScore, lcp: 5000 }, reference: { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 } },
+    desktop: { current: desktopScore, reference: null },
   };
-  const body = formatComment(scores, { headRef: 'feature', budget: { lcp: 4000 } });
+  const body = report(scores, { budget: { lcp: 4000 } });
   assert.ok(body.includes('| LCP | 4000ms | 2000ms | 5000ms | +3000ms | ❌ |'));
 });
 
-// The icon is read against the budget, the Δ against main: a PR scoring what
-// main scores still fails a budget both miss, and the row says which.
-test('a metric equal to main that fails its budget shows the budget it fails', () => {
+// The icon is read against the budget, the Δ against the baseline: a page
+// scoring what its baseline scores still fails a budget both miss, and the row
+// says which.
+test('a metric equal to its baseline that fails its budget shows the budget it fails', () => {
   const scores = {
-    mobile:  { pr: mobileScore, ref: mobileScore },
-    desktop: { pr: desktopScore, ref: desktopScore },
+    mobile:  { current: mobileScore,  reference: mobileScore },
+    desktop: { current: desktopScore, reference: desktopScore },
   };
-  const body = formatComment(scores, { headRef: 'feature', budget: { performance: 101 } });
+  const body = report(scores, { budget: { performance: 101 } });
   assert.ok(body.includes('| Performance | 101 | 95 | 95 | +0 | ❌ |'));
 });
 
 test('against budgets alone, the budget is the reference column and Δ the distance to it', () => {
-  const body = formatComment(scoresPrOnly, { headRef: 'feature', budget: { lcp: 3000 }, refLabel: 'budgets', referenceKind: 'budgets' });
-  assert.ok(body.includes('| Metric | budgets | PR | Δ | |'));
+  const body = report(noReference, { budget: { lcp: 3000 }, referenceLabel: 'budget', referenceKind: 'budgets' });
+  assert.ok(body.includes('| Metric | budget | current | Δ | |'));
   assert.ok(body.includes('| LCP | 3000ms | 2000ms | -1000ms | ✅ |'));
 });
 
 test('reports a failed audit for a missing form factor', () => {
-  const scores = {
-    mobile:  { pr: mobileScore, ref: null },
-    desktop: { pr: null,        ref: null },
-  };
-  const body = formatComment(scores, { headRef: 'feature' });
+  const body = report({ mobile: { current: mobileScore, reference: null }, desktop: { current: null, reference: null } });
   assert.ok(body.includes('### 💻 Desktop'));
   assert.ok(body.includes('Lighthouse audit failed'));
 });
@@ -118,8 +80,7 @@ const accessibility = (findings, extra = {}) => ({
 });
 
 test('renders a findings section with the failing elements folded away', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: accessibility([
       { rule: 'image-alt', title: 'Images lack an alt attribute.', impact: 'critical', count: 2, state: 'new', level: 'fail', nodes: [{ selector: 'img.logo' }, { selector: 'img.hero' }] },
       { rule: 'heading-order', title: 'Headings skip a level.', impact: 'moderate', count: 1, state: 'new', level: 'warn', nodes: [{ selector: 'h3.sub' }] },
@@ -135,8 +96,7 @@ test('renders a findings section with the failing elements folded away', () => {
 });
 
 test('the failing elements say what is wrong with them, once when it is the same', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: accessibility([
       { rule: 'image-alt', title: 't', impact: 'critical', count: 2, state: null, level: 'fail', nodes: [
         { selector: 'img.logo', snippet: '<img src="/logo.png">', explanation: 'Fix any of the following:\n  Element does not have an alt attribute' },
@@ -155,8 +115,7 @@ test('the failing elements say what is wrong with them, once when it is the same
 });
 
 test('the verdict counts the findings alongside the metrics', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: accessibility([
       { rule: 'image-alt', title: 't', impact: 'critical', count: 1, state: 'new', level: 'fail', nodes: [] },
       { rule: 'label', title: 't', impact: 'serious', count: 1, state: 'inherited', level: 'pass', nodes: [] },
@@ -169,8 +128,7 @@ test('the verdict counts the findings alongside the metrics', () => {
 // A reader cannot tell a clean page from a page whose findings were all there
 // before, unless the report says which it is.
 test('a compared section says what was inherited and what was fixed', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature', baseRef: 'trunk',
+  const body = report(noReference, {
     modules: accessibility(
       [{ rule: 'label', title: 't', impact: 'serious', count: 2, state: 'inherited', level: 'pass', nodes: [] }],
       { comparedToBaseline: true, fixed: [{ rule: 'link-name', title: 't', impact: 'serious', count: 1 }] },
@@ -178,15 +136,14 @@ test('a compared section says what was inherited and what was fixed', () => {
   });
 
   assert.ok(body.includes('| `label` | serious | 2 elements | inherited | ✅ |'));
-  assert.ok(body.includes('_failing from `serious` up · 1 already on `trunk` · 1 fixed_'));
+  assert.ok(body.includes('_failing from `serious` up · 1 already on `baseline` · 1 fixed_'));
   assert.ok(!body.includes('<details>'), 'nothing to fix, nothing to unfold');
 });
 
 // A change that fixed every finding leaves an empty section, which still has
 // to say what was fixed — and has nothing to say of what was already there.
 test('an emptied section says what was fixed', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature', baseRef: 'trunk',
+  const body = report(noReference, {
     modules: accessibility([], { comparedToBaseline: true, fixed: [{ rule: 'link-name', title: 't', impact: 'serious', count: 1 }] }),
   });
 
@@ -195,16 +152,18 @@ test('an emptied section says what was fixed', () => {
 });
 
 test('the verdict names metrics as the tables do', () => {
-  const failing = { mobile: { pr: { ...mobileScore, performance: 40, lcp: 5000, tbt: 300 }, ref: null }, desktop: { pr: desktopScore, ref: null } };
-  const body = formatComment(failing, { headRef: 'feature' });
-  assert.ok(body.includes('> ❌ Performance, LCP failed · ⚠️ TBT warning'));
+  const failing = {
+    mobile:  { current: { ...mobileScore, performance: 40, lcp: 5000, tbt: 300 }, reference: null },
+    desktop: { current: desktopScore, reference: null },
+  };
+  assert.ok(report(failing).includes('> ❌ Performance, LCP failed · ⚠️ TBT warning'));
 });
 
 test('a module that found nothing says so, and the ones that ran nothing say nothing', () => {
-  const clean = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility([]) });
+  const clean = report(noReference, { modules: accessibility([]) });
   assert.ok(clean.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up_'));
 
-  const absent = formatComment(scoresPrOnly, { headRef: 'feature', modules: accessibility(null) });
+  const absent = report(noReference, { modules: accessibility(null) });
   assert.ok(!absent.includes('### ♿ Accessibility'));
 });
 
@@ -212,8 +171,7 @@ test('a module that found nothing says so, and the ones that ran nothing say not
 // and their failures are not all DOM elements: a console error is a script and
 // a line, a missing doctype is nothing at all.
 test('a failure with no DOM element is shown by what it names, or by what Lighthouse says of it', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: {
       'best-practices': { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
         { rule: 'doctype', title: 'Page lacks the HTML doctype', impact: 'moderate', count: 0, state: null, level: 'warn', nodes: [], detail: 'Document must contain a doctype' },
@@ -232,8 +190,7 @@ test('a failure with no DOM element is shown by what it names, or by what Lighth
 });
 
 test('a missing tag is listed by what is missing, with no empty place before it', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: {
       seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
         { rule: 'open-graph', title: 'Open Graph tags are missing or unusable', impact: 'minor', count: 2, state: null, level: 'warn', nodes: [
@@ -249,8 +206,7 @@ test('a missing tag is listed by what is missing, with no empty place before it'
 });
 
 test('a probe that did not run is said under its section, with the rules it left unchecked', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: accessibility([], { probeFailures: [{ probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], side: 'baseline', formFactor: 'mobile', error: 'timed out after 30s' }] }),
   });
 
@@ -258,8 +214,7 @@ test('a probe that did not run is said under its section, with the rules it left
 });
 
 test('each module reporting findings gets its own section, and says what it ignored', () => {
-  const body = formatComment(scoresPrOnly, {
-    headRef: 'feature',
+  const body = report(noReference, {
     modules: { seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [], ignore: ['is-crawlable'] } },
   });
 

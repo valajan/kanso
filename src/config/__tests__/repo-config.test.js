@@ -4,15 +4,15 @@ import { loadRepoConfig, mergeConfig, parseRepoConfig } from '../repo-config.js'
 
 const staticConfig = {
   budgets: { performance: 90, lcp: 2500, tbt: 200 },
-  base_url: 'https://acme.com',
-  ai_analysis: false,
+  accessibility: { fail_on: 'serious' },
+  runs: 1,
 };
 
 test('mergeConfig overrides budgets metric by metric', () => {
-  const merged = mergeConfig(staticConfig, { budgets: { lcp: 2000 }, ai_analysis: true });
+  const merged = mergeConfig(staticConfig, { budgets: { lcp: 2000 }, runs: 3 });
   assert.deepEqual(merged.budgets, { performance: 90, lcp: 2000, tbt: 200 });
-  assert.equal(merged.ai_analysis, true);
-  assert.equal(merged.base_url, 'https://acme.com');
+  assert.equal(merged.runs, 3);
+  assert.deepEqual(merged.accessibility, { fail_on: 'serious' });
 });
 
 // A module's section merges the same way the budgets do: a repo setting one
@@ -83,11 +83,11 @@ test('without an inline config the file is fetched through the forge', async () 
     getFileContent: async ({ path, ref }) => {
       assert.equal(path, '.kanso.yml');
       assert.equal(ref, 'abc123');
-      return 'ai_analysis: true\n';
+      return 'runs: 3\n';
     },
   };
   const config = await loadRepoConfig({ forge, staticConfig, ref: 'abc123' });
-  assert.equal(config.ai_analysis, true);
+  assert.equal(config.runs, 3);
 });
 
 test('a repo with no .kanso.yml gets the static defaults', async () => {
