@@ -38,6 +38,9 @@ GitHub Action does.
 The GitHub Action at the repo root (`action.yml`) has its own self-test,
 `.github/workflows/action.yml`: it runs the action from the checkout on the
 page in `test/action/`, once passing and once under a budget no page meets.
+The passing case sets its own wide timing budgets (`test/action/.kanso.yml`) and
+accepts a `warn`: what it proves is the Action's plumbing, and the default
+budgets of `config.yml` made it a coin toss on a contended runner.
 
 Requires Node.js >=22.19 — Lighthouse 13's floor. No build step — all files are
 run directly with Node.

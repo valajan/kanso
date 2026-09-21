@@ -2,3 +2,18 @@
 # the Action serves what this says.
 serve:
   dir: site
+
+# What the self-test proves is the Action's plumbing — the install, the served
+# build, the report, the outputs, the exit code — not that the runner is fast.
+# The page it audits is 1115 bytes with no script, yet a contended runner once
+# measured 1598ms of blocking time on it, failing the job against the 600ms
+# default of config.yml on a commit that touched none of this. So the budgets
+# here are set past anything a busy CPU can do to that page: nothing left can
+# fail except the page itself.
+#
+# CLS keeps its default: a layout shift is the page's doing, not the runner's.
+budgets:
+  performance: 0  # a Lighthouse score is never below 0
+  lcp: 60000
+  tbt: 60000
+  fcp: 60000

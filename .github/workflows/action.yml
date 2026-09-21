@@ -5,6 +5,9 @@ name: Action
 # from a directory, the job summary and the outputs. Once on a page that
 # passes, served as test/action/.kanso.yml says; once under a budget no page
 # meets, which must fail the step.
+#
+# What it proves is the plumbing, not the runner's speed, so the passing case
+# is judged on what the page decides — see the budgets in test/action/.kanso.yml.
 
 on:
   pull_request:
@@ -74,7 +77,16 @@ jobs:
           FAILING_RESULT: ${{ steps.failing.outputs.result }}
         run: |
           set -x
-          test "$PASSING" = pass
+          # The page is clean, so its verdict cannot be a failure. It can be a
+          # warning: Lighthouse's warn zone is its own and no budget widens it,
+          # so a contended runner turns a 0ms TBT into hundreds and warns on a
+          # page nothing is wrong with. Widening the budgets in
+          # test/action/.kanso.yml keeps that out of the verdict; this keeps it
+          # out of the assertion.
+          case "$PASSING" in
+            pass | warn) ;;
+            *) echo "the passing page concluded $PASSING"; exit 1 ;;
+          esac
           grep -q '^🔗 `site`$' "$PASSING_REPORT"
           test "$FAILING" = fail
           test "$FAILING_OUTCOME" = failure
