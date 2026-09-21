@@ -6,7 +6,6 @@ import { PreviewStore } from './src/pipeline/state.js';
 import { JobQueue } from './src/pipeline/jobs.js';
 import { createOrchestrator } from './src/pipeline/orchestrator.js';
 import { runLighthouse } from './src/lighthouse/runner.js';
-import { createGptClient } from './src/ai-analysis/gpt-client.js';
 import { RateLimiter } from './src/security/rate-limit.js';
 import { assertSafeUrl, parseAllowedHosts } from './src/security/url-guard.js';
 import { buildApp } from './src/app.js';
@@ -18,7 +17,6 @@ const staticConfig = loadStaticConfig();
 
 const githubApp = new App({ appId: env.appId, privateKey: env.privateKey });
 const store = new PreviewStore();
-const gptClient = createGptClient(env.ai);
 
 const allowedHosts = parseAllowedHosts(env.runtime.allowedPreviewHosts);
 const verifyUrl = (url) => assertSafeUrl(url, { allowedHosts });
@@ -29,7 +27,7 @@ const queue = new JobQueue({
 });
 const rateLimiter = new RateLimiter({ capacity: env.runtime.rateLimitPerMinute, windowMs: 60_000 });
 
-const orchestrator = createOrchestrator({ store, staticConfig, runLighthouse, gptClient, verifyUrl });
+const orchestrator = createOrchestrator({ store, staticConfig, runLighthouse, verifyUrl });
 const app = buildApp({ env, githubApp, store, orchestrator, queue, rateLimiter, verifyUrl });
 
 app
@@ -47,11 +45,6 @@ app
       allowedHosts.length > 0
         ? `Preview hosts — restricted to ${allowedHosts.join(', ')}`
         : 'Preview hosts — any public address (set KANSO_ALLOWED_PREVIEW_HOSTS to restrict)'
-    );
-    app.log.info(
-      gptClient
-        ? `AI analysis — ${gptClient.model} @ ${gptClient.baseUrl ?? 'api.openai.com'} (max ${env.ai.maxTokens} tokens, ${env.ai.timeoutMs}ms timeout)`
-        : 'AI analysis — disabled (OPENAI_API_KEY not set)'
     );
   })
   .catch((err) => {

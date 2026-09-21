@@ -2,7 +2,6 @@ import { combineLevels } from '../../core/levels.js';
 import { extractDiagnostics, pickDiagnostics } from './diagnostics.js';
 import { allBudgetsDefined, METRICS, roundScore } from './metrics.js';
 import { medianScores } from './median.js';
-import { detectSignificantRegressions } from './regressions.js';
 import { effectiveBudgets, evaluateStatuses } from './status.js';
 
 // Performance: the five Lighthouse metrics (score, LCP, TBT, CLS, FCP), judged
@@ -51,13 +50,11 @@ export default {
   //                  says about why the numbers are what they are — see
   //                  diagnostics.js. The module's own detail: surfaces that
   //                  know it render it, the others pass it through.
-  // - regressions:   the failures worth explaining, for the AI analysis
   evaluate({ formFactors, baselineAudited }, config) {
     const budget = config.budgets ?? {};
     const scores = {};
     const diagnostics = {};
     const statusesByForm = [];
-    const regressions = [];
 
     for (const [formFactor, sides] of Object.entries(formFactors)) {
       const { measures: current, diagnostics: currentDiagnostics } = split(sides.current);
@@ -67,11 +64,7 @@ export default {
       diagnostics[formFactor] = { current: currentDiagnostics, baseline: baselineAudited ? baselineDiagnostics : null };
       if (!current) continue;
 
-      const statuses = evaluateStatuses(roundScore(current), budget);
-      statusesByForm.push(statuses);
-      regressions.push(...detectSignificantRegressions({
-        statuses, current, reference, budget, formFactor, againstBudgets: !baselineAudited,
-      }));
+      statusesByForm.push(evaluateStatuses(roundScore(current), budget));
     }
 
     return {
@@ -80,7 +73,6 @@ export default {
       scores,
       referenceKind: baselineAudited ? 'baseline' : 'budgets',
       diagnostics,
-      regressions,
     };
   },
 };

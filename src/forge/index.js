@@ -20,9 +20,6 @@ import { createGithubForge } from './github.js';
 //   editComment({ commentId, body })      → void
 //   setStatus({ sha, state, description, context, targetUrl })
 //                                         → void   (state: pending|success|failure)
-//   getPullRequestFiles({ prNumber })     → [{ filename, status, patch }]
-//   postReview({ prNumber, sha, comments })
-//                                         → void
 //   getFileContent({ path, ref })         → string | null   (null when absent)
 //
 // Adapters normalize platform errors: a missing resource resolves to null

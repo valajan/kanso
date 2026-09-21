@@ -108,20 +108,6 @@ test('getFileContent decodes base64 content', async () => {
   assert.equal(await forge.getFileContent({ path: '.kanso.yml', ref: 'abc' }), 'budgets:\n  lcp: 2500');
 });
 
-test('postReview anchors every finding on the right side of the diff', async () => {
-  const octokit = fakeOctokit({ 'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews': () => ({ data: {} }) });
-  const forge = createGithubForge({ octokit, owner: 'acme', repo: 'site' });
-  await forge.postReview({
-    prNumber: 4, sha: 'abc',
-    comments: [{ file: 'src/a.js', line: 12, body: 'heavy', startLine: 10 }],
-  });
-  const sent = octokit.calls[0].params;
-  assert.equal(sent.event, 'COMMENT');
-  assert.deepEqual(sent.comments[0], {
-    path: 'src/a.js', line: 12, side: 'RIGHT', body: 'heavy', start_line: 10, start_side: 'RIGHT',
-  });
-});
-
 test('findOpenPullRequestForSha picks the open PR and normalizes it', async () => {
   const forge = forgeWith({
     'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls': () => ({

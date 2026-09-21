@@ -12,14 +12,12 @@ const MEH = { performance: 80, lcp: 3000, tbt: 300, cls: 0.15, fcp: 2000 };
 function fakeForge(overrides = {}) {
   const forge = {
     slug: 'acme/site',
-    posted: [], edited: [], statuses: [], reviews: [],
+    posted: [], edited: [], statuses: [],
     findComment: async () => null,
     postComment: async ({ body }) => { forge.posted.push(body); return 100; },
     editComment: async ({ commentId, body }) => { forge.edited.push({ commentId, body }); },
     setStatus: async (args) => { forge.statuses.push(args); },
     getFileContent: async () => null,
-    getPullRequestFiles: async () => [],
-    postReview: async (args) => { forge.reviews.push(args); },
     ...overrides,
   };
   return forge;
@@ -41,12 +39,11 @@ function fakeRunner(byUrl) {
   return run;
 }
 
-function build({ runLighthouse, staticConfig = {}, verifyUrl = null, gptClient = null }) {
+function build({ runLighthouse, staticConfig = {}, verifyUrl = null }) {
   return createOrchestrator({
     store: new PreviewStore(),
     staticConfig: { budgets: {}, ...staticConfig },
     runLighthouse,
-    gptClient,
     verifyUrl,
   });
 }

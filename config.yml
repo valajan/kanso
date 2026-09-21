@@ -68,8 +68,8 @@ best-practices:
 
 # Number of Lighthouse runs per target, per form factor; the per-metric median
 # is reported. A single run swings by 20-30% on TBT, which is enough on its own
-# to fail a good PR or trigger an AI analysis of a regression that never
-# happened. 3 is the usual remedy; the cost is 3x the audit time. Max 5.
+# to fail a good change. 3 is the usual remedy; the cost is 3x the audit time.
+# Max 5.
 #
 # It counts page loads, and one load feeds every module, so it belongs to the
 # audit rather than to any module in it — hence the root, not a section.
@@ -95,6 +95,3 @@ runs: 1
 # delta is hosting rather than code. If your host builds a preview for the base
 # branch, point this at that instead — or pass --base-url from CI per run.
 # base_url: https://example.com
-
-# root-cause analysis on regressions
-ai_analysis: true

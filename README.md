@@ -446,10 +446,9 @@ the build before it.
 Because `audit_page` may start the command your `.kanso.yml` names, it is not
 flagged read-only to the host.
 
-**It returns facts, not an opinion.** Kanso never calls a model from here. In MCP
-the host *is* the model, and it has the diff it just wrote in front of it — more
-context than any report could reconstruct. (The AI analysis in `src/ai-analysis/`
-belongs to the pull request surface, where there is no agent reading the numbers.)
+**It returns facts, not an opinion.** Kanso never calls a model. In MCP the host
+*is* the model, and it has the diff it just wrote in front of it — more context
+than any report could reconstruct.
 
 **Screenshots are opt-in.** They are small — the last frame of Lighthouse's
 trace, a few hundred pixels wide, about 20 KB each — but an image still costs

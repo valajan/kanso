@@ -3,25 +3,19 @@ import { loadRepoConfig } from '../config/repo-config.js';
 import { moduleConfig } from '../config/module-config.js';
 import { formatComment, REPORT_MARKER, REPORT_TITLE, reportScores } from '../report/comment.js';
 import { commitStatusPayload } from '../report/commit-status.js';
-import {
-  analyzePerformanceRegression,
-  formatPendingNote,
-  replaceAnalysisSection,
-} from '../ai-analysis/index.js';
 
 // Builds the report pipeline. External dependencies are injected so the
 // pipeline can be exercised in isolation:
 // - store:         PreviewStore coordinating webhook state (legacy trigger only)
 // - staticConfig:  parsed config.yml, the base for per-repo config merges
 // - runLighthouse: the audit runner, handed to src/core/audit.js
-// - gptClient:     the AI analysis client, or null when none is configured
 // - verifyUrl:     async URL guard; re-checked here, immediately before the
 //                  audit, to narrow the window in which a name validated at
 //                  admission could have been re-pointed at a private address
 //
 // Every platform call goes through `forge` (src/forge), so nothing in this file
 // knows it is talking to GitHub.
-export function createOrchestrator({ store, staticConfig, runLighthouse, gptClient = null, verifyUrl = null }) {
+export function createOrchestrator({ store, staticConfig, runLighthouse, verifyUrl = null }) {
   // Finds the report comment to write into: the id the caller already created,
   // else Kanso's previous report on this PR (located by its hidden marker),
   // else a fresh comment. The marker lookup is what keeps a PR to a single,
@@ -45,14 +39,11 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
     }
   }
 
-  // Audits the PR preview against the reference (src/core/audit.js), then
-  // posts the report comment and commit status, and triggers AI analysis on a
-  // real regression. Returns the conclusion so a CI caller can fail its build on it.
+  // Audits the PR preview against the reference (src/core/audit.js), then posts
+  // the report comment and commit status. Returns the conclusion so a CI caller
+  // can fail its build on it.
   async function runAndPostReport({ forge, prNumber, sha, headRef, baseRef, previewUrl, baseUrl, source, detected = true, log, repoConfig, commentId }) {
     const budget = moduleConfig(repoConfig, 'performance').budgets ?? {};
-    // A repo can ask for AI analysis, but it only runs if the deployment has a
-    // provider configured — otherwise we'd promise a section we cannot deliver.
-    const aiAnalysisEnabled = repoConfig.ai_analysis === true && gptClient != null;
     // A request-supplied reference wins over the configured one: the CI often
     // knows the base branch's own preview, which is a fairer comparison than prod.
     let reference = baseUrl ?? repoConfig.base_url;
@@ -111,39 +102,20 @@ export function createOrchestrator({ store, staticConfig, runLighthouse, gptClie
 
     const perf = result.modules.performance;
     const scores = reportScores(perf.scores);
-    const { regressions } = perf;
 
-    const baseBody = formatComment(scores, {
+    const body = formatComment(scores, {
       previewUrl, headRef, baseRef, source, budget, detected, modules: result.modules,
       referenceKind: perf.referenceKind,
       ...(perf.referenceKind === 'budgets' ? { refLabel: 'budgets' } : { refLabel: baseRef ?? 'main' }),
     });
 
-    const initialBody = aiAnalysisEnabled && regressions.length > 0
-      ? baseBody + formatPendingNote(regressions.map((r) => r.metric))
-      : baseBody;
-
-    const reportCommentId = await postOrEditComment({ forge, prNumber, body: initialBody, commentId });
+    const reportCommentId = await postOrEditComment({ forge, prNumber, body, commentId });
 
     if (sha) {
       const { state, description } = commitStatusPayload(result.modules);
       await forge
         .setStatus({ sha, state, description })
         .catch((err) => log.warn(`PR #${prNumber} — failed to post commit status: ${err.message}`));
-    }
-
-    // Detached on purpose: the verdict is already final without it, so neither a
-    // webhook nor a waiting CI job should block on an LLM round-trip.
-    if (aiAnalysisEnabled && regressions.length > 0) {
-      analyzePerformanceRegression({ forge, prNumber, sha, regressions, gptClient, log })
-        .then(async (analysis) => {
-          if (!analysis?.section) return;
-          const updatedBody = replaceAnalysisSection(initialBody, analysis.section);
-          await forge.editComment({ commentId: reportCommentId, body: updatedBody });
-          const n = analysis.structured?.comments?.length ?? 0;
-          log.info(`PR #${prNumber} — AI analysis posted (${n} inline comment${n !== 1 ? 's' : ''})`);
-        })
-        .catch((err) => log.warn(`PR #${prNumber} — AI analysis failed: ${err.message}`));
     }
 
     const { conclusion } = result;

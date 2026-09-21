@@ -102,32 +102,6 @@ export function createGithubForge({ octokit, token, owner, repo, baseUrl }) {
       });
     },
 
-    async getPullRequestFiles({ prNumber }) {
-      const { data } = await client.request(
-        'GET /repos/{owner}/{repo}/pulls/{pull_number}/files',
-        { ...scope, pull_number: prNumber, per_page: PER_PAGE }
-      );
-      return data.map((f) => ({ filename: f.filename, status: f.status, patch: f.patch }));
-    },
-
-    // One review carrying every inline finding, anchored on the right side of
-    // the diff. event:COMMENT keeps it informational — it never blocks a merge.
-    async postReview({ prNumber, sha, comments }) {
-      await client.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
-        ...scope,
-        pull_number: prNumber,
-        ...(sha ? { commit_id: sha } : {}),
-        event: 'COMMENT',
-        comments: comments.map((c) => ({
-          path: c.file,
-          line: c.line,
-          side: 'RIGHT',
-          body: c.body,
-          ...(c.startLine != null ? { start_line: c.startLine, start_side: 'RIGHT' } : {}),
-        })),
-      });
-    },
-
     async getFileContent({ path, ref }) {
       const res = await orNull(
         client.request('GET /repos/{owner}/{repo}/contents/{path}', {

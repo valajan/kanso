@@ -118,9 +118,8 @@ MCP server it also starts (`kanso mcp`). All application logic lives under
   **Adding a concern = adding a folder + one line in `index.js`.**
   `performance/` is the first: `metrics.js` is the single source of truth for
   the five metrics (labels, units, thresholds), `status.js` derives
-  `pass`/`warn`/`fail`, `median.js` folds repeated runs, `regressions.js` picks
-  the failures worth an AI analysis, `diagnostics.js` keeps what Lighthouse
-  says about why — the LCP element and breakdown, render-blocking requests,
+  `pass`/`warn`/`fail`, `median.js` folds repeated runs, `diagnostics.js` keeps
+  what Lighthouse says about why — the LCP element and breakdown, render-blocking requests,
   layout shifts — from the load behind each median. They explain and are never
   judged.
   `accessibility/` is the second, and the one that proves the interface holds
@@ -212,8 +211,6 @@ action wrapping it, and example GitHub and GitLab pipelines — plus
    section per module reporting findings) and a commit status. The comment
    carries a hidden `REPORT_MARKER`, so a re-run finds and edits it rather than
    stacking a new one.
-6. If any metric regresses >10% and `ai_analysis: true`, `src/ai-analysis/` runs
-   detached — the verdict is already final without it.
 
 ### The forge boundary
 
@@ -278,17 +275,6 @@ per-repo token bucket is the first gate, evaluated before any network call.
 build on a regression — something the webhook trigger cannot offer, because
 nothing in the CI knows an audit is happening.
 
-### AI analysis module (`src/ai-analysis/`)
-
-- `index.js` — orchestrator; takes the `gptClient` injected from `server.js`
-- `gpt-client.js` — `createGptClient(env.ai)` factory; returns `null` when no API
-  key is set, which disables the analysis pipeline-wide
-- `diff-fetcher.js` — fetches relevant diffs through the forge (skips lockfiles,
-  tests, etc.)
-- `prompt-builder.js` — builds structured OpenAI prompts with metric context and diff
-- `validator.js` — validates and sanitizes LLM JSON output
-- `report-formatter.js` — formats results as inline review comments
-
 ## Configuration
 
 `config.yml` is the static base config. A repo overrides it with `.kanso.yml`,
@@ -308,7 +294,7 @@ numbers; the MCP server reads it from the directory its host started it in, so
 an agent's audit is judged by them too. On the API path the CI sends that file's
 contents inline — one fewer API call, and it works with a token that has no
 contents scope. Config controls budgets, each module's own thresholds, the
-reference URL, `runs`, and whether AI analysis is enabled.
+reference URL and `runs`.
 
 `serve:` says how to serve the project when a local surface is given no page:
 `dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves
@@ -325,14 +311,3 @@ for Kanso's own machine to run.
   `KANSO_RATE_LIMIT_PER_MINUTE` (10)
 - Security: `KANSO_ALLOWED_PREVIEW_HOSTS` (unset ⇒ any public address),
   `KANSO_GITHUB_API_URL` (GitHub Enterprise Server)
-- AI analysis, all optional: `OPENAI_API_KEY` (unset ⇒ analysis disabled),
-  `OPENAI_BASE_URL` (any OpenAI-compatible endpoint: OpenRouter, Groq, Ollama…),
-  `KANSO_AI_MODEL`, `KANSO_AI_MAX_TOKENS`, `KANSO_AI_TIMEOUT_MS`,
-  `KANSO_AI_MAX_RETRIES`
-
-Provider settings live in the environment rather than `config.yml` on purpose:
-`config.yml` keys are overridable by each client repo's `.kanso.yml`, and the
-model/token budget spend the operator's own API credits. The credential and
-endpoint keep the ecosystem-standard `OPENAI_*` names — in the OpenAI-compatible
-ecosystem they denote the protocol, not the vendor — while Kanso's own knobs are
-prefixed `KANSO_AI_`.

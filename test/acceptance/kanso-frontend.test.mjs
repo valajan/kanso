@@ -26,8 +26,7 @@ import { FIXTURES, materialize, serveDirectory } from './fixtures.mjs';
 // .kanso.yml budgets, and the CI client a pipeline would run.
 //
 // What is stood in: GitHub (./fake-github.mjs, so no PR is touched) and the
-// preview host (a local static server with gzip). The AI analysis is off — it
-// spends credits and its output is not deterministic.
+// preview host (a local static server with gzip).
 //
 // Each audit is a known-answer test: the landing page as shipped must pass, and
 // each deliberately regressed variant must fail on exactly the metric it
@@ -92,11 +91,10 @@ before(async () => {
 
   workDir = await mkdtemp(join(tmpdir(), 'kanso-acceptance-'));
 
-  // The repo's real budgets, with the two settings an automated run must not
-  // inherit: no AI analysis, and no production reference — the suite never
-  // reaches out to kanso.sh.
+  // The repo's real budgets, minus the one setting an automated run must not
+  // inherit: no production reference — the suite never reaches out to kanso.sh.
   const repoConfig = yaml.load(await readFile(join(FRONTEND_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
-  const testConfig = { ...repoConfig, runs: RUNS, ai_analysis: false };
+  const testConfig = { ...repoConfig, runs: RUNS };
   delete testConfig.base_url;
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
@@ -125,7 +123,6 @@ before(async () => {
     store: new PreviewStore(),
     staticConfig: loadStaticConfig(join(REPO_ROOT, 'config.yml')),
     runLighthouse,
-    gptClient: null,
     verifyUrl,
   });
   kanso = buildApp({

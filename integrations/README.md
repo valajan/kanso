@@ -63,8 +63,7 @@ for the base branch, point `--base-url` at that instead and the comparison
 isolates the change under review.
 
 **Take the median of several runs.** A single Lighthouse run swings by 20-30% on
-TBT. Set `runs: 3` in `.kanso.yml` so a noisy run cannot fail a good PR — or
-trigger an AI analysis of a regression that was never there.
+TBT. Set `runs: 3` in `.kanso.yml` so a noisy run cannot fail a good PR.
 
 ## Files
 
