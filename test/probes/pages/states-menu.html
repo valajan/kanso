@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page whose faults only a click shows</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  a { color: #0b5cad; }
+  #menu { transition: opacity .3s; }
+  .spacer { height: 3000px; }
+</style>
+</head>
+<body>
+<header>
+  <!-- Clean as the page loads: what is broken is hidden, and axe does not
+       read what nobody can see. -->
+  <button id="open" type="button" aria-expanded="false" aria-controls="menu">Menu</button>
+  <nav id="menu" aria-label="Main" hidden>
+    <!-- An icon button with no name: broken, once the menu is open. -->
+    <button type="button" class="close"></button>
+    <a id="signup" href="#form">Sign up</a>
+  </nav>
+</header>
+<main>
+  <h1>A page whose faults only a click shows</h1>
+  <!-- The one fault the page shows as it loads, and still shows in every
+       state after: reported once, where it was first seen. -->
+  <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="40" height="40">
+  <form id="form" hidden>
+    <!-- A field with no label: broken, once the form is shown. -->
+    <input type="email">
+  </form>
+  <!-- Long enough for a reading to scroll it: the next state must be reached
+       from the top all the same. -->
+  <div class="spacer"></div>
+</main>
+<script>
+  const open = document.getElementById('open');
+  const menu = document.getElementById('menu');
+  open.addEventListener('click', () => {
+    // Opened a moment later, as a menu that fetches or animates is.
+    setTimeout(() => {
+      menu.hidden = false;
+      open.setAttribute('aria-expanded', 'true');
+    }, 200);
+  });
+  document.getElementById('signup').addEventListener('click', (event) => {
+    event.preventDefault();
+    document.getElementById('form').hidden = false;
+  });
+</script>
+</body>
+</html>

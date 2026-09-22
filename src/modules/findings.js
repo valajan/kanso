@@ -36,6 +36,20 @@ import { impactRank, parseFailOn, reaches, worstImpact } from './impact.js';
 // only flagged, and what it lists is what somebody has to go and look at. Only
 // axe produces those, from the results it calls incomplete; their impact is
 // capped so that a doubt cannot fail an audit at the default threshold.
+//
+// And it may carry `at`, the declared state of the page it was found in — a
+// menu opened (src/config/states.js). Absent, it was found on the page as it
+// loads. A rule broken in the menu and on the page as it loads is broken in
+// two places, and is two findings: each is folded, compared and judged on its
+// own, and `findingKey` is what tells them apart.
+
+// What a finding is, for everything that folds, compares and judges them: its
+// rule, in the state it was found in. `color-contrast` on the page as it
+// loads, `color-contrast@menu` in the menu — which is also the key its level
+// is reported under, so that a project declaring no state sees no change.
+export function findingKey({ rule, at }) {
+  return at ? `${rule}@${at}` : rule;
+}
 
 // How many failing elements are kept per rule. Not a reading budget: whoever
 // fixes a rule needs every element it failed on, and an agent handed a sample
@@ -248,7 +262,9 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
     ...failuresOn(sides, 'current', ignore),
     ...(compared ? failuresOn(sides, 'baseline', ignore) : []),
   ];
-  const unchecked = (side) => new Set(probeFailures.filter((failure) => failure.side === side).flatMap((failure) => failure.rules));
+  const unchecked = (side) => new Set(probeFailures
+    .filter((failure) => failure.side === side)
+    .flatMap((failure) => failure.rules.map((rule) => findingKey({ rule, at: failure.at }))));
 
   const { findings, fixed } = compare(fold('current'), compared ? fold('baseline') : null, {
     uncheckedNow: unchecked('current'),
@@ -257,7 +273,7 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
   const judged = sortFindings(findings.map((finding) => ({ ...finding, level: levelFor(finding, failOn) })));
 
   return {
-    levels: Object.fromEntries(judged.map((finding) => [finding.rule, finding.level])),
+    levels: Object.fromEntries(judged.map((finding) => [findingKey(finding), finding.level])),
     findings: judged,
     fixed,
     comparedToBaseline: compared,
@@ -269,6 +285,7 @@ export function evaluateFindings({ formFactors, baselineAudited }, config = {}) 
 
 // The probes that did not run on one side, each with the form factor it was
 // for and the rules it would have checked — minus the ones nobody asked for.
+// `ignore:` names a rule wherever it is found, in every state.
 function failuresOn(sides, side, ignore) {
   return sides.flatMap(([formFactor, loads]) => (loads[side]?.probeFailures ?? [])
     .map((failure) => ({ ...failure, rules: failure.rules.filter((rule) => !ignore.includes(rule)), side, formFactor }))
@@ -301,15 +318,23 @@ function levelFor({ state, impact }, failOn) {
 // not a DOM element — a console error — is the same one when everything said
 // of it is. Within one form factor nothing is folded: every item Lighthouse
 // listed is its own element.
+//
+// A rule is folded state by state: broken in the menu on mobile and on the
+// page as it loads on desktop, it is two findings, one screen each.
 export function aggregate(byFormFactor) {
   const byRule = new Map();
 
   for (const [formFactor, findings] of Object.entries(byFormFactor)) {
     for (const finding of findings ?? []) {
-      let entry = byRule.get(finding.rule);
+      const key = findingKey(finding);
+      let entry = byRule.get(key);
       if (!entry) {
-        entry = { rule: finding.rule, title: finding.title, impact: finding.impact, count: 0, formFactors: [], nodes: [], seen: new Set() };
-        byRule.set(finding.rule, entry);
+        entry = {
+          rule: finding.rule,
+          ...(finding.at ? { at: finding.at } : {}),
+          title: finding.title, impact: finding.impact, count: 0, formFactors: [], nodes: [], seen: new Set(),
+        };
+        byRule.set(key, entry);
       }
       entry.impact = worstImpact(entry.impact, finding.impact);
       // A rule only needs review when it needed review everywhere it was
@@ -351,21 +376,26 @@ export function aggregate(byFormFactor) {
 // reader, to say which elements to go and look at.
 //
 // Returns the current findings, each with its state, plus the rules the
-// baseline breaks and the audited page no longer does.
+// baseline breaks and the audited page no longer does. A rule is compared
+// state by state: the menu of the page under audit against the menu of the
+// baseline, never against its page as it loads.
 //
 // A rule a probe could not check on one of the two pages has nothing to be
 // compared with: `uncheckedBefore` leaves its findings without a state, judged
-// as the page stands, and `uncheckedNow` keeps it out of `fixed`.
+// as the page stands, and `uncheckedNow` keeps it out of `fixed`. Both hold
+// finding keys — which is how a state the baseline could not reach, its
+// button renamed by the change, reads as unchecked there rather than as a
+// menu with nothing wrong in it, and nothing found in it is called new.
 export function compare(current, baseline, { uncheckedNow = new Set(), uncheckedBefore = new Set() } = {}) {
   if (baseline == null) {
     return { findings: current.map((finding) => ({ ...finding, state: null, baselineCount: null })), fixed: [] };
   }
 
-  const byRule = new Map(baseline.map((finding) => [finding.rule, finding]));
+  const byKey = new Map(baseline.map((finding) => [findingKey(finding), finding]));
 
   const findings = current.map((finding) => {
-    if (uncheckedBefore.has(finding.rule)) return { ...finding, state: null, baselineCount: null };
-    const before = byRule.get(finding.rule);
+    if (uncheckedBefore.has(findingKey(finding))) return { ...finding, state: null, baselineCount: null };
+    const before = byKey.get(findingKey(finding));
     // A rule broken here and merely undecided there — or the reverse — has no
     // two counts worth comparing: one says how many elements fail, the other
     // how many nobody could decide on. Judged as it stands, like a rule the
@@ -377,10 +407,10 @@ export function compare(current, baseline, { uncheckedNow = new Set(), unchecked
     return { ...finding, state, baselineCount: before?.count ?? 0 };
   });
 
-  const seen = new Set(current.map((finding) => finding.rule));
+  const seen = new Set(current.map(findingKey));
   const fixed = baseline
-    .filter((finding) => !seen.has(finding.rule) && !uncheckedNow.has(finding.rule))
-    .map(({ rule, title, impact, count }) => ({ rule, title, impact, count }));
+    .filter((finding) => !seen.has(findingKey(finding)) && !uncheckedNow.has(findingKey(finding)))
+    .map(({ rule, at, title, impact, count }) => ({ rule, ...(at ? { at } : {}), title, impact, count }));
 
   return { findings, fixed };
 }
@@ -393,7 +423,8 @@ export function sortFindings(findings) {
   return [...findings].sort((a, b) =>
     LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] ||
     impactRank(b.impact) - impactRank(a.impact) ||
-    a.rule.localeCompare(b.rule));
+    a.rule.localeCompare(b.rule) ||
+    (a.at ?? '').localeCompare(b.at ?? ''));
 }
 
 // --- for the surfaces that print elements ------------------------------------

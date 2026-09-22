@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
+import { parseStates } from '../config/states.js';
 import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
@@ -54,6 +55,10 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'still moves (reduced-motion). SEO also reports a page naming no canonical URL and missing Open '
       + 'Graph tags. A check that could not run is listed under probeFailures with the rules it left unchecked: '
       + 'nothing found there is not a clean page. '
+      + 'When the project\'s .kanso.yml declares states (list_modules shows them) — a menu opened, a dialog '
+      + 'shown, each reached by a click from the one before — axe reads the page again in each, and a finding '
+      + 'made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that could '
+      + 'not be reached is a probeFailure carrying `at`, and so is every state after it. '
       + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
       + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
       + 'would, so their absence there says nothing about production. '
@@ -189,6 +194,9 @@ function listModules({ cwd }) {
         // serves when it is given no url, or null when the project says nothing.
         serve: config.serve ?? null,
         runs: clampRuns(config.runs),
+        // The states of the page the project declares beyond the one it loads
+        // in, in the order they are reached — [] when it declares none.
+        states: parseStates(config.states),
         modules: MODULES.map((mod) => ({
           id: mod.id,
           label: mod.label,
@@ -196,7 +204,12 @@ function listModules({ cwd }) {
           // What the module checks on the page itself, beyond Lighthouse, and
           // the rules each check can report — which, for a check the project
           // configures, is what this project's configuration makes of it.
-          probes: (mod.probes ?? []).map((probe) => ({ id: probe.id, rules: probeRules(probe, moduleConfig(config, mod.id)) })),
+          // `states` says whether a check reads the page again in each of them.
+          probes: (mod.probes ?? []).map((probe) => ({
+            id: probe.id,
+            rules: probeRules(probe, moduleConfig(config, mod.id)),
+            states: probe.states === true,
+          })),
           // Each module sees only the section carrying its id, so this is the
           // whole of what judges it — see src/config/module-config.js.
           config: moduleConfig(config, mod.id),

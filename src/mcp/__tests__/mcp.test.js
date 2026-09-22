@@ -286,6 +286,16 @@ test('the project configuration is what list_modules reports', async () => {
   assert.equal(axe.id, 'axe');
   assert.ok(axe.rules.length < 100 && axe.rules.length > 0);
   assert.ok(!axe.rules.includes('region'));
+
+  // The states the project declares, and which checks go through them: axe
+  // alone, for now.
+  assert.deepEqual(payload.states, []);
+  assert.deepEqual(payload.modules[1].probes.map(({ id, states }) => [id, states]), [
+    ['axe', true], ['reflow', false], ['keyboard', false], ['motion', false],
+  ]);
+  writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    wait_for: "#menu"\n');
+  const [declared] = await session([call(1, 'list_modules', {})], { cwd });
+  assert.deepEqual(declared.result.structuredContent.states, [{ name: 'menu', click: '#open', waitFor: '#menu' }]);
   // A section the project wrote part of keeps Kanso's defaults for the rest.
   assert.deepEqual(payload.modules[2].config, { fail_on: 'serious', ignore: ['is-crawlable'] });
   assert.deepEqual(payload.modules[3].config, { fail_on: 'serious' });

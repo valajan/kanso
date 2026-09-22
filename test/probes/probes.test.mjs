@@ -146,6 +146,84 @@ test('the rules the probe answers for follow the tags the project asked for', as
   assert.ok(!narrowed.failures[0].rules.includes('region'), 'a best-practice rule is outside the set the project asked for');
 });
 
+// --- the declared states of a page ------------------------------------------------
+
+// What only a click shows: a menu, a form behind it. The states are reached
+// one from the other, in the page axe already loaded — no load of their own —
+// and what is found in each says where.
+const MENU = { name: 'menu', click: '#open', wait_for: "#open[aria-expanded='true']" };
+const SIGNUP = { name: 'signup', click: '#signup', wait_for: '#form:not([hidden])' };
+
+function where(result) {
+  return broken(result).map(({ rule, at, count }) => [rule, at ?? null, count]);
+}
+
+test('axe reads the page again in each declared state, one reached from the other', async () => {
+  const { accessibility: result } = await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU, SIGNUP] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(where(result), [
+    // As the page loads, the one fault it shows; the rest is hidden. The
+    // image is still there in both states, and is not reported again: a
+    // state reports what it adds.
+    ['image-alt', null, 1],
+    ['button-name', 'menu', 1],
+    // The menu is still open — the states are cumulative — but its button
+    // was reported where it appeared.
+    ['label', 'signup', 1],
+  ]);
+});
+
+test('a state that shows nothing new reports nothing', async () => {
+  const { accessibility: result } = await probe('states-menu.html', {
+    modules: only(axeProbe), config: { states: [MENU, { name: 'menu-again', click: '#open' }] },
+  });
+  assert.deepEqual(where(result), [['image-alt', null, 1], ['button-name', 'menu', 1]]);
+  assert.deepEqual(result.failures, []);
+});
+
+test('a page read in no state is read as before', async () => {
+  const { accessibility: result } = await probe('states-menu.html', { modules: only(axeProbe) });
+  assert.deepEqual(where(result), [['image-alt', null, 1]]);
+  assert.deepEqual(result.failures, []);
+});
+
+// Nothing found in a state nobody reached is nothing checked: that state, and
+// every one after it — reached from it — are failures, never clean.
+test('a state that cannot be reached stops the way through, and says which part was missing', async () => {
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  const { accessibility: result } = await probe('states-menu.html', {
+    modules: only(axeProbe), config: { states: [MENU, ghost, SIGNUP] }, timeoutMs: 6_000,
+  });
+
+  assert.deepEqual(where(result), [['image-alt', null, 1], ['button-name', 'menu', 1]]);
+  assert.deepEqual(result.failures.map(({ probe, at, error, rules }) => ({ probe, at, error, rules: rules.length })), [
+    { probe: 'axe', at: 'ghost', error: 'nothing visible to click at #nothing-here', rules: 100 },
+    { probe: 'axe', at: 'signup', error: 'not reached: ghost could not be', rules: 100 },
+  ]);
+});
+
+test('a state whose click opens nothing says what never appeared', async () => {
+  const stuck = { name: 'stuck', click: '#open', wait_for: '#never' };
+  const { accessibility: result } = await probe('states-menu.html', { modules: only(axeProbe), config: { states: [stuck] }, timeoutMs: 6_000 });
+  assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [{ at: 'stuck', error: 'clicked #open, and #never never appeared' }]);
+});
+
+test('a page that never loads reached none of its states either', async () => {
+  const { accessibility: result } = await runProbes({
+    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', settings: MOBILE,
+    modules: only(axeProbe), config: { states: [MENU, SIGNUP] },
+  });
+  assert.deepEqual(result.failures.map(({ at }) => at ?? null), [null, 'menu', 'signup']);
+});
+
+// Only a check that says so goes through the states: the others cost a load
+// of their own, and that cost does not move.
+test('a check that does not ask for the states runs on the page as it loads alone', async () => {
+  const { accessibility: result } = await probe('states-menu.html', { modules: only(reflow), config: { states: [MENU] } });
+  assert.deepEqual(result, { findings: [], failures: [] });
+});
+
 // --- reflow -------------------------------------------------------------------------
 
 test('a page that reflows reports nothing, whatever looks like overflow and is not', async () => {

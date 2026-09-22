@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadStaticConfig } from './static-config.js';
 import { parseRepoConfig } from './repo-config.js';
+import { parseStates } from './states.js';
 
 // The defaults ship with Kanso, so they resolve against this file rather than
 // the directory the developer happens to be standing in.
@@ -27,5 +28,13 @@ export function loadLocalConfig({ cwd = process.cwd(), configPath = null } = {})
     return { config: defaults, source: null };
   }
 
-  return { config: parseRepoConfig(readFileSync(path, 'utf8'), defaults), source: path };
+  const config = parseRepoConfig(readFileSync(path, 'utf8'), defaults);
+  // A state the file got wrong fails here, before a page is loaded, rather
+  // than as a load that failed on every form factor.
+  try {
+    parseStates(config.states);
+  } catch (err) {
+    throw new Error(`${path}: ${err.message}`);
+  }
+  return { config, source: path };
 }

@@ -84,7 +84,12 @@ run where the code is.
   resolved `.kanso.yml` — the config travels with the load into the worker —
   so what it checks, and the rules it answers for, can be a matter of
   configuration. A probe that fails costs its own rules, reported as unchecked,
-  never as clean. `dom.js` is what a probe runs inside the page with: the call
+  never as clean. A probe marked `states: true` (axe alone, today) also goes
+  through the states `.kanso.yml` declares at its root (`src/config/states.js`
+  reads them, `states.js` here reaches one: a click, then `wait_for`), in the
+  page it loaded — cumulative, no load of their own — and each finding made
+  there carries `at`, listing only what no earlier reading found. A state that
+  cannot be reached fails, with every state after it, under that same `at`. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
   first successful load of a page only
@@ -137,7 +142,9 @@ run where the code is.
   of the Lighthouse report — every failing element with its selector, tag, text
   and what is wrong with it (axe's explanation, or the columns Lighthouse shows:
   a console error's message and the line that logged it) — folds both form
-  factors into one list, compares it to the baseline's and judges it; `impact.js`
+  factors into one list, compares it to the baseline's and judges it — a
+  finding being its rule in the state it was found in (`findingKey`: `rule`, or
+  `rule@state`), so a menu is compared with the baseline's menu; `impact.js`
   is the one severity scale, axe's. What each keeps to itself is where a rule's
   impact comes from: axe gives one; for SEO and best practices, which Lighthouse
   does not rank, `rules.js` places each rule on axe's scale. SEO leaves
@@ -216,6 +223,10 @@ The CLI reads that same `.kanso.yml` from the working directory (or `--config
 numbers; the MCP server reads it from the directory its host started it in, so
 an agent's audit is judged by them too. Config controls budgets, each module's
 own thresholds and `runs`.
+
+`states:`, at the root like `runs:`, lists the states of the page beyond the
+one it loads in — `name`, `click`, optional `wait_for` — which a check can go
+through; a malformed one fails the config as it loads (`local-config.js`).
 
 `serve:` says how to serve the project when a local surface is given no page:
 `dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves
