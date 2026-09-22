@@ -42,10 +42,14 @@ export const FIXTURES = {
   // at 320 CSS pixels, which is Kanso's reflow probe to catch — axe runs at one
   // width and cannot. Placed after the app, at the end of the page, so that no
   // metric moves.
+  //
+  // Wrapped in a named region, which is a landmark: text bolted onto the end of
+  // a body belongs to no part of the page, and `region` would report it —
+  // rightly, and beside the point. A fixture regresses one thing.
   reflow: {
     description: 'a block laid out 400 px wide at the end of the page',
     apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html,
-      '<div class="kanso-acceptance-wide" style="width:400px">A block laid out 400 pixels wide, whatever the screen</div>'
+      '<section aria-label="Acceptance fixture"><div class="kanso-acceptance-wide" style="width:400px">A block laid out 400 pixels wide, whatever the screen</div></section>'
     )),
   },
 

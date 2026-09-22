@@ -266,13 +266,26 @@ test('the project configuration is what list_modules reports', async () => {
   assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices']);
   assert.equal(payload.modules[0].config.budgets.lcp, 1000);
   assert.equal(payload.modules[1].config.fail_on, 'critical');
-  assert.deepEqual(payload.modules[1].lighthouseCategories, ['accessibility']);
-  assert.deepEqual(payload.modules[1].probes, [
-    { id: 'reflow', rules: ['reflow-scroll', 'reflow-clip'] },
-    { id: 'keyboard', rules: ['focus-trap', 'focus-visible', 'focus-obscured'] },
-    { id: 'motion', rules: ['reduced-motion'] },
+  // Accessibility asks Lighthouse for nothing: it runs axe itself.
+  assert.deepEqual(payload.modules[1].lighthouseCategories, []);
+  assert.deepEqual(payload.modules[1].probes.map(({ id, rules }) => [id, rules.length]), [
+    ['axe', 100], ['reflow', 2], ['keyboard', 3], ['motion', 1],
+  ]);
+  assert.deepEqual(payload.modules[1].probes.slice(1).map(({ rules }) => rules), [
+    ['reflow-scroll', 'reflow-clip'],
+    ['focus-trap', 'focus-visible', 'focus-obscured'],
+    ['reduced-motion'],
   ]);
   assert.deepEqual(payload.modules[0].probes, [], 'performance checks nothing Lighthouse does not');
+
+  // A check the project configures reports what this project's configuration
+  // makes of it, not what Kanso would check by default.
+  writeFileSync(join(cwd, '.kanso.yml'), 'accessibility:\n  tags: [wcag2a]\n');
+  const [narrowed] = await session([call(1, 'list_modules', {})], { cwd });
+  const axe = narrowed.result.structuredContent.modules[1].probes[0];
+  assert.equal(axe.id, 'axe');
+  assert.ok(axe.rules.length < 100 && axe.rules.length > 0);
+  assert.ok(!axe.rules.includes('region'));
   // A section the project wrote part of keeps Kanso's defaults for the rest.
   assert.deepEqual(payload.modules[2].config, { fail_on: 'serious', ignore: ['is-crawlable'] });
   assert.deepEqual(payload.modules[3].config, { fail_on: 'serious' });
