@@ -24,8 +24,10 @@ kanso-frontend landing page, injects known regressions (TBT, CLS, LCP, and a
 block too wide for a phone) into the build, and asserts Kanso fails each one on
 the right metric or rule while the unchanged page passes. Every step is audited
 against the unchanged build as its reference, the way a change is judged against
-its base — which is also what proves the axe findings that page already carries
-are reported without failing a step that did not add them. Chrome, Lighthouse and the CLI are real, and the CLI serves both
+its base. Every fixture, the baseline included, also carries one violation of
+its own — an image with no alt text — so that each step has an inherited
+finding to prove is not held against it; that property used to rest on the
+landing page carrying violations, and stopped holding the day it was fixed. Chrome, Lighthouse and the CLI are real, and the CLI serves both
 builds itself, the way the GitHub Action does — nothing is stood in. It runs
 in CI through `.github/workflows/acceptance.yml`, which checks out the public
 `valajan/kanso-landing` repository — no token, no secret. Set

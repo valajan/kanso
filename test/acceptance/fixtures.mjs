@@ -63,9 +63,23 @@ export const FIXTURES = {
   },
 };
 
-// Copies the build into `dir` and applies the fixture's regression.
+// One violation every fixture carries, the baseline included: an image with no
+// alternative text. It is `critical`, so it would fail any step it was new to —
+// and it is new to none, which is the whole point. What it proves is the
+// property the suite exists for: a finding the reference already has is never
+// held against a change.
+//
+// It used to be proved by the landing page itself, which carried violations of
+// its own. The day the page was fixed, the suite lost what it was reading and
+// started failing on a page that had become perfect. A property of Kanso must
+// not rest on a page staying imperfect.
+const INHERITED = '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1">';
+
+// Copies the build into `dir`, gives it the violation every fixture shares,
+// and applies the fixture's own regression.
 export async function materialize(fixtureId, distDir, dir) {
   await cp(distDir, dir, { recursive: true });
+  await editIndex(dir, (html) => beforeBodyEnd(html, INHERITED));
   await FIXTURES[fixtureId].apply(dir);
 }
 
