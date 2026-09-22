@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Nothing of the page's own may run a script: the probe injects axe through
+     the DevTools protocol, which a CSP cannot refuse. -->
+<meta http-equiv="Content-Security-Policy" content="script-src 'none'">
+<title>Rules Lighthouse leaves off</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  .log { max-height: 6rem; overflow: auto; border: 1px solid #ccc; padding: .5rem; }
+  iframe { width: 100%; height: 4rem; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rules Lighthouse leaves off</h1>
+
+  <!-- role-img-alt: an image drawn in CSS, named to nobody. -->
+  <div role="img" class="glyph"></div>
+
+  <!-- scrollable-region-focusable: a box only a mouse can scroll. -->
+  <div class="log">
+    <p>One line.</p><p>Another.</p><p>A third.</p><p>A fourth.</p><p>A fifth.</p><p>A sixth.</p>
+  </div>
+
+  <!-- summary-name: a disclosure whose handle says nothing. -->
+  <details><summary></summary><p>Hidden until opened.</p></details>
+
+  <!-- An element axe finds in another document: the frame's image has no alt,
+       and no element of it crosses back. -->
+  <iframe title="A framed document" srcdoc="&lt;img src='data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='&gt;"></iframe>
+</main>
+</body>
+</html>

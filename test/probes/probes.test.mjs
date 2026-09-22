@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
+import { axeProbe } from '../../src/modules/accessibility/axe.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
@@ -64,6 +65,43 @@ function summary({ findings, failures }) {
     nodes: finding.nodes.map((node) => `${node.selector} — ${node.explanation}`),
   }));
 }
+
+// --- axe -------------------------------------------------------------------------
+
+// axe run by Kanso rather than by Lighthouse. What is tested here is the part
+// no fixture can stand in for: that 1.3 MB of axe reaches the page — and every
+// frame of it — before its own scripts, whatever its Content-Security-Policy
+// says, and that what axe hands back is turned into Kanso's elements.
+
+test('a page breaking none of the hundred rules reports nothing', async () => {
+  const { accessibility: result } = await probe('axe-clean.html', { modules: only(axeProbe) });
+  assert.deepEqual(summary(result), []);
+});
+
+test('the rules Lighthouse switches off are reported, and an element in a frame with them', async () => {
+  const { accessibility: result } = await probe('axe-beyond-lighthouse.html', { modules: only(axeProbe) });
+
+  assert.deepEqual(result.findings.map(({ rule, impact, count, detail, nodes }) => ({
+    rule, impact, count, detail, at: nodes.map((node) => node.selector),
+  })), [
+    // Inside the iframe: axe reached it, and the element that failed stayed
+    // there — its selector chain is what crossed back.
+    { rule: 'image-alt', impact: 'critical', count: 1, detail: 'WCAG 1.1.1 (A)', at: ['iframe > img'] },
+    { rule: 'role-img-alt', impact: 'serious', count: 1, detail: 'WCAG 1.1.1 (A)', at: ['body > main > div.glyph'] },
+    { rule: 'scrollable-region-focusable', impact: 'serious', count: 1, detail: 'WCAG 2.1.1, 2.1.3 (A)', at: ['body > main > div.log'] },
+    { rule: 'summary-name', impact: 'serious', count: 1, detail: 'WCAG 4.1.2 (A)', at: ['body > main > details > summary'] },
+  ]);
+
+  // axe's own account of the failure, as Lighthouse reports it too.
+  assert.match(result.findings[1].nodes[0].explanation, /^Fix any of the following:\n  aria-label attribute does not exist or is empty/);
+});
+
+// Contrast and target size depend on the layout, and the layout depends on the
+// screen: both loads run it, as Lighthouse ran axe on both.
+test('axe runs on the desktop load too', async () => {
+  const { accessibility: result } = await probe('axe-beyond-lighthouse.html', { modules: only(axeProbe), formFactor: 'desktop' });
+  assert.deepEqual(result.findings.map((finding) => finding.rule), ['image-alt', 'role-img-alt', 'scrollable-region-focusable', 'summary-name']);
+});
 
 // --- reflow -------------------------------------------------------------------------
 
