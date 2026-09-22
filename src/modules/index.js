@@ -14,7 +14,7 @@ import seo from './seo/index.js';
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, run(page, context) }]
+//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, states?, run(page, context) }]
 //               What the module checks on the page itself, for what Lighthouse
 //               does not look at: how it reflows at 320 CSS pixels, what a
 //               keyboard can reach. Each runs in the audit worker after
@@ -28,7 +28,11 @@ import seo from './seo/index.js';
 //               also handed as `config` when it runs. `formFactors` restricts
 //               it to some loads. Probes run on the first load of a page that
 //               succeeds, not on every repeated run: what they check does not
-//               vary from one load to the next. See src/probes/index.js.
+//               vary from one load to the next. `states: true` has it read the
+//               page again in each state the project declares — a menu
+//               opened, a dialog shown (src/config/states.js) — in the page it
+//               loaded, and each finding made there says which, as `at`. See
+//               src/probes/index.js.
 //
 //   extract(lhr, { artifacts, probed }) → sample
 //     Runs inside the audit worker, once per page load. `lhr` is the Lighthouse
@@ -62,7 +66,7 @@ import seo from './seo/index.js';
 //             noisy, they need several runs and a median, and they are rendered
 //             as a table with a delta column.
 //
-//   findings  [{ rule, title, impact, count, nodes, detail?, needsReview?, state, level, formFactors }]
+//   findings  [{ rule, title, impact, count, nodes, detail?, needsReview?, at?, state, level, formFactors }]
 //             Findings: a rule broken on a set of elements. They are
 //             deterministic, one load settles them, and they are rendered as a
 //             list, worst first. `impact` is on one scale for every module
@@ -71,7 +75,9 @@ import seo from './seo/index.js';
 //             failure as a whole when it says more than the title.
 //             `needsReview` is a rule that was raised rather than decided —
 //             axe saying it cannot tell — whose impact is capped so that a
-//             doubt fails no audit on its own. `state` is
+//             doubt fails no audit on its own. `at` is the declared state of
+//             the page it was found in — absent for the page as it loads —
+//             and a rule broken in two states is two findings. `state` is
 //             'new' | 'worse' | 'inherited' when a baseline was compared, and
 //             null when there was none. null — rather than [] — means no load
 //             produced a result. A module reporting findings shares everything

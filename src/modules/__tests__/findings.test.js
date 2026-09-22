@@ -462,3 +462,82 @@ test('an element is placed by its selector, else its tag, else the URL it names'
   assert.equal(elementWhere({ selector: '', snippet: '<meta name="robots">', url: '' }), '<meta name="robots">');
   assert.equal(elementWhere({ selector: '', snippet: '', url: 'http://a/app.js:3:1' }), 'http://a/app.js:3:1');
 });
+
+// --- the declared states of a page ------------------------------------------------
+
+// A rule broken in the menu is not the same finding as that rule broken on the
+// page as it loads: two places to go and fix, each compared and judged on its
+// own. And a project that declares no state sees exactly what it saw before.
+const at = (state, rule, impact, count = 1) => ({ ...finding(rule, impact, count), at: state });
+
+test('a rule broken in two states is two findings, and its level says where', () => {
+  const result = evaluateFindings(loads([finding('color-contrast', 'serious'), at('menu', 'color-contrast', 'serious', 3)]));
+
+  assert.deepEqual(result.findings.map(({ rule, at: where, count }) => [rule, where, count]), [
+    ['color-contrast', undefined, 1],
+    ['color-contrast', 'menu', 3],
+  ]);
+  assert.deepEqual(result.levels, { 'color-contrast': 'fail', 'color-contrast@menu': 'fail' });
+});
+
+test('aggregate folds a rule state by state, across form factors', () => {
+  const folded = aggregate({
+    mobile: [at('menu', 'button-name', 'critical'), finding('button-name', 'critical')],
+    desktop: [at('menu', 'button-name', 'critical', 2)],
+  });
+
+  assert.deepEqual(folded.map(({ rule, at: where, count, formFactors }) => [rule, where, count, formFactors]), [
+    ['button-name', 'menu', 2, ['mobile', 'desktop']],
+    ['button-name', undefined, 1, ['mobile']],
+  ]);
+});
+
+test('a state is compared with the same state of the baseline, never with its page as it loads', () => {
+  const { findings, fixed } = compare(
+    [finding('color-contrast', 'serious', 2), at('menu', 'color-contrast', 'serious', 2)],
+    [finding('color-contrast', 'serious', 2), at('signup', 'label', 'critical')],
+  );
+
+  assert.deepEqual(findings.map(({ at: where, state }) => [where, state]), [[undefined, 'inherited'], ['menu', 'new']]);
+  assert.deepEqual(fixed, [{ rule: 'label', at: 'signup', title: 'label', impact: 'critical', count: 1 }]);
+});
+
+// The change renamed the button that opens the menu: the page under audit
+// reaches the menu, the baseline cannot. What is found there has nothing to be
+// compared with, and is judged as it stands — not called new.
+test('a state the baseline could not reach leaves what is found there unjudged against it', () => {
+  const unreached = { probe: 'axe', rules: ['color-contrast', 'label'], error: 'nothing visible to click at #open', at: 'menu' };
+  const result = evaluateFindings({
+    formFactors: {
+      mobile: {
+        current: { findings: [finding('color-contrast', 'serious'), at('menu', 'color-contrast', 'serious')] },
+        baseline: { findings: [], probeFailures: [unreached] },
+      },
+      desktop: { current: null, baseline: null },
+    },
+    baselineAudited: true,
+  });
+
+  assert.deepEqual(result.findings.map(({ at: where, state }) => [where ?? null, state]), [[null, 'new'], ['menu', null]]);
+  assert.deepEqual(result.probeFailures, [{ ...unreached, side: 'baseline', formFactor: 'mobile' }]);
+});
+
+test('what the baseline broke in a state the page under audit could not reach is not fixed', () => {
+  const result = evaluateFindings({
+    formFactors: {
+      mobile: {
+        current: { findings: [], probeFailures: [{ probe: 'axe', rules: ['label'], error: 'timed out after 30s', at: 'signup' }] },
+        baseline: { findings: [at('signup', 'label', 'critical'), finding('image-alt', 'critical')] },
+      },
+      desktop: { current: null, baseline: null },
+    },
+    baselineAudited: true,
+  });
+
+  assert.deepEqual(result.fixed.map(({ rule, at: where }) => [rule, where]), [['image-alt', undefined]]);
+});
+
+test('an ignored rule is ignored in every state', () => {
+  const result = evaluateFindings(loads([finding('region', 'moderate'), at('menu', 'region', 'moderate'), at('menu', 'label', 'critical')]), { ignore: ['region'] });
+  assert.deepEqual(result.levels, { 'label@menu': 'fail' });
+});

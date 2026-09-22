@@ -179,6 +179,26 @@ accessibility, on the same scale:
 | `focus-obscured` | a focused element is entirely behind something else: a cookie banner, a sticky bar (WCAG 2.4.11) | `moderate` |
 | `reduced-motion` | with `prefers-reduced-motion: reduce` set, something still moves — on load, as the page is scrolled through, or forever: a transform, a position, a size, or smooth scrolling. Fades and colour changes are left alone | `moderate` |
 
+**What only a click shows is checked too, if you say how to get there.** A menu
+that opens, a dialog, a form behind a button: declare them at the root of
+`.kanso.yml` and axe reads the page again in each — in the page it already
+loaded, so a state costs a reading, not a load:
+
+```yaml
+states:
+  - name: menu
+    click: "[aria-label='Menu']"             # what to click to get there
+    wait_for: "#menu[aria-expanded='true']"  # what says you are there (optional)
+  - name: signup
+    click: "#signup"                         # reached from the menu, still open
+```
+
+Each state is reached from the one before it, as a visitor would, and reports
+what it shows broken that the ones before it did not: `button-name @ menu`.
+Against a baseline, a state is compared with the same state there. A state that
+cannot be reached — the button renamed, the menu that never opens — is reported
+as unchecked, with every state after it, and never reads as a clean one.
+
 Each names the element to fix: the box too wide for the screen, the code block
 that neither wraps nor scrolls, the card that hides the end of its lines, the
 button whose focus style was removed, the menu link that takes focus while the
@@ -310,6 +330,11 @@ runs: 3
 # writes. Relative to this file.
 serve:
   dir: dist
+
+# The states of the page axe reads beyond the one it loads in — see section 3.
+states:
+  - name: menu
+    click: "[aria-label='Menu']"
 ```
 
 Each module reads the section carrying its name. Performance's `budgets:` live

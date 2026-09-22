@@ -221,3 +221,27 @@ test('each module reporting findings gets its own section, and says what it igno
   assert.ok(body.includes('### 🔍 SEO'));
   assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up · ignoring `is-crawlable`_'), 'what was not looked at is said');
 });
+
+// A rule broken in a state the project declares says which, in the table and
+// over its elements; one broken as the page loads says nothing more than before.
+test('a finding made in a declared state says where', () => {
+  const body = report(noReference, {
+    modules: accessibility([
+      { rule: 'button-name', at: 'menu', title: 'Buttons do not have an accessible name', impact: 'critical', count: 1, state: 'new', level: 'fail', nodes: [{ selector: 'nav > button' }] },
+      { rule: 'button-name', title: 'Buttons do not have an accessible name', impact: 'critical', count: 1, state: 'new', level: 'fail', nodes: [{ selector: 'header > button' }] },
+    ]),
+  });
+
+  assert.ok(body.includes('| `button-name` @ `menu` | critical | 1 element | new | ❌ |'));
+  assert.ok(body.includes('| `button-name` | critical | 1 element | new | ❌ |'));
+  assert.ok(body.includes('**`button-name`** @ `menu` — Buttons do not have an accessible name'));
+});
+
+test('a state that could not be reached is said, with how many rules went unchecked there', () => {
+  const rules = Array.from({ length: 100 }, (_, i) => `rule-${i}`);
+  const body = report(noReference, {
+    modules: accessibility([], { probeFailures: [{ probe: 'axe', rules, at: 'menu', side: 'current', formFactor: 'desktop', error: 'nothing visible to click at #open' }] }),
+  });
+
+  assert.ok(body.includes('_⚠️ `menu` could not be reached on the desktop page (nothing visible to click at #open): 100 rules unchecked there_'));
+});

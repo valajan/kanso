@@ -56,6 +56,10 @@ function optionsFor(tags) {
 export const axeProbe = {
   id: 'axe',
   rules: (config) => ruleIds(tagsOf(config)),
+  // Read again in every state the project declares: axe reads the document as
+  // it stands, and a menu opened is a document of its own. It costs a reading,
+  // not a load.
+  states: true,
   // Injected into the document and into every frame of it, before the page's
   // first script runs.
   beforeLoad: axeCore.source,

@@ -185,6 +185,9 @@ const MODULE_ICONS = {
 // to fix, and the first few say where it lives.
 const ELEMENTS_SHOWN = 5;
 
+// Rules named one by one when a check could not run, before they are counted.
+const RULES_NAMED = 6;
+
 // One findings section: a row per broken rule, worst first, where each one
 // failed folded into a <details>, and a line saying what it was all judged
 // against — without which a reader cannot tell a clean page from a page whose
@@ -206,8 +209,14 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
   if (ignore.length > 0) parts.push(`ignoring ${ignore.map((rule) => code(rule)).join(', ')}`);
   // A probe that did not run checked nothing, which a clean section must not
   // be read as.
-  const unchecked = probeFailures.map(({ probe, rules, side, formFactor, error }) =>
-    `\n_⚠️ ${code(probe)} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'reference'} (${escapeMarkdown(error)}): ${rules.map((rule) => code(rule)).join(', ')} unchecked_`);
+  // A state that could not be reached is said as such: the check ran, on
+  // everything but that part of the page.
+  const unchecked = probeFailures.map(({ probe, rules, side, formFactor, error, at }) => {
+    const where = `the ${formFactor} ${side === 'current' ? 'page' : 'reference'} (${escapeMarkdown(error)})`;
+    return at
+      ? `\n_⚠️ ${code(at)} could not be reached on ${where}: ${rulesLabel(rules)} unchecked there_`
+      : `\n_⚠️ ${code(probe)} did not run on ${where}: ${rulesLabel(rules)} unchecked_`;
+  });
   const judged = `_${parts.join(' · ')}_${unchecked.join('')}`;
 
   if (findings.length === 0) {
@@ -218,7 +227,7 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
     const change = finding.state === 'worse' ? `worse (+${finding.count - finding.baselineCount})` : finding.state ?? '—';
     // A rule axe could not settle is not a rule the page breaks, and the
     // table must not read as if it were.
-    const rule = code(finding.rule) + (finding.needsReview ? ' _(needs review)_' : '');
+    const rule = code(finding.rule) + atLabel(finding) + (finding.needsReview ? ' _(needs review)_' : '');
     return `| ${rule} | ${finding.impact ?? '—'} | ${countLabel(finding)} | ${change} | ${STATUS_ICON[finding.level]} |`;
   });
   const table = ['| Rule | Impact | Found | Change | |', '|---|---|---|---|---|', ...rows].join('\n');
@@ -231,7 +240,7 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
       const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
       const shared = sharedExplanation(shown);
       return [
-        `**\`${finding.rule}\`** — ${finding.needsReview ? `needs review: ${finding.title}` : finding.title}`,
+        `**\`${finding.rule}\`**${atLabel(finding)} — ${finding.needsReview ? `needs review: ${finding.title}` : finding.title}`,
         finding.detail ? escapeMarkdown(finding.detail) : null,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {
@@ -252,6 +261,17 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
     : '';
 
   return `${heading}\n\n${table}\n${details}\n${judged}\n`;
+}
+
+// Where on the page a rule was broken, when it was not on the page as it
+// loads: the declared state it was found in.
+function atLabel({ at }) {
+  return at ? ` @ ${code(at)}` : '';
+}
+
+// A handful of rules by name; axe's hundred by number.
+function rulesLabel(rules) {
+  return rules.length > RULES_NAMED ? `${rules.length} rules` : rules.map((rule) => code(rule)).join(', ');
 }
 
 // axe writes plain text, and a stray `<` or `*` in it would be read as markup.

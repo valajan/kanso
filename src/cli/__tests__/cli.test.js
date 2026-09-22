@@ -373,6 +373,27 @@ test('a probe that did not run is said, with the rules it left unchecked', async
   assert.match(out, /no findings\n\n\s+failing from serious up\n\s+! reflow did not run on the mobile page \(timed out after 30s\): reflow-scroll, reflow-clip unchecked\n/);
 });
 
+// A finding made in a declared state says which; a state that could not be
+// reached says so, and counts what went unchecked there rather than naming a
+// hundred rules.
+test('a finding made in a declared state says where, and a state not reached says so', async () => {
+  const runLighthouse = auditingBoth({
+    'http://localhost:3000/': {
+      performance: GOOD,
+      accessibility: {
+        findings: [{ rule: 'button-name', at: 'menu', impact: 'critical', count: 1, title: 't', nodes: [{ selector: 'nav > button', snippet: '<button>', label: '', explanation: '' }] }],
+        probeFailures: [{ probe: 'axe', at: 'signup', rules: Array.from({ length: 100 }, (_, i) => `rule-${i}`), error: 'not reached: menu could not be' }],
+      },
+    },
+  });
+
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.match(out, /button-name @ menu\s+critical\s+1 element\s+fail\n/);
+  assert.match(out, /! signup could not be reached on the mobile page \(not reached: menu could not be\): 100 rules unchecked there\n/);
+  assert.match(out, /fail · button-name@menu/);
+});
+
 // --- serving the build ------------------------------------------------------
 
 // A project with its build on disk, as `npm run build` leaves it.

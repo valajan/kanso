@@ -19,6 +19,9 @@ const MODULE_LABELS = Object.fromEntries(MODULES.map((m) => [m.id, m.label]));
 // problem, not forty.
 const ELEMENTS_SHOWN = 3;
 
+// Rules named one by one when a check could not run, before they are counted.
+const RULES_NAMED = 6;
+
 export function renderResult({ url, baseline, result, config = {}, elapsedMs = null, color = false }) {
   const c = (name, text) => (color && name ? CODES[name] + text + CODES.reset : text);
   const out = [''];
@@ -183,7 +186,7 @@ function renderFindings(moduleResult, c) {
   // The state column only exists when a baseline gave the findings one.
   const compared = findings.some((finding) => finding.state);
   const rows = findings.map((finding) => [
-    { text: finding.rule + reviewSuffix(finding) + partialSuffix(finding) },
+    { text: finding.rule + atSuffix(finding) + reviewSuffix(finding) + partialSuffix(finding) },
     { text: finding.impact ?? '—', color: 'dim' },
     { text: elements(finding) },
     ...(compared ? [{ text: finding.state ?? '', color: 'dim' }] : []),
@@ -221,9 +224,17 @@ function renderFindings(moduleResult, c) {
 
 // A probe that did not run checked nothing: said, with the rules it left
 // unchecked, so that a clean section is never read as a clean page.
+// A state that could not be reached is said as such: the check ran, on
+// everything but that part of the page.
 function unchecked({ probeFailures = [] }, c) {
-  return probeFailures.map(({ probe, rules, side, formFactor, error }) => '  ' + c('yellow',
-    `! ${probe} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rules.join(', ')} unchecked`));
+  return probeFailures.map(({ probe, rules, side, formFactor, error, at }) => '  ' + c('yellow', at
+    ? `! ${at} could not be reached on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rulesLabel(rules)} unchecked there`
+    : `! ${probe} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rulesLabel(rules)} unchecked`));
+}
+
+// A handful of rules by name; axe's hundred by number.
+function rulesLabel(rules) {
+  return rules.length > RULES_NAMED ? `${rules.length} rules` : rules.join(', ');
 }
 
 // Says what the numbers were judged against, which is the difference between a
@@ -246,6 +257,12 @@ function summary({ findings, fixed = [], comparedToBaseline, failOn, ignore = []
 function elements(finding) {
   const grew = finding.state === 'worse' ? ` (+${finding.count - finding.baselineCount})` : '';
   return countLabel(finding) + grew;
+}
+
+// Where on the page a rule was broken, when it was not on the page as it
+// loads: the declared state it was found in.
+function atSuffix({ at }) {
+  return at ? ` @ ${at}` : '';
 }
 
 // A rule broken on one form factor only is worth saying so.
