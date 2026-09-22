@@ -28,7 +28,7 @@ const DESKTOP_CONFIG = {
 // of their categories, then each module extracts its own sample. With `probe`,
 // the modules' probes run afterwards on the same Chrome; with `screenshot`, the
 // page as its load ended comes back beside the samples.
-async function audit({ url, formFactor, moduleIds, probe, screenshot }) {
+async function audit({ url, formFactor, moduleIds, config, probe, screenshot }) {
   const modules = moduleIds.map(getModule);
 
   // The Launcher is built by hand rather than through chromeLauncher.launch(),
@@ -62,7 +62,7 @@ async function audit({ url, formFactor, moduleIds, probe, screenshot }) {
     }
 
     const probed = probe
-      ? await runProbes({ port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules })
+      ? await runProbes({ port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules, config })
       : {};
 
     // The artifacts stay in this thread: a module keeps what it needs of them

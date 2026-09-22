@@ -80,7 +80,10 @@ run where the code is.
   Lighthouse, on the same Chrome — each in a fresh page and browser context,
   laid out as Lighthouse laid it out unless it asks for another viewport or
   media features, with a script of its own run before the page's if it needs
-  one, under a timeout. A probe that fails costs its own rules, reported as unchecked,
+  one, under a timeout. A probe is handed its own module's section of the
+  resolved `.kanso.yml` — the config travels with the load into the worker —
+  so what it checks, and the rules it answers for, can be a matter of
+  configuration. A probe that fails costs its own rules, reported as unchecked,
   never as clean. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
@@ -120,9 +123,14 @@ run where the code is.
   `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale.
   `axe.js` is a fourth probe, written and tested but **not yet wired into
   `probes:`**: it injects axe-core into the page itself and runs the hundred
-  WCAG A/AA and best-practice rules, where Lighthouse's own gatherer runs
-  sixty-seven and lets no config near them. It is inert on purpose, so that
-  both paths can be compared before Lighthouse's is unplugged. `seo/` and
+  WCAG A/AA and best-practice rules — `accessibility: { tags: [...] }` widens
+  or narrows the set — where Lighthouse's own gatherer runs sixty-seven and
+  lets no config near them. It also reports what axe could not settle, as
+  findings marked `needsReview` whose impact is capped at `moderate`:
+  Lighthouse keeps that answer for eleven of its audits and drops it for the
+  rest, so a contrast nobody can compute reads as one that passed. It is inert
+  on purpose, so that both paths can be compared before Lighthouse's is
+  unplugged. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

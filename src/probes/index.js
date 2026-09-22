@@ -1,5 +1,7 @@
 import puppeteer from 'puppeteer-core';
 
+import { moduleConfig } from '../config/module-config.js';
+
 // Probes: what Kanso checks on a page itself, for what Lighthouse does not look
 // at — how the page reflows at 320 CSS pixels, what a keyboard can reach. A
 // module declares them (src/modules/index.js); this runs them, inside the audit
@@ -31,32 +33,37 @@ const SETTLE_MS = 5_000;
 //
 // - port:       the debugging port of the Chrome to use
 // - settings:   the report's configSettings — how Lighthouse emulated the page
-export async function runProbes({ port, url, formFactor, settings, modules, timeoutMs = PROBE_TIMEOUT_MS }) {
+// - config:     the resolved .kanso.yml. A probe is handed its module's own
+//               section of it, never the rest — the same rule the modules
+//               themselves are held to (src/config/module-config.js). What a
+//               probe checks can then be a matter of configuration, and its
+//               `rules` a function of it.
+export async function runProbes({ port, url, formFactor, settings, modules, config = {}, timeoutMs = PROBE_TIMEOUT_MS }) {
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
-    .map((probe) => ({ mod, probe })));
+    .map((probe) => ({ mod, probe, config: moduleConfig(config, mod.id) })));
   if (wanted.length === 0) return {};
 
   const results = {};
   for (const { mod } of wanted) results[mod.id] ??= { findings: [], failures: [] };
-  const fail = (mod, probe, err) => results[mod.id].failures.push({ probe: probe.id, rules: probe.rules, error: message(err) });
+  const fail = (mod, probe, config, err) => results[mod.id].failures.push({ probe: probe.id, rules: rulesOf(probe, config), error: message(err) });
 
   let browser;
   try {
     browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
   } catch (err) {
-    for (const { mod, probe } of wanted) fail(mod, probe, err);
+    for (const { mod, probe, config } of wanted) fail(mod, probe, config, err);
     return results;
   }
 
   try {
     // One at a time: a probe presses keys and reads focus, which only the page
     // in front has.
-    for (const { mod, probe } of wanted) {
+    for (const { mod, probe, config } of wanted) {
       try {
-        results[mod.id].findings.push(...await runProbe(browser, probe, { url, formFactor, settings, timeoutMs }));
+        results[mod.id].findings.push(...await runProbe(browser, probe, { url, formFactor, settings, config, timeoutMs }));
       } catch (err) {
-        fail(mod, probe, err);
+        fail(mod, probe, config, err);
       }
     }
   } finally {
@@ -65,7 +72,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, time
   return results;
 }
 
-async function runProbe(browser, probe, { url, formFactor, settings, timeoutMs }) {
+async function runProbe(browser, probe, { url, formFactor, settings, config, timeoutMs }) {
   const context = await browser.createBrowserContext();
   let timer;
   try {
@@ -82,7 +89,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, timeoutMs }
       await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
       await page.bringToFront();
-      return probe.run(page, { url, formFactor });
+      return probe.run(page, { url, formFactor, config });
     };
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
@@ -98,6 +105,13 @@ async function runProbe(browser, probe, { url, formFactor, settings, timeoutMs }
     // pending in it.
     await context.close().catch(() => {});
   }
+}
+
+// What a probe covers: a fixed list, or — when what it checks is configurable
+// — what the configuration makes of it. Either way it is what goes unchecked
+// if the probe fails, so it is read the same way whether the probe ran or not.
+function rulesOf(probe, config) {
+  return typeof probe.rules === 'function' ? probe.rules(config) : probe.rules;
 }
 
 // Lighthouse's screen emulation, as puppeteer takes a viewport.

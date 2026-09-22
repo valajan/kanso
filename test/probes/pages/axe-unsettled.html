@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What axe cannot settle</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  /* Text over a photograph: no machine can compute this contrast, because the
+     pixels behind each letter are not a colour. axe says so rather than
+     guessing — and Lighthouse throws that answer away. */
+  .hero {
+    background-image: url("data:image/gif;base64,R0lGODlhBAAEAIAAAP///wAAACH5BAEKAAEALAAAAAAEAAQAAAIFjI+pWQUAOw==");
+    background-size: cover;
+    color: #8a8a8a;
+    padding: 2rem 1rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>What axe cannot settle</h1>
+  <p class="hero">Grey text laid over a photograph, which no contrast algorithm can decide.</p>
+</main>
+</body>
+</html>

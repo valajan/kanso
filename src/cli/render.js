@@ -183,7 +183,7 @@ function renderFindings(moduleResult, c) {
   // The state column only exists when a baseline gave the findings one.
   const compared = findings.some((finding) => finding.state);
   const rows = findings.map((finding) => [
-    { text: finding.rule + partialSuffix(finding) },
+    { text: finding.rule + reviewSuffix(finding) + partialSuffix(finding) },
     { text: finding.impact ?? '—', color: 'dim' },
     { text: elements(finding) },
     ...(compared ? [{ text: finding.state ?? '', color: 'dim' }] : []),
@@ -249,6 +249,12 @@ function elements(finding) {
 }
 
 // A rule broken on one form factor only is worth saying so.
+// A rule axe could not settle is not a rule the page breaks, and the table
+// must not read as if it were.
+function reviewSuffix({ needsReview }) {
+  return needsReview ? ' (needs review)' : '';
+}
+
 function partialSuffix({ formFactors }) {
   return formFactors.length < FORM_FACTORS.length ? ` (${formFactors.join(' + ')})` : '';
 }

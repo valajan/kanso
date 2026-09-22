@@ -23,8 +23,10 @@ import seo from './seo/index.js';
 //               `viewport` or emulated `media` features, with `beforeLoad` run
 //               in the page before any of its scripts — and resolves to
 //               findings. `rules` are the ones it can report: when it fails,
-//               they are what nobody checked. `formFactors` restricts it to
-//               some loads. Probes run on the first load of a page that
+//               they are what nobody checked — a list, or a function of the
+//               module's own section of the configuration, which a probe is
+//               also handed as `config` when it runs. `formFactors` restricts
+//               it to some loads. Probes run on the first load of a page that
 //               succeeds, not on every repeated run: what they check does not
 //               vary from one load to the next. See src/probes/index.js.
 //
@@ -60,13 +62,16 @@ import seo from './seo/index.js';
 //             noisy, they need several runs and a median, and they are rendered
 //             as a table with a delta column.
 //
-//   findings  [{ rule, title, impact, count, nodes, detail?, state, level, formFactors }]
+//   findings  [{ rule, title, impact, count, nodes, detail?, needsReview?, state, level, formFactors }]
 //             Findings: a rule broken on a set of elements. They are
 //             deterministic, one load settles them, and they are rendered as a
 //             list, worst first. `impact` is on one scale for every module
 //             (impact.js), `nodes` are the elements it failed on (findings.js
 //             says what one carries), `detail` what Lighthouse says of the
-//             failure as a whole when it says more than the title. `state` is
+//             failure as a whole when it says more than the title.
+//             `needsReview` is a rule that was raised rather than decided —
+//             axe saying it cannot tell — whose impact is capped so that a
+//             doubt fails no audit on its own. `state` is
 //             'new' | 'worse' | 'inherited' when a baseline was compared, and
 //             null when there was none. null — rather than [] — means no load
 //             produced a result. A module reporting findings shares everything
