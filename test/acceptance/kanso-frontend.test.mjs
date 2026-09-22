@@ -127,8 +127,8 @@ for (const [index, step] of STEPS.entries()) {
     const findings = Object.entries(result.modules ?? {})
       .flatMap(([id, mod]) => (mod.findings ?? []).map((finding) => ({ id, ...finding })));
     assert.ok(
-      result.modules?.accessibility?.findings?.length > 0,
-      'the landing page has axe findings — this is what proves they are inherited, not new'
+      result.modules.accessibility?.findings?.some((finding) => finding.rule === 'image-alt' && finding.state === 'inherited' && finding.level === 'pass'),
+      'the violation every fixture carries came out inherited and unheld — this is what proves an inherited finding fails no step'
     );
     assert.deepEqual(
       findings.filter((finding) => finding.level !== 'pass').map((finding) => `${finding.id}: ${finding.rule}`),
