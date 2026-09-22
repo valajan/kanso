@@ -26,10 +26,22 @@ budgets:
   cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
   fcp: 3000        # maximum FCP in ms — above 3000ms is Lighthouse "poor"
 
-# Accessibility — the axe rules Lighthouse runs on the page.
+# Accessibility — the axe rules Kanso runs on the page.
 #
 # fail_on is the impact from which a finding fails the audit: minor, moderate,
 # serious or critical. Anything below it is reported as a warning.
+#
+# tags are the axe tags whose rules are run. The default is every WCAG A and AA
+# criterion, in all three versions, plus the structural rules axe calls best
+# practice — a page with no main landmark, a heading level skipped — which no
+# criterion demands and every screen reader user feels. Narrow it to
+# [wcag2a, wcag2aa] for the WCAG 2.0 set alone, or widen it with wcag2aaa. A
+# tag axe does not know is ignored rather than obeyed: it would silently narrow
+# the audit.
+#
+# What axe cannot settle on its own — text over a photograph, whose contrast no
+# machine can compute — is reported too, marked "needs review", with its impact
+# capped at moderate: a doubt is worth saying and must not fail an audit alone.
 #
 # A finding the reference page already has, on as many elements, is reported but
 # never held against the change: with a reference, Kanso judges what the change
@@ -37,6 +49,7 @@ budgets:
 # page as it stands, and every finding counts.
 accessibility:
   fail_on: serious
+  tags: [wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22a, wcag22aa, best-practice]
 
 # SEO and Best Practices — the other two Lighthouse categories. They report
 # findings too, judged exactly like accessibility's, on the same impact scale:

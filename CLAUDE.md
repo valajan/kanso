@@ -114,23 +114,23 @@ run where the code is.
   judged.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: a rule is broken or it is not, so nothing
-  is averaged and one load settles it. It also carries Kanso's probes:
+  is averaged and one load settles it. **It is also the one module that reads
+  nothing from Lighthouse** — `categories: []`, everything through its own
+  probes. `axe.js` injects axe-core into the page before its own scripts (so it
+  reaches every frame, and no CSP can refuse it) and runs the hundred WCAG A/AA
+  and best-practice rules; `accessibility: { tags: [...] }` widens or narrows
+  the set. Lighthouse's own gatherer runs sixty-seven of them, from a list
+  written into it where no config reaches, and throws away every result axe
+  could not settle — which `axe.js` reports instead, marked `needsReview` and
+  capped at `moderate`, so a contrast nobody can compute no longer reads as one
+  that passed. The other three probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
   `keyboard.js` presses Tab from the top until focus leaves the page —
   `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
   scrolls through it under `prefers-reduced-motion: reduce` —
-  `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale.
-  `axe.js` is a fourth probe, written and tested but **not yet wired into
-  `probes:`**: it injects axe-core into the page itself and runs the hundred
-  WCAG A/AA and best-practice rules — `accessibility: { tags: [...] }` widens
-  or narrows the set — where Lighthouse's own gatherer runs sixty-seven and
-  lets no config near them. It also reports what axe could not settle, as
-  findings marked `needsReview` whose impact is capped at `moderate`:
-  Lighthouse keeps that answer for eleven of its audits and drops it for the
-  rest, so a contrast nobody can compute reads as one that passed. It is inert
-  on purpose, so that both paths can be compared before Lighthouse's is
-  unplugged. `seo/` and
+  `reduced-motion`. `rules.js` ranks those six rules on axe's scale; axe ranks
+  its own. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

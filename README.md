@@ -134,8 +134,10 @@ are Lighthouse's simulation of a slower device: read them as where the time
 goes, not as the metric itself.
 
 Accessibility gives you **findings**: a rule broken, on named elements. No
-average, no median — a rule is violated or it is not. Each one carries the
-impact axe gives it, the engine Lighthouse runs:
+average, no median — a rule is violated or it is not. Kanso runs axe-core on
+the page itself, a hundred rules covering WCAG A and AA in all three versions
+plus axe's structural best practices, and each finding carries the impact axe
+gives it:
 
 | Impact | Example |
 |---|---|
@@ -149,9 +151,24 @@ The first three failing elements are printed under each rule, with what axe says
 is wrong with them — for a contrast failure, the ratio and both colours — so you
 know where to start. `--json` carries every element.
 
-axe reads the page at one size. What only shows at another, Kanso checks itself,
-in a page of its own after Lighthouse is done — about a second per audit — and
-reports under accessibility, on the same scale:
+Some rules axe cannot settle on its own: text over a photograph has a contrast
+no machine can compute. Those are reported too, marked **needs review**, with
+their impact capped at `moderate` — worth telling you about, never enough to
+fail a build by itself. A page nobody could check must not read as a page that
+passed.
+
+Which rules run is yours to choose:
+
+```yaml
+accessibility:
+  fail_on: serious
+  tags: [wcag2a, wcag2aa]     # WCAG 2.0 A and AA alone, without the rest
+```
+
+axe reads the page at one size, once, without touching it. What only shows at
+another size, or under a keyboard, Kanso checks itself, each in a page of its
+own after Lighthouse is done — about a second per audit — and reports under
+accessibility, on the same scale:
 
 | Rule | What it means | Impact |
 |---|---|---|
@@ -183,8 +200,8 @@ impact scale — which is what lets one `fail_on` mean the same thing everywhere
 
 The full ranking, with the reason for each rule, is in
 `src/modules/seo/rules.js` and `src/modules/best-practices/rules.js`. A missing
-`<title>` and an image without `alt` belong to both Lighthouse categories;
-Kanso reports them once, under accessibility.
+`<title>` and an image without `alt` are SEO rules as well as accessibility
+ones; Kanso reports them once, under accessibility.
 
 Not every failure is an element: a console error is printed with the script and
 line that logged it, a missing doctype with what Lighthouse says of it.
@@ -275,6 +292,9 @@ budgets:
 # the audit. minor | moderate | serious | critical
 accessibility:
   fail_on: serious
+  # Which axe rules run. The default covers WCAG A and AA in all three
+  # versions, plus axe's structural best practices.
+  tags: [wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22a, wcag22aa, best-practice]
 seo:
   fail_on: serious
   ignore: [is-crawlable]   # rules this project is not held to — see below

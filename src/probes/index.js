@@ -46,7 +46,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
 
   const results = {};
   for (const { mod } of wanted) results[mod.id] ??= { findings: [], failures: [] };
-  const fail = (mod, probe, config, err) => results[mod.id].failures.push({ probe: probe.id, rules: rulesOf(probe, config), error: message(err) });
+  const fail = (mod, probe, config, err) => results[mod.id].failures.push({ probe: probe.id, rules: probeRules(probe, config), error: message(err) });
 
   let browser;
   try {
@@ -109,8 +109,9 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, tim
 
 // What a probe covers: a fixed list, or — when what it checks is configurable
 // — what the configuration makes of it. Either way it is what goes unchecked
-// if the probe fails, so it is read the same way whether the probe ran or not.
-function rulesOf(probe, config) {
+// if the probe fails, so it is read the same way whether the probe ran or not,
+// and a surface listing what Kanso checks reads it the same way too.
+export function probeRules(probe, config) {
   return typeof probe.rules === 'function' ? probe.rules(config) : probe.rules;
 }
 

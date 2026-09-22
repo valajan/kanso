@@ -113,17 +113,18 @@ test('the module always wants the baseline, whatever the config says', () => {
   assert.equal(accessibility.needsBaseline({ fail_on: 'critical' }), true);
 });
 
-// What makes this module its own: the impact of a rule is the one axe gave it.
-test('a rule is ranked by the impact axe gave it', () => {
-  const { findings } = accessibility.extract({
-    categories: { accessibility: { auditRefs: [{ id: 'color-contrast' }, { id: 'aria-valid-attr' }] } },
-    audits: {
-      'color-contrast': { score: 0, title: 't', details: { items: [], debugData: { type: 'debugdata', impact: 'serious' } } },
-      'aria-valid-attr': { score: 0, title: 't', details: { items: [] } },
-    },
-  });
+// What makes this module its own: it reads nothing from Lighthouse. The
+// category is gone from what Lighthouse is asked for, so a report still
+// carrying one — an older run, another module's load — is no longer a source
+// of findings, and everything comes from the probes.
+test('nothing is read from the Lighthouse report any more', () => {
+  const lighthouseStillHasIt = {
+    categories: { accessibility: { auditRefs: [{ id: 'color-contrast' }] } },
+    audits: { 'color-contrast': { score: 0, title: 't', details: { items: [], debugData: { type: 'debugdata', impact: 'serious' } } } },
+  };
 
-  assert.deepEqual(findings.map((f) => f.impact), ['serious', null]);
+  assert.deepEqual(accessibility.extract(lighthouseStillHasIt), { findings: [] });
+  assert.deepEqual(accessibility.categories, [], 'the category is not asked for');
 });
 
 // --- what the probes add ------------------------------------------------------------
@@ -131,8 +132,8 @@ test('a rule is ranked by the impact axe gave it', () => {
 const REFLOW = { rule: 'reflow-scroll', impact: 'serious', nodes: [{ selector: 'div.wide', snippet: '<div class="wide">', label: '', explanation: '400px wide', path: '1,HTML,1,BODY,0,DIV' }] };
 const REFLOW_FAILED = { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], error: 'timed out after 30s' };
 
-test('the probes\' findings join axe\'s in the sample, and a load without probes has only axe\'s', () => {
-  const report = { categories: { accessibility: { auditRefs: [] } }, audits: {} };
+test('every finding of the module comes from its probes, and a load without them has none', () => {
+  const report = { categories: {}, audits: {} };
 
   const probed = accessibility.extract(report, { probed: { findings: [REFLOW], failures: [] } });
   assert.deepEqual(probed, { findings: [REFLOW] });

@@ -308,7 +308,11 @@ test('a page that never answers fails every probe, with what went wrong', async 
   });
 
   assert.equal(result.findings.length, 0);
-  assert.deepEqual(result.failures.map(({ probe, rules }) => ({ probe, rules })), [
+  assert.deepEqual(result.failures.map(({ probe, rules }) => ({ probe, rules: probe === 'axe' ? rules.length : rules })), [
+    // Every rule of the set, unchecked: the module reads nothing from
+    // Lighthouse any more, so a page that never answers leaves accessibility
+    // entirely unknown — which is what must never read as a clean page.
+    { probe: 'axe', rules: 100 },
     { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'] },
     { probe: 'keyboard', rules: ['focus-trap', 'focus-visible', 'focus-obscured'] },
     { probe: 'motion', rules: ['reduced-motion'] },

@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
+import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
@@ -193,8 +194,9 @@ function listModules({ cwd }) {
           label: mod.label,
           lighthouseCategories: mod.categories,
           // What the module checks on the page itself, beyond Lighthouse, and
-          // the rules each check can report.
-          probes: (mod.probes ?? []).map(({ id, rules }) => ({ id, rules })),
+          // the rules each check can report — which, for a check the project
+          // configures, is what this project's configuration makes of it.
+          probes: (mod.probes ?? []).map((probe) => ({ id: probe.id, rules: probeRules(probe, moduleConfig(config, mod.id)) })),
           // Each module sees only the section carrying its id, so this is the
           // whole of what judges it — see src/config/module-config.js.
           config: moduleConfig(config, mod.id),
