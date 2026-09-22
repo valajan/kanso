@@ -1,6 +1,6 @@
 name: Acceptance
 
-# Kanso end to end against the real kanso-frontend build: real Nuxt build, real
+# Kanso end to end against the real landing page build: real Nuxt build, real
 # Chrome and Lighthouse, and the CLI serving both builds itself — the same
 # command the GitHub Action runs in a client's runner. Nothing is stood in. The
 # suite and what each step asserts are described in
@@ -26,7 +26,7 @@ on:
       - 'config.yml'
       - 'package-lock.json'
       - '.github/workflows/acceptance.yml'
-  # Weekly, so a Chrome, Lighthouse or kanso-frontend change that alters what
+  # Weekly, so a Chrome, Lighthouse or landing page change that alters what
   # Kanso detects shows up even in a week with no Kanso commit.
   schedule:
     - cron: '0 6 * * 1'
@@ -50,15 +50,14 @@ jobs:
         with:
           path: kanso
 
-      # kanso-frontend is private, and the job's own GITHUB_TOKEN only reaches
-      # this repository. FRONTEND_REPO_TOKEN must be a fine-grained token scoped
-      # to valajan/kanso-frontend with read-only Contents permission.
-      - name: Check out kanso-frontend
+      # The landing page is a public repository, so this needs no token and no
+      # secret: a pull request from a fork checks it out exactly as a push to
+      # main does, and runs the same suite.
+      - name: Check out the landing page
         uses: actions/checkout@v7
         with:
-          repository: valajan/kanso-frontend
-          path: kanso-frontend
-          token: ${{ secrets.FRONTEND_REPO_TOKEN }}
+          repository: valajan/kanso-landing
+          path: kanso-landing
 
       - uses: actions/setup-node@v7
         with:
@@ -66,14 +65,14 @@ jobs:
           cache: npm
           cache-dependency-path: |
             kanso/package-lock.json
-            kanso-frontend/package-lock.json
+            kanso-landing/package-lock.json
 
       - name: Install kanso
         working-directory: kanso
         run: npm ci
 
-      - name: Install kanso-frontend
-        working-directory: kanso-frontend
+      - name: Install the landing page
+        working-directory: kanso-landing
         run: npm ci
 
       # What the probes run inside a page, on pages with known answers: ten
@@ -85,10 +84,11 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
         run: npm run test:probes
 
-      # The suite builds kanso-frontend itself, so the audit always measures the
-      # checked-out sources.
+      # The suite builds the landing page itself, so the audit always measures
+      # the checked-out sources.
       - name: Run the acceptance suite
         working-directory: kanso
         env:
           CHROME_PATH: /usr/bin/google-chrome
+          KANSO_FRONTEND_DIR: ../kanso-landing
         run: npm run test:acceptance
