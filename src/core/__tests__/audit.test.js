@@ -10,8 +10,8 @@ const ALL_BUDGETS = { performance: 90, lcp: 2500, tbt: 200, cls: 0.1, fcp: 1800 
 // records the load so tests can assert on what was fetched.
 function fakeRunner(byUrl) {
   const calls = [];
-  const run = async (url, { formFactor, runs, modules }) => {
-    calls.push({ url, formFactor, runs, modules: modules.map((m) => m.id) });
+  const run = async (url, { formFactor, runs, modules, config }) => {
+    calls.push({ url, formFactor, runs, modules: modules.map((m) => m.id), config });
     const result = byUrl[url];
     if (typeof result === 'function') return result(formFactor);
     if (result === undefined) throw new Error(`unexpected audit target ${url}`);
@@ -53,6 +53,20 @@ test('audits a page against a baseline, with no forge or PR involved', async () 
   assert.equal(result.modules.performance.referenceKind, 'baseline');
   assert.deepEqual(result.modules.performance.scores.mobile, { current: GOOD, reference: GOOD });
   assert.equal(runLighthouse.calls.length, 4);
+});
+
+// The probes run inside the worker, where nothing else of the configuration
+// reaches: what they check — the rules of a rule set, the states to walk — is
+// a matter of configuration like everything else, so the whole resolved file
+// travels with the load and each probe is handed its own module's section.
+test('the resolved configuration travels with every load, for the probes to read', async () => {
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': { performance: GOOD } });
+  const config = { runs: 1, accessibility: { tags: ['wcag2a'] } };
+
+  await audit({ url: 'http://localhost:3000/', config, runLighthouse, modules: [performance] });
+
+  assert.ok(runLighthouse.calls.length > 0);
+  for (const call of runLighthouse.calls) assert.deepEqual(call.config, config);
 });
 
 // A baseline gives Δ its meaning, never the verdict: the budgets the levels were

@@ -126,6 +126,54 @@ test('aggregate ignores a form factor whose load produced nothing', () => {
   assert.equal(findings.length, 1);
 });
 
+// --- what axe could not settle ------------------------------------------------
+
+// A rule is broken or it is not — except when axe says it cannot tell. Then
+// what it reports is a doubt, and everything downstream has to keep knowing
+// that, or a page nobody could check reads as a page that passed.
+test('a rule that needs review on both form factors still needs review', () => {
+  const doubt = (formFactor) => [{ rule: 'color-contrast', title: 't', impact: 'moderate', count: 1, nodes: [{ selector: `p.${formFactor}` }], needsReview: true }];
+  const [finding] = aggregate({ mobile: doubt('mobile'), desktop: doubt('desktop') });
+
+  assert.equal(finding.needsReview, true);
+  assert.equal(finding.impact, 'moderate');
+});
+
+// The screen that could decide settles it: a contrast axe could not compute on
+// a phone, and found wrong on a desktop, is wrong.
+test('a rule broken on one form factor and merely doubted on the other is broken', () => {
+  const [finding] = aggregate({
+    mobile: [{ rule: 'color-contrast', title: 'could not be determined', impact: 'moderate', count: 1, nodes: [], needsReview: true }],
+    desktop: [{ rule: 'color-contrast', title: 'contrast is too low', impact: 'serious', count: 2, nodes: [] }],
+  });
+
+  assert.equal(finding.needsReview, undefined);
+  assert.equal(finding.impact, 'serious', 'an impact nobody gave must not win over one somebody did');
+  assert.equal(finding.title, 'contrast is too low');
+});
+
+// A count of elements that fail and a count of elements nobody could decide on
+// are not two measures of one thing, and subtracting them would say nothing.
+test('compare judges a doubt as it stands rather than against a certainty', () => {
+  const current = [{ rule: 'color-contrast', title: 't', impact: 'moderate', count: 1, nodes: [], needsReview: true }];
+  const baseline = [{ rule: 'color-contrast', title: 't', impact: 'serious', count: 4, nodes: [] }];
+
+  const { findings } = compare(current, baseline);
+  assert.equal(findings[0].state, null);
+  assert.equal(findings[0].baselineCount, null);
+
+  // And the same the other way round.
+  const back = compare(baseline, current).findings;
+  assert.equal(back[0].state, null);
+});
+
+test('compare still weighs a doubt against the same doubt', () => {
+  const doubt = (count) => [{ rule: 'color-contrast', title: 't', impact: 'moderate', count, nodes: [], needsReview: true }];
+
+  assert.equal(compare(doubt(2), doubt(2)).findings[0].state, 'inherited');
+  assert.equal(compare(doubt(3), doubt(2)).findings[0].state, 'worse');
+});
+
 test('compare tells a new rule from one that grew from one already there', () => {
   const current = [
     { rule: 'image-alt', count: 1, nodes: [] },

@@ -216,7 +216,10 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
 
   const rows = findings.map((finding) => {
     const change = finding.state === 'worse' ? `worse (+${finding.count - finding.baselineCount})` : finding.state ?? '—';
-    return `| \`${finding.rule}\` | ${finding.impact ?? '—'} | ${countLabel(finding)} | ${change} | ${STATUS_ICON[finding.level]} |`;
+    // A rule axe could not settle is not a rule the page breaks, and the
+    // table must not read as if it were.
+    const rule = code(finding.rule) + (finding.needsReview ? ' _(needs review)_' : '');
+    return `| ${rule} | ${finding.impact ?? '—'} | ${countLabel(finding)} | ${change} | ${STATUS_ICON[finding.level]} |`;
   });
   const table = ['| Rule | Impact | Found | Change | |', '|---|---|---|---|---|', ...rows].join('\n');
 
@@ -228,7 +231,7 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
       const shown = finding.nodes.slice(0, ELEMENTS_SHOWN);
       const shared = sharedExplanation(shown);
       return [
-        `**\`${finding.rule}\`** — ${finding.title}`,
+        `**\`${finding.rule}\`** — ${finding.needsReview ? `needs review: ${finding.title}` : finding.title}`,
         finding.detail ? escapeMarkdown(finding.detail) : null,
         shared ? escapeMarkdown(shared) : null,
         ...shown.map((node) => {

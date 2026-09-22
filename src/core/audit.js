@@ -18,9 +18,11 @@ export const SCREENSHOT = Symbol('screenshot');
 // - url:           the page under audit
 // - baseline:      the page to compare against, or null
 // - config:        the resolved .kanso.yml
-// - runLighthouse: (url, { formFactor, runs, modules, screenshot }) → { [moduleId]: data },
-//                  plus, under SCREENSHOT, the page as its load ended — a JPEG
-//                  data URI — when `screenshot` asked for it
+// - runLighthouse: (url, { formFactor, runs, modules, config, screenshot }) →
+//                  { [moduleId]: data }, plus, under SCREENSHOT, the page as
+//                  its load ended — a JPEG data URI — when `screenshot` asked
+//                  for it. `config` is the same resolved file: the probes read
+//                  their own section of it, inside the worker
 // - modules:       defaults to every registered module
 // - alwaysCompare: load the baseline even for modules that could judge without
 //                  it. A baseline named in the configuration is a hint, and
@@ -58,6 +60,7 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
     formFactor: load.formFactor,
     runs,
     modules: load.modules,
+    config,
     ...(screenshots && load.side === 'current' ? { screenshot: true } : {}),
   })));
 

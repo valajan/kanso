@@ -1,4 +1,4 @@
-import { impactRank, parseFailOn, reaches } from './impact.js';
+import { impactRank, parseFailOn, reaches, worstImpact } from './impact.js';
 
 // What the modules that report findings share — accessibility, SEO and best
 // practices. Each reads one Lighthouse category, and every rule of it the page
@@ -31,6 +31,11 @@ import { impactRank, parseFailOn, reaches } from './impact.js';
 //
 // While extracting, an element also carries `path`, its position in the DOM:
 // the one thing that tells two elements apart. `aggregate` uses it, and drops it.
+//
+// A finding may also carry `needsReview: true` — the rule was not decided,
+// only flagged, and what it lists is what somebody has to go and look at. Only
+// axe produces those, from the results it calls incomplete; their impact is
+// capped so that a doubt cannot fail an audit at the default threshold.
 
 // How many failing elements are kept per rule. Not a reading budget: whoever
 // fixes a rule needs every element it failed on, and an agent handed a sample
@@ -306,7 +311,16 @@ export function aggregate(byFormFactor) {
         entry = { rule: finding.rule, title: finding.title, impact: finding.impact, count: 0, formFactors: [], nodes: [], seen: new Set() };
         byRule.set(finding.rule, entry);
       }
-      entry.impact ??= finding.impact;
+      entry.impact = worstImpact(entry.impact, finding.impact);
+      // A rule only needs review when it needed review everywhere it was
+      // looked at: broken on one screen and undecided on the other, it is
+      // broken — and it keeps that screen's title, which says so.
+      if (finding.needsReview !== true) {
+        entry.needsReview = false;
+        if (finding.title) entry.title = finding.title;
+      } else {
+        entry.needsReview ??= true;
+      }
       if (finding.detail) entry.detail ??= finding.detail;
       entry.count = Math.max(entry.count, finding.count);
       entry.formFactors.push(formFactor);
@@ -320,7 +334,7 @@ export function aggregate(byFormFactor) {
     }
   }
 
-  return [...byRule.values()].map(({ seen, ...finding }) => finding);
+  return [...byRule.values()].map(({ seen, needsReview, ...finding }) => (needsReview ? { ...finding, needsReview } : finding));
 }
 
 // What the baseline makes of each finding:
@@ -352,6 +366,13 @@ export function compare(current, baseline, { uncheckedNow = new Set(), unchecked
   const findings = current.map((finding) => {
     if (uncheckedBefore.has(finding.rule)) return { ...finding, state: null, baselineCount: null };
     const before = byRule.get(finding.rule);
+    // A rule broken here and merely undecided there — or the reverse — has no
+    // two counts worth comparing: one says how many elements fail, the other
+    // how many nobody could decide on. Judged as it stands, like a rule the
+    // baseline never checked.
+    if (before && (before.needsReview === true) !== (finding.needsReview === true)) {
+      return { ...finding, state: null, baselineCount: null };
+    }
     const state = before == null ? 'new' : finding.count > before.count ? 'worse' : 'inherited';
     return { ...finding, state, baselineCount: before?.count ?? 0 };
   });

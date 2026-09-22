@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
-import { axeProbe } from '../../src/modules/accessibility/axe.js';
+import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
@@ -45,8 +45,8 @@ after(async () => {
   await site?.close();
 });
 
-function probe(page, { modules = [accessibility], formFactor = 'mobile', timeoutMs } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings: MOBILE, modules, timeoutMs });
+function probe(page, { modules = [accessibility], formFactor = 'mobile', config, timeoutMs } = {}) {
+  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings: MOBILE, modules, config, timeoutMs });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -54,6 +54,11 @@ function probe(page, { modules = [accessibility], formFactor = 'mobile', timeout
 // keyboard failure.
 function only(...probes) {
   return [{ id: 'accessibility', probes }];
+}
+
+// The findings of a rule axe settled — as opposed to the ones it only raised.
+function broken({ findings }) {
+  return findings.filter((finding) => !finding.needsReview);
 }
 
 // What a finding says, in a form an assertion can hold.
@@ -81,7 +86,11 @@ test('a page breaking none of the hundred rules reports nothing', async () => {
 test('the rules Lighthouse switches off are reported, and an element in a frame with them', async () => {
   const { accessibility: result } = await probe('axe-beyond-lighthouse.html', { modules: only(axeProbe) });
 
-  assert.deepEqual(result.findings.map(({ rule, impact, count, detail, nodes }) => ({
+  // What axe decided. What it could not decide is reported too, and is what
+  // axe-unsettled.html is for: this page would otherwise have to promise never
+  // to leave axe in doubt about anything, which is not a promise a page can
+  // keep.
+  assert.deepEqual(broken(result).map(({ rule, impact, count, detail, nodes }) => ({
     rule, impact, count, detail, at: nodes.map((node) => node.selector),
   })), [
     // Inside the iframe: axe reached it, and the element that failed stayed
@@ -100,7 +109,41 @@ test('the rules Lighthouse switches off are reported, and an element in a frame 
 // screen: both loads run it, as Lighthouse ran axe on both.
 test('axe runs on the desktop load too', async () => {
   const { accessibility: result } = await probe('axe-beyond-lighthouse.html', { modules: only(axeProbe), formFactor: 'desktop' });
-  assert.deepEqual(result.findings.map((finding) => finding.rule), ['image-alt', 'role-img-alt', 'scrollable-region-focusable', 'summary-name']);
+  assert.deepEqual(broken(result).map((finding) => finding.rule), ['image-alt', 'role-img-alt', 'scrollable-region-focusable', 'summary-name']);
+});
+
+// The whole reason for running axe ourselves: Lighthouse keeps this answer and
+// reports it for eleven of its sixty-six audits, dropping it for the rest. A
+// contrast nobody can compute then reads as a contrast that passed.
+test('a rule axe cannot settle is reported as a doubt, and cannot fail an audit on its own', async () => {
+  const { accessibility: result } = await probe('axe-unsettled.html', { modules: only(axeProbe) });
+
+  assert.deepEqual(result.findings.map(({ rule, impact, needsReview, count }) => ({ rule, impact, needsReview, count })), [
+    // axe ranks this one `serious`; a doubt is capped, so that `fail_on:
+    // serious` cannot be tripped by something nobody could decide.
+    { rule: 'color-contrast', impact: 'moderate', needsReview: true, count: 1 },
+  ]);
+  assert.match(result.findings[0].nodes[0].explanation, /background color could not be determined due to a background image/);
+});
+
+// What a probe covers can now be a matter of configuration, and so can what
+// goes unchecked when it fails: both are read from the same tags.
+test('the rules the probe answers for follow the tags the project asked for', async () => {
+  const dead = `http://127.0.0.1:${await closedPort()}/`;
+  const run = (config) => runProbes({
+    port: chrome.port, url: dead, formFactor: 'mobile', settings: MOBILE,
+    modules: [{ id: 'accessibility', probes: [axeProbe] }], config,
+  });
+
+  const { accessibility: byDefault } = await run({});
+  assert.deepEqual(byDefault.failures[0].rules, ruleIds());
+  assert.equal(byDefault.failures[0].rules.length, 100);
+
+  // Each module reads the section carrying its id, and nothing else.
+  const { accessibility: narrowed } = await run({ accessibility: { tags: ['wcag2a'] }, seo: { tags: ['nonsense'] } });
+  assert.deepEqual(narrowed.failures[0].rules, ruleIds(['wcag2a']));
+  assert.ok(narrowed.failures[0].rules.length < 100);
+  assert.ok(!narrowed.failures[0].rules.includes('region'), 'a best-practice rule is outside the set the project asked for');
 });
 
 // --- reflow -------------------------------------------------------------------------

@@ -33,6 +33,24 @@ export function reaches(impact, threshold) {
   return impactRank(impact) >= impactRank(threshold);
 }
 
+// The impact a finding may not exceed. What axe cannot decide on its own is
+// capped this way: it is reported, but it cannot be what fails an audit at the
+// default threshold. A finding axe gave no impact is capped too — `serious` is
+// what an unranked one stands for, and that is precisely what must not stand
+// for a doubt.
+export function capImpact(impact, ceiling) {
+  return impactRank(impact) > impactRank(ceiling) ? ceiling : impact;
+}
+
+// The heavier of two impacts, either of which may be unknown. Folding one
+// rule's findings across form factors, an impact nobody gave must not win over
+// one somebody did.
+export function worstImpact(a, b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return impactRank(a) >= impactRank(b) ? a : b;
+}
+
 // A `fail_on:` value from a config file. An unknown one falls back to the
 // default rather than sinking the audit — the resolved value is reported, so a
 // typo shows up in the report instead of in a stack trace.
