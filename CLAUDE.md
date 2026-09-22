@@ -27,8 +27,8 @@ against the unchanged build as its reference, the way a change is judged against
 its base — which is also what proves the axe findings that page already carries
 are reported without failing a step that did not add them. Chrome, Lighthouse and the CLI are real, and the CLI serves both
 builds itself, the way the GitHub Action does — nothing is stood in. It runs
-in CI through `.github/workflows/acceptance.yml`, which needs the
-`FRONTEND_REPO_TOKEN` secret to check out the private frontend repo. Set
+in CI through `.github/workflows/acceptance.yml`, which checks out the public
+`valajan/kanso-landing` repository — no token, no secret. Set
 `KANSO_ACCEPTANCE_SKIP_BUILD=1` to reuse an existing `dist/` while iterating.
 
 The GitHub Action at the repo root (`action.yml`) has its own self-test,

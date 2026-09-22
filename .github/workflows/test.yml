@@ -1,10 +1,10 @@
 name: Tests
 
 # The hermetic suite: every test under src/**/__tests__, with no Chrome, no
-# build and no secret. Chrome and GitHub are replaced by doubles, so
-# the job is the cheap one — and the only one a fork can run while
-# kanso-frontend is private. No path filter on purpose: the suite covers the
-# whole of src/, and a change anywhere can break it.
+# build and no secret. Chrome and GitHub are replaced by doubles, so this is
+# the cheap job: seconds, where the acceptance suite takes minutes. No path
+# filter on purpose: the suite covers the whole of src/, and a change anywhere
+# can break it.
 
 on:
   pull_request:
