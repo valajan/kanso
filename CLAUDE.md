@@ -117,7 +117,12 @@ run where the code is.
   `keyboard.js` presses Tab from the top until focus leaves the page —
   `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
   scrolls through it under `prefers-reduced-motion: reduce` —
-  `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale. `seo/` and
+  `reduced-motion`. `rules.js` ranks Kanso's own rules on axe's scale.
+  `axe.js` is a fourth probe, written and tested but **not yet wired into
+  `probes:`**: it injects axe-core into the page itself and runs the hundred
+  WCAG A/AA and best-practice rules, where Lighthouse's own gatherer runs
+  sixty-seven and lets no config near them. It is inert on purpose, so that
+  both paths can be compared before Lighthouse's is unplugged. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

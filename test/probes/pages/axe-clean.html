@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page axe has nothing to say about</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  a { color: #0b5cad; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log { max-height: 6rem; overflow: auto; border: 1px solid #767676; padding: .5rem; }
+</style>
+</head>
+<body>
+<header>
+  <nav aria-label="Main">
+    <a href="#content">Skip to content</a>
+  </nav>
+</header>
+<main id="content">
+  <h1>A page axe has nothing to say about</h1>
+  <h2>What it carries anyway</h2>
+
+  <!-- Named, so the rule Lighthouse switches off has nothing to report. -->
+  <div role="img" aria-label="An ensō, drawn in one stroke" class="glyph"></div>
+
+  <!-- Scrollable, and reachable by a keyboard, which is what makes it fine. -->
+  <div class="log" tabindex="0" role="region" aria-label="Build log">
+    <p>One line.</p><p>Another.</p><p>A third.</p><p>A fourth.</p><p>A fifth.</p><p>A sixth.</p>
+  </div>
+
+  <details><summary>What the probe checks</summary><p>Every rule of WCAG A and AA that axe can decide on its own.</p></details>
+
+  <!-- Two links with the same text, going to the same place: the same purpose,
+       which is what the AAA rule asks. -->
+  <p><a href="/docs">Read the docs</a>, or <a href="/docs">read the docs</a> later.</p>
+
+  <table>
+    <caption>Impacts</caption>
+    <thead><tr><th scope="col">Rule</th><th scope="col">Impact</th></tr></thead>
+    <tbody><tr><td>color-contrast</td><td>serious</td></tr></tbody>
+  </table>
+
+  <form action="/subscribe" method="post">
+    <label for="email">Your email</label>
+    <input id="email" name="email" type="email" autocomplete="email">
+    <button type="submit">Subscribe</button>
+  </form>
+</main>
+<footer>
+  <p>Nothing of note.</p>
+</footer>
+</body>
+</html>
