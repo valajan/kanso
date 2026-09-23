@@ -9,6 +9,7 @@ import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
+import performance from '../../src/modules/performance/index.js';
 import { runProbes } from '../../src/probes/index.js';
 import { serveDirectory } from '../../src/serve/static.js';
 
@@ -29,6 +30,7 @@ import { serveDirectory } from '../../src/serve/static.js';
 const MOBILE = {
   formFactor: 'mobile',
   screenEmulation: { mobile: true, width: 412, height: 823, deviceScaleFactor: 1.75, disabled: false },
+  throttling: { cpuSlowdownMultiplier: 4 },
 };
 
 let chrome;
@@ -45,8 +47,8 @@ after(async () => {
   await site?.close();
 });
 
-function probe(page, { modules = [accessibility], formFactor = 'mobile', config, timeoutMs } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings: MOBILE, modules, config, timeoutMs });
+function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs } = {}) {
+  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -357,6 +359,75 @@ test('what moves anyway is named: on load, forever, from a script, on scroll, an
     ],
   }]);
   assert.equal(result.findings[0].impact, 'moderate');
+});
+
+// --- INP -----------------------------------------------------------------------------
+
+// Two clicks, declared as states: one the page answers at once, one it holds
+// the main thread 300 ms for. The INP is the slow one, and its time is in the
+// handler.
+const QUICK = { name: 'quick', click: '#quick', wait_for: "#quick[aria-expanded='true']" };
+const SLOW = { name: 'slow', click: '#slow', wait_for: '#said:not([hidden])' };
+
+test('each declared click is timed, and the slowest names what it landed on and where its time went', async () => {
+  const { performance: result } = await probe('inp-slow.html', { modules: [performance], config: { states: [QUICK, SLOW] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.measures.map(({ at }) => at), ['quick', 'slow']);
+
+  const [quick, slow] = result.measures;
+  assert.ok(quick.latency < 100, `the quick click took ${quick.latency}ms`);
+  assert.equal(slow.type, 'click');
+  assert.equal(slow.target.selector, 'body > main > button#slow');
+  assert.ok(slow.latency >= 300 && slow.latency < 450, `the slow click took ${slow.latency}ms`);
+  assert.ok(slow.processing >= 300, `its handler ran ${slow.processing}ms`);
+  assert.ok(Math.abs(slow.inputDelay + slow.processing + slow.presentation - slow.latency) <= 1);
+});
+
+// Timed on the machine running the audit, a click says nothing of a phone.
+// The same work is done on both loads; the mobile one does it on a CPU slowed
+// as Lighthouse says, the desktop one on the CPU as it is.
+test('the CPU is slowed as Lighthouse slows it, for the probe that times', async () => {
+  const states = [{ name: 'work', click: '#work', wait_for: '#done:not([hidden])' }];
+  const time = async (multiplier) => {
+    const settings = { ...MOBILE, throttling: { cpuSlowdownMultiplier: multiplier } };
+    const { performance: result } = await probe('inp-work.html', { modules: [performance], settings, config: { states } });
+    return result.measures[0].processing;
+  };
+
+  const fast = await time(1);
+  const slowed = await time(4);
+  assert.ok(slowed > fast * 2, `slowed ${slowed}ms, against ${fast}ms`);
+});
+
+// Nothing clicked, nothing timed: the probe does not load the page for
+// nothing, and INP is not measured rather than zero.
+test('with no state declared, INP is not timed at all', async () => {
+  assert.deepEqual(await probe('inp-slow.html', { modules: [performance] }), {});
+});
+
+test('a click that cannot be made leaves its state, and the ones after it, untimed', async () => {
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  const { performance: result } = await probe('inp-slow.html', {
+    modules: [performance], config: { states: [QUICK, ghost, SLOW] }, timeoutMs: 6_000,
+  });
+
+  assert.deepEqual(result.measures.map(({ at }) => at), ['quick']);
+  assert.deepEqual(result.failures.map(({ probe, at, rules }) => ({ probe, at, rules })), [
+    { probe: 'inp', at: 'ghost', rules: ['inp'] },
+    { probe: 'inp', at: 'slow', rules: ['inp'] },
+  ]);
+});
+
+// The loads after the first run the probes that measure, and those alone:
+// a median needs a number from each load; a finding does not change.
+test('on a repeated load, only the probe that measures runs', async () => {
+  const result = await probe('inp-slow.html', {
+    modules: [performance, only(axeProbe)[0]], config: { states: [SLOW] }, measuresOnly: true,
+  });
+  assert.deepEqual(Object.keys(result), ['performance']);
+  assert.equal(result.performance.measures.length, 1);
 });
 
 // --- the harness ----------------------------------------------------------------------

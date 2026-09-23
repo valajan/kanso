@@ -102,6 +102,39 @@ test('a metric that did not pass is explained, and one that passed is not', asyn
   assert.doesNotMatch(clean, /LCP element|render-blocking|layout shifts/);
 });
 
+// INP is timed on the clicks the project declares. Without any, the table
+// says it was not measured — a dash and no level, never a green 0ms.
+test('an INP nobody measured says so, and why', async () => {
+  const { code, out } = await run(['audit', 'http://localhost:3000'], {
+    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...GOOD, inp: null, diagnostics: { inp: null } } }),
+  });
+
+  assert.equal(code, 0);
+  assert.match(out, /INP\s+500ms\s+—\s+—\s+not measured/);
+  assert.equal(out.match(/INP not measured: no states declared in \.kanso\.yml/g).length, 1, 'said once, not per form factor');
+});
+
+test('an INP over budget names the click, and where its time went', async () => {
+  const interaction = {
+    type: 'click', at: 'menu', latency: 640, inputDelay: 12, processing: 600, presentation: 28,
+    target: { selector: 'header > button#open', snippet: '<button id="open">', label: 'Menu' },
+  };
+  const { code, out } = await run(['audit', 'http://localhost:3000'], {
+    runLighthouse: fakeRunner({ 'http://localhost:3000/': {
+      ...GOOD, inp: 640,
+      diagnostics: { inp: { interaction, count: 2, failures: [{ at: 'signup', error: 'nothing visible to click at #signup' }] } },
+    } }),
+  });
+
+  assert.equal(code, 1);
+  assert.match(out, /INP\s+500ms\s+640ms\s+\+140ms\s+fail/);
+  assert.match(out, /INP interaction\s+click {2}header > button#open {2}"Menu" {2}@ menu/);
+  assert.match(out, /INP, parts\s+640ms = 12ms input delay \+ 600ms processing \+ 28ms presentation/);
+  assert.match(out, /! signup could not be reached \(nothing visible to click at #signup\): its click is not in the INP/);
+  assert.doesNotMatch(out, /no states declared/);
+  assert.match(out, /fail · INP/);
+});
+
 test('a warning passes by default, and fails on --fail-on warn', async () => {
   const runLighthouse = fakeRunner({ 'http://localhost:3000/': MEH });
 

@@ -91,16 +91,21 @@ function round3(value) {
 // "the median run": the load whose LCP is the median need not be the one
 // whose CLS is. Each diagnostic comes from the load that produced the number
 // it explains — the LCP breakdown and the render-blocking requests from the
-// median-LCP load, the layout shifts from the median-CLS load. An even count
+// median-LCP load, the layout shifts from the median-CLS load, the slowest
+// interaction from the median-INP load. An even count
 // has no middle load: its median sits halfway between two, and the first of
 // them to have run is taken.
 export function pickDiagnostics(samples, medians) {
   const lcpLoad = nearest(samples, 'lcp', medians.lcp);
   const clsLoad = nearest(samples, 'cls', medians.cls);
+  // With no INP to be nearest to, what the first load says of why there is
+  // none: nothing declared, or a state it could not reach.
+  const inpLoad = nearest(samples, 'inp', medians.inp) ?? samples[0];
   return {
     lcp: lcpLoad?.diagnostics?.lcp ?? null,
     renderBlocking: lcpLoad?.diagnostics?.renderBlocking ?? [],
     cls: clsLoad?.diagnostics?.cls ?? null,
+    inp: inpLoad?.diagnostics?.inp ?? null,
   };
 }
 

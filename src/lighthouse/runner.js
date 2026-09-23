@@ -47,8 +47,10 @@ const semaphore = new Semaphore(MAX_CONCURRENT);
 //
 // The modules' probes run on the first load that succeeds, and no other: what
 // they check does not vary from one load to the next, and each costs a page
-// load of its own. The screenshot, when asked for, comes from that load too,
-// under SCREENSHOT in the result.
+// load of its own. A probe that measures — INP — is the exception: its number
+// is as noisy as TBT's, so it is taken on every load and folded with the rest.
+// The screenshot, when asked for, comes from the first load too, under
+// SCREENSHOT in the result.
 export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES, config = {}, screenshot = false } = {}) {
   const count = clampRuns(runs);
   const samples = [];
@@ -58,7 +60,7 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
   for (let i = 0; i < count; i++) {
     const first = samples.length === 0;
     try {
-      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probe: first, screenshot: first && screenshot });
+      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probes: first ? 'all' : 'measures', screenshot: first && screenshot });
       samples.push(load.samples);
       shot ??= load.screenshot;
     } catch (err) {
@@ -74,12 +76,12 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
 
 // One audit, in its own worker thread. The config travels as the plain data a
 // YAML file parsed to, which crosses the thread boundary without ceremony.
-async function runOnce(url, formFactor, moduleIds, { config, probe, screenshot }) {
+async function runOnce(url, formFactor, moduleIds, { config, probes, screenshot }) {
   await semaphore.acquire();
   try {
     return await new Promise((resolve, reject) => {
       const worker = new Worker(WORKER_URL, {
-        workerData: { url, formFactor, moduleIds, config, probe, screenshot },
+        workerData: { url, formFactor, moduleIds, config, probes, screenshot },
       });
 
       worker.once('message', (msg) => {

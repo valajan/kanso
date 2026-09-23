@@ -14,7 +14,7 @@ import seo from './seo/index.js';
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, states?, run(page, context) }]
+//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, states?, onlyInStates?, measures?, run(page, context) }]
 //               What the module checks on the page itself, for what Lighthouse
 //               does not look at: how it reflows at 320 CSS pixels, what a
 //               keyboard can reach. Each runs in the audit worker after
@@ -31,15 +31,21 @@ import seo from './seo/index.js';
 //               vary from one load to the next. `states: true` has it read the
 //               page again in each state the project declares — a menu
 //               opened, a dialog shown (src/config/states.js) — in the page it
-//               loaded, and each finding made there says which, as `at`. See
-//               src/probes/index.js.
+//               loaded, and each finding made there says which, as `at`;
+//               `onlyInStates: true` has it skipped when none is declared.
+//               `measures: true` makes it a probe that times rather than
+//               checks — INP: it runs on a CPU slowed as Lighthouse slows it,
+//               on every load rather than the first, and what it resolves to
+//               reaches `extract` as `probed.measures`, each reading kept as
+//               it is. See src/probes/index.js.
 //
 //   extract(lhr, { artifacts, probed }) → sample
 //     Runs inside the audit worker, once per page load. `lhr` is the Lighthouse
 //     report; `artifacts` is what Lighthouse gathered from the page to run its
 //     audits, for the facts it holds and does not report — the page's meta
 //     tags, say. `probed` is what the module's probes made of the page,
-//     { findings, failures }, or null when none ran on this load. The sample
+//     { findings, failures } — and `measures`, from a probe that times — or
+//     null when none ran on this load. The sample
 //     crosses a thread boundary, so keep only what the module needs.
 //
 //   combine(samples) → data

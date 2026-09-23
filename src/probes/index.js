@@ -12,9 +12,13 @@ import { applyState } from './states.js';
 // Each probe gets a page of its own, in a browser context of its own: a first
 // visit, as Lighthouse's is, with nothing another probe clicked, scrolled or
 // dismissed. Lighthouse's own tab is closed by then, and its throttling with
-// it; a probe measures no time, and a slowed CPU would only make it slower.
+// it; a probe that times nothing would only be made slower by a slowed CPU.
 // It sees the page as Lighthouse loaded it — same screen, same user agent —
 // unless it asks for another screen.
+//
+// A probe that measures time — `measures: true`, INP — gets the slowed
+// CPU back: Lighthouse's multiplier, applied to its page alone, so that what
+// it times is a phone's time and not the machine's running the audit.
 //
 // A probe that throws or runs out of time costs its own rules, not the load:
 // what Lighthouse found stands, and the failure is reported, never read as
@@ -31,8 +35,9 @@ const SETTLE_MS = 5_000;
 
 // Runs every probe the modules declare for this form factor, one after the
 // other, and resolves to { [moduleId]: { findings, failures } } — only for the
-// modules that have probes to run. Each failure is { probe, rules, error }:
-// `rules` are what the probe would have checked, and so what nobody did.
+// modules that have probes to run — with `measures` beside them for a module
+// whose probe measures. Each failure is { probe, rules, error }: `rules` are
+// what the probe would have checked, and so what nobody did.
 //
 // - port:       the debugging port of the Chrome to use
 // - settings:   the report's configSettings — how Lighthouse emulated the page
@@ -54,17 +59,30 @@ const SETTLE_MS = 5_000;
 // after it, are failures of their own — `at` says which — since what the page
 // looks like there is unknown, and nothing found there would be nothing
 // checked.
-export async function runProbes({ port, url, formFactor, settings, modules, config = {}, timeoutMs = PROBE_TIMEOUT_MS }) {
+//
+// A probe that says `onlyInStates: true` has nothing to read in a page nobody
+// clicked, and is not run at all when no state is declared.
+//
+// With `measuresOnly`, only the probes that measure run: the others check
+// what does not vary from one load to the next and ran on the first
+// (src/lighthouse/runner.js), while a measure is taken on every load, to be
+// folded into a median like Lighthouse's.
+export async function runProbes({ port, url, formFactor, settings, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS }) {
+  const declared = parseStates(config.states);
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
+    .filter((probe) => !measuresOnly || probe.measures)
+    .filter((probe) => !probe.onlyInStates || declared.length > 0)
     .map((probe) => ({ mod, probe, config: moduleConfig(config, mod.id) })));
   if (wanted.length === 0) return {};
 
-  const declared = parseStates(config.states);
   const statesOf = (probe) => (probe.states ? declared : []);
 
   const results = {};
-  for (const { mod } of wanted) results[mod.id] ??= { findings: [], failures: [] };
+  for (const { mod, probe } of wanted) {
+    results[mod.id] ??= { findings: [], failures: [] };
+    if (probe.measures) results[mod.id].measures ??= [];
+  }
   const fail = (mod, probe, config, error, at = null) => results[mod.id].failures.push({
     probe: probe.id,
     rules: probeRules(probe, config),
@@ -91,7 +109,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
     for (const { mod, probe, config } of wanted) {
       try {
         const { findings, unreached } = await runProbe(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs });
-        results[mod.id].findings.push(...findings);
+        results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
         if (unreached) {
           const [first, ...rest] = unreached.states;
           fail(mod, probe, config, message(unreached.error), first.name);
@@ -108,8 +126,11 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
 }
 
 // One probe, in a page of its own: loaded, read, then taken through `states`,
-// read again in each. Each step — the load and its reading, then each state
-// and its reading — is allowed `timeoutMs` of its own. Resolves to the
+// read again in each. A measuring probe's readings are what it measured — an
+// interaction's latency — and are kept as they are: two clicks on the same
+// button are two measures, where they would be one finding. Each step — the
+// load and its reading, then each state and its reading — is allowed
+// `timeoutMs` of its own. Resolves to the
 // findings, and to `unreached` — { states, error } — when a state could not be
 // reached: that state and the ones after it. Rejects when the page could not
 // be read as it loaded.
@@ -126,6 +147,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
       await page.setViewport({ ...screen(settings), ...probe.viewport });
       if (typeof settings?.emulatedUserAgent === 'string') await page.setUserAgent(settings.emulatedUserAgent);
       if (probe.media) await page.emulateMediaFeatures(probe.media);
+      if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: cpuSlowdown(settings) });
       if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
       await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
@@ -133,7 +155,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
       return { page, found: await probe.run(page, { url, formFactor, config }) };
     });
     const findings = [...found];
-    const seen = new Seen(found);
+    const seen = probe.measures ? null : new Seen(found);
 
     for (const [i, state] of states.entries()) {
       try {
@@ -141,7 +163,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
           await applyState(page, state, { waitMs: timeoutMs / 3 });
           return probe.run(page, { url, formFactor, config, at: state.name });
         });
-        findings.push(...seen.added(found).map((finding) => ({ ...finding, at: state.name })));
+        findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
         return { findings, unreached: { states: states.slice(i), error } };
       }
@@ -233,6 +255,14 @@ function screen(settings) {
     isMobile: mobile,
     hasTouch: mobile,
   };
+}
+
+// How much slower than the machine at hand Lighthouse took the page's device
+// to be: 4 on mobile, 1 on desktop by default. Lighthouse applies it to a
+// simulation; a probe gets it as DevTools applies it, to the real CPU.
+function cpuSlowdown(settings) {
+  const rate = settings?.throttling?.cpuSlowdownMultiplier;
+  return Number.isFinite(rate) && rate >= 1 ? rate : 1;
 }
 
 function message(err) {

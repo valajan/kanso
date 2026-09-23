@@ -2,6 +2,7 @@ import { moduleConfig } from '../config/module-config.js';
 import { FORM_FACTORS } from '../core/audit.js';
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
+import { inpProbed } from '../modules/performance/inp.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, failThreshold } from '../modules/performance/status.js';
 
@@ -95,8 +96,10 @@ function renderScores(moduleResult, config, c) {
     const statuses = evaluateStatuses(roundScore(current), budget);
     const why = diagnosticRows(moduleResult.diagnostics?.[formFactor]?.current, statuses);
     if (why.length > 0) lines.push('', ...table(why, ['left', 'left'], c));
+    lines.push(...unreachedInp(moduleResult.diagnostics?.[formFactor]?.current?.inp, c));
   }
 
+  if (!inpProbed(moduleResult)) lines.push('', '  ' + c('dim', 'INP not measured: no states declared in .kanso.yml, so nothing was clicked to time'));
   return lines;
 }
 
@@ -113,7 +116,7 @@ const LCP_SUBPARTS = {
 // explaining, and gets none.
 function diagnosticRows(diagnostics, statuses) {
   if (!diagnostics) return [];
-  const { lcp, renderBlocking = [], cls } = diagnostics;
+  const { lcp, renderBlocking = [], cls, inp } = diagnostics;
   const rows = [];
   const row = (label, text) => rows.push([{ text: label, color: 'dim' }, { text }]);
 
@@ -133,8 +136,22 @@ function diagnosticRows(diagnostics, statuses) {
       ...shift.causes.map(({ cause, element, url }) => [cause, element ? describe(element) : url].filter(Boolean).join(': ')),
     ].join('  ')));
   }
+  if (statuses.inp != null && statuses.inp !== 'pass' && inp?.interaction) {
+    const { type, target, at, latency, inputDelay, processing, presentation } = inp.interaction;
+    row('INP interaction', [type, target ? describe(target) : null, at ? `@ ${at}` : null].filter(Boolean).join('  '));
+    row('INP, parts', `${latency}ms = ${inputDelay}ms input delay + ${processing}ms processing + ${presentation}ms presentation`);
+  }
 
   return rows;
+}
+
+// Why there is no INP, or only part of one — a state that could not be
+// reached, whose click and the ones after it nobody timed — said whether or
+// not anything failed: an INP left out must never read as a fast one.
+function unreachedInp(inp, c) {
+  return (inp?.failures ?? []).map(({ at, error }) => '  ' + c('yellow', at
+    ? `! ${at} could not be reached (${error}): its click is not in the INP`
+    : `! INP not measured (${error})`));
 }
 
 // An element by where it is, and by what tells it apart from the others
@@ -168,7 +185,7 @@ function metricRows(current, baseline, budget) {
       ...(baseline ? [{ text: format(metric, against) }] : []),
       { text: format(metric, value), color: LEVEL_COLOR[level] },
       { text: delta == null ? '—' : (delta >= 0 ? '+' : '') + format(metric, delta) },
-      { text: level, color: LEVEL_COLOR[level] },
+      level ? { text: level, color: LEVEL_COLOR[level] } : { text: 'not measured', color: 'dim' },
     ];
   })];
 }

@@ -1,25 +1,30 @@
 import { combineLevels } from '../../core/levels.js';
 import { extractDiagnostics, pickDiagnostics } from './diagnostics.js';
+import { inpDiagnostics, inpProbe, slowestInteraction } from './inp.js';
 import { allBudgetsDefined, METRICS, roundScore } from './metrics.js';
 import { medianScores } from './median.js';
 import { effectiveBudgets, evaluateStatuses } from './status.js';
 
-// Performance: the five Lighthouse metrics (score, LCP, TBT, CLS, FCP), judged
-// against per-repo budgets and compared to a baseline.
+// Performance: the five Lighthouse metrics (score, LCP, TBT, CLS, FCP), and
+// INP, which Kanso times itself on the clicks a project declares (inp.js) —
+// judged against per-repo budgets and compared to a baseline.
 export default {
   id: 'performance',
   label: 'Performance',
   categories: ['performance'],
   checkLabels: Object.fromEntries(METRICS.map((m) => [m.key, m.label])),
+  probes: [inpProbe],
 
-  extract(lhr) {
+  // `inp` is null when nothing was timed: no state declared, or none reached.
+  extract(lhr, { probed } = {}) {
     return {
       performance: Math.round((lhr.categories.performance.score ?? 0) * 100),
       lcp: lhr.audits['largest-contentful-paint'].numericValue ?? 0,
       tbt: lhr.audits['total-blocking-time'].numericValue ?? 0,
       cls: lhr.audits['cumulative-layout-shift'].numericValue ?? 0,
       fcp: lhr.audits['first-contentful-paint'].numericValue ?? 0,
-      diagnostics: extractDiagnostics(lhr),
+      inp: slowestInteraction(probed?.measures)?.latency ?? null,
+      diagnostics: { ...extractDiagnostics(lhr), inp: inpDiagnostics(probed) },
     };
   },
 
