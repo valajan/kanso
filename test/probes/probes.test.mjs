@@ -137,12 +137,12 @@ test('the rules the probe answers for follow the tags the project asked for', as
 
   const { accessibility: byDefault } = await run({});
   assert.deepEqual(byDefault.failures[0].rules, ruleIds());
-  assert.equal(byDefault.failures[0].rules.length, 100);
+  assert.equal(byDefault.failures[0].rules.length, 101);
 
   // Each module reads the section carrying its id, and nothing else.
   const { accessibility: narrowed } = await run({ accessibility: { tags: ['wcag2a'] }, seo: { tags: ['nonsense'] } });
   assert.deepEqual(narrowed.failures[0].rules, ruleIds(['wcag2a']));
-  assert.ok(narrowed.failures[0].rules.length < 100);
+  assert.ok(narrowed.failures[0].rules.length < 101);
   assert.ok(!narrowed.failures[0].rules.includes('region'), 'a best-practice rule is outside the set the project asked for');
 });
 
@@ -198,8 +198,8 @@ test('a state that cannot be reached stops the way through, and says which part 
 
   assert.deepEqual(where(result), [['image-alt', null, 1], ['button-name', 'menu', 1]]);
   assert.deepEqual(result.failures.map(({ probe, at, error, rules }) => ({ probe, at, error, rules: rules.length })), [
-    { probe: 'axe', at: 'ghost', error: 'nothing visible to click at #nothing-here', rules: 100 },
-    { probe: 'axe', at: 'signup', error: 'not reached: ghost could not be', rules: 100 },
+    { probe: 'axe', at: 'ghost', error: 'nothing visible to click at #nothing-here', rules: 101 },
+    { probe: 'axe', at: 'signup', error: 'not reached: ghost could not be', rules: 101 },
   ]);
 });
 
@@ -390,7 +390,7 @@ test('a page that never answers fails every probe, with what went wrong', async 
     // Every rule of the set, unchecked: the module reads nothing from
     // Lighthouse any more, so a page that never answers leaves accessibility
     // entirely unknown — which is what must never read as a clean page.
-    { probe: 'axe', rules: 100 },
+    { probe: 'axe', rules: 101 },
     { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'] },
     { probe: 'keyboard', rules: ['focus-trap', 'focus-visible', 'focus-obscured'] },
     { probe: 'motion', rules: ['reduced-motion'] },

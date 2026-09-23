@@ -96,7 +96,7 @@ test('a rule both broken and unsettled is reported broken, once', () => {
 test('the default rule set is the WCAG A/AA and best-practice one', () => {
   const rules = ruleIds(tagsOf({}));
 
-  assert.equal(rules.length, 100);
+  assert.equal(rules.length, 101);
   assert.deepEqual(rules, [...rules].sort());
   // Three Lighthouse leaves out: an AA rule, a best-practice one, and the one
   // AAA rule axe can decide on its own.
@@ -108,7 +108,7 @@ test('the default rule set is the WCAG A/AA and best-practice one', () => {
 test('a project narrows or widens the set with tags, and a typo narrows nothing', () => {
   // The WCAG 2.0 set alone: no `region`, which answers to no criterion.
   const strict = ruleIds(tagsOf({ tags: ['wcag2a', 'wcag2aa'] }));
-  assert.ok(strict.length < 100);
+  assert.ok(strict.length < 101);
   assert.ok(!strict.includes('region'));
   // One tag, written as one.
   assert.deepEqual(ruleIds(tagsOf({ tags: 'best-practice' })), ruleIds(['best-practice']));

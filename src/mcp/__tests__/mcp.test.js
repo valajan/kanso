@@ -269,7 +269,7 @@ test('the project configuration is what list_modules reports', async () => {
   // Accessibility asks Lighthouse for nothing: it runs axe itself.
   assert.deepEqual(payload.modules[1].lighthouseCategories, []);
   assert.deepEqual(payload.modules[1].probes.map(({ id, rules }) => [id, rules.length]), [
-    ['axe', 100], ['reflow', 2], ['keyboard', 3], ['motion', 1],
+    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1],
   ]);
   assert.deepEqual(payload.modules[1].probes.slice(1).map(({ rules }) => rules), [
     ['reflow-scroll', 'reflow-clip'],
@@ -284,7 +284,7 @@ test('the project configuration is what list_modules reports', async () => {
   const [narrowed] = await session([call(1, 'list_modules', {})], { cwd });
   const axe = narrowed.result.structuredContent.modules[1].probes[0];
   assert.equal(axe.id, 'axe');
-  assert.ok(axe.rules.length < 100 && axe.rules.length > 0);
+  assert.ok(axe.rules.length < 101 && axe.rules.length > 0);
   assert.ok(!axe.rules.includes('region'));
 
   // The states the project declares, and which checks go through them: axe
