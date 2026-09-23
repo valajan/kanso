@@ -11,7 +11,7 @@ node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (std
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:probes      # The probes against a real Chrome, on pages with known answers (~10 s)
-npm run test:acceptance  # End-to-end suite against ../kanso-frontend (needs Chrome, ~5 min)
+npm run test:acceptance  # End-to-end suite against ../kanso-landing (needs Chrome, ~5 min)
 ```
 
 `npm run test:probes` covers what `npm test` cannot: the code a probe runs
@@ -20,7 +20,7 @@ pages in `test/probes/pages/` each break one thing on purpose, or carry every
 pattern that looks like a failure and is not.
 
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
-kanso-frontend landing page, injects known regressions (TBT, CLS, LCP, and a
+kanso-landing page, injects known regressions (TBT, CLS, LCP, and a
 block too wide for a phone) into the build, and asserts Kanso fails each one on
 the right metric or rule while the unchanged page passes. Every step is audited
 against the unchanged build as its reference, the way a change is judged against
