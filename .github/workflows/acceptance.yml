@@ -4,7 +4,7 @@ name: Acceptance
 # Chrome and Lighthouse, and the CLI serving both builds itself — the same
 # command the GitHub Action runs in a client's runner. Nothing is stood in. The
 # suite and what each step asserts are described in
-# test/acceptance/kanso-frontend.test.mjs.
+# test/acceptance/kanso-landing.test.mjs.
 
 on:
   pull_request:
@@ -41,7 +41,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  kanso-frontend:
+  kanso-landing:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -90,5 +90,5 @@ jobs:
         working-directory: kanso
         env:
           CHROME_PATH: /usr/bin/google-chrome
-          KANSO_FRONTEND_DIR: ../kanso-landing
+          KANSO_LANDING_DIR: ../kanso-landing
         run: npm run test:acceptance

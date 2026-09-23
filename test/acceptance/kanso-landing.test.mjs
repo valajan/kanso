@@ -9,7 +9,7 @@ import yaml from 'js-yaml';
 
 import { FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs';
 
-// Acceptance suite: Kanso, end to end, against the real kanso-frontend build.
+// Acceptance suite: Kanso, end to end, against the real kanso-landing build.
 //
 // What is real: the Nuxt build of the landing page, headless Chrome and
 // Lighthouse, the .kanso.yml budgets, and the command a developer or a runner
@@ -25,12 +25,12 @@ import { FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs';
 //   npm run test:acceptance
 //
 // Environment:
-//   KANSO_FRONTEND_DIR           path to kanso-frontend  (default ../kanso-frontend)
+//   KANSO_LANDING_DIR            path to kanso-landing  (default ../kanso-landing)
 //   KANSO_ACCEPTANCE_SKIP_BUILD  1 to reuse an existing dist/ instead of building
 //   KANSO_ACCEPTANCE_RUNS        Lighthouse runs per audit, median kept (default 3)
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const KANSO = join(REPO_ROOT, 'bin/kanso.js');
-const FRONTEND_DIR = resolve(REPO_ROOT, process.env.KANSO_FRONTEND_DIR ?? '../kanso-frontend');
+const LANDING_DIR = resolve(REPO_ROOT, process.env.KANSO_LANDING_DIR ?? '../kanso-landing');
 const RUNS = Number(process.env.KANSO_ACCEPTANCE_RUNS ?? 3);
 
 // One step per change. `fails` lists the metrics that must come out as `fail`,
@@ -56,16 +56,16 @@ let workDir;
 let configPath;
 
 before(async () => {
-  await access(join(FRONTEND_DIR, 'package.json')).catch(() => {
-    throw new Error(`kanso-frontend not found at ${FRONTEND_DIR} — clone it there or set KANSO_FRONTEND_DIR`);
+  await access(join(LANDING_DIR, 'package.json')).catch(() => {
+    throw new Error(`kanso-landing not found at ${LANDING_DIR} — clone it there or set KANSO_LANDING_DIR`);
   });
 
   if (process.env.KANSO_ACCEPTANCE_SKIP_BUILD !== '1') {
-    const build = await run('npm', ['run', 'build'], { cwd: FRONTEND_DIR });
-    if (build.code !== 0) throw new Error(`kanso-frontend build failed:\n${build.output.slice(-4000)}`);
+    const build = await run('npm', ['run', 'build'], { cwd: LANDING_DIR });
+    if (build.code !== 0) throw new Error(`kanso-landing build failed:\n${build.output.slice(-4000)}`);
   }
 
-  const distDir = join(FRONTEND_DIR, 'dist');
+  const distDir = join(LANDING_DIR, 'dist');
   const index = await readFile(join(distDir, 'index.html'), 'utf8').catch(() => null);
   // The suite audits static files. If the landing stops being prerendered, the
   // build has no index.html and there is nothing to serve.
@@ -77,7 +77,7 @@ before(async () => {
   // is always the unchanged build beside it, never a deployment: the suite
   // reaches out to nothing. The one state declared is the click on the button
   // every fixture carries, which is what INP is timed on.
-  const repoConfig = yaml.load(await readFile(join(FRONTEND_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
+  const repoConfig = yaml.load(await readFile(join(LANDING_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
   const testConfig = { ...repoConfig, runs: RUNS, states: [PRESS_STATE] };
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
@@ -162,7 +162,7 @@ for (const [index, step] of STEPS.entries()) {
         assert.ok(
           failing.includes(metric),
           `${metric} regression not detected (failing: ${failing.join(', ') || 'none'}) — ` +
-            `if the audit saw it but passed it, the ${metric} budget in kanso-frontend's .kanso.yml is too loose to catch it`
+            `if the audit saw it but passed it, the ${metric} budget in kanso-landing's .kanso.yml is too loose to catch it`
         );
       }
       assert.equal(res.code, 1, 'the CLI must exit 1 so the pipeline fails');

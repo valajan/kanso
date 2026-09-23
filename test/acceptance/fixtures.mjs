@@ -5,7 +5,7 @@ import { deflateSync } from 'node:zlib';
 
 // Known-answer fixtures for the acceptance suite.
 //
-// Each fixture is the real kanso-frontend build with one deliberate regression
+// Each fixture is the real kanso-landing build with one deliberate regression
 // injected into the prerendered index.html. Injecting after the build, rather
 // than editing the Vue sources, keeps the suite independent of how the landing
 // page is written and saves one Nuxt build per variant.
