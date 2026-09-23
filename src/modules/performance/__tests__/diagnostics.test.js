@@ -88,14 +88,21 @@ test('a page Lighthouse had nothing to say about has no diagnostics', () => {
 // Medians are taken one metric at a time, so the LCP's explanation comes from
 // the load with the median LCP, and the CLS's from the load with the median CLS.
 test('each diagnostic comes from the load that produced its median', () => {
-  const load = (name, lcp, cls) => ({ lcp, cls, diagnostics: { lcp: name, renderBlocking: [name], cls: name } });
-  const samples = [load('a', 1000, 0.3), load('b', 3000, 0.1), load('c', 2000, 0.0)];
+  const load = (name, lcp, cls, inp = null) => ({ lcp, cls, inp, diagnostics: { lcp: name, renderBlocking: [name], cls: name, inp: name } });
+  const samples = [load('a', 1000, 0.3, 120), load('b', 3000, 0.1, 400), load('c', 2000, 0.0, 250)];
 
-  assert.deepEqual(pickDiagnostics(samples, { lcp: 2000, cls: 0.1 }), { lcp: 'c', renderBlocking: ['c'], cls: 'b' });
+  assert.deepEqual(pickDiagnostics(samples, { lcp: 2000, cls: 0.1, inp: 250 }), { lcp: 'c', renderBlocking: ['c'], cls: 'b', inp: 'c' });
   // An even count: the median sits halfway between two loads, and the first
   // of them to have run is taken.
   const four = [load('a', 1000, 0), load('b', 4000, 0), load('c', 3000, 0), load('d', 2000, 0)];
   assert.equal(pickDiagnostics(four, { lcp: 2500, cls: 0 }).lcp, 'c');
+});
+
+// No INP to be nearest to — nothing clicked, or nothing reached — still says
+// why: the first load's account of it.
+test('with no INP measured, the first load says why', () => {
+  const load = (name) => ({ lcp: 1000, cls: 0, inp: null, diagnostics: { inp: name } });
+  assert.equal(pickDiagnostics([load('a'), load('b')], { lcp: 1000, cls: 0 }).inp, 'a');
 });
 
 test('combine reports the median measures and the diagnostics behind them', () => {

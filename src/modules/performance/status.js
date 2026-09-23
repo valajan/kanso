@@ -25,10 +25,13 @@ export function effectiveBudgets(budget = {}) {
 }
 
 // Evaluates every metric of a rounded score object against a per-metric budget
-// map, returning { [metricKey]: 'pass' | 'warn' | 'fail' }.
+// map, returning { [metricKey]: 'pass' | 'warn' | 'fail' }. A metric with no
+// value — INP where nothing was clicked — gets no status at all: a number
+// nobody measured passes nothing and fails nothing.
 export function evaluateStatuses(roundedScore, budget = {}) {
   const statuses = {};
   for (const metric of METRICS) {
+    if (roundedScore[metric.key] == null) continue;
     statuses[metric.key] = buildStatus(roundedScore[metric.key], failThreshold(metric, budget), metric);
   }
   return statuses;

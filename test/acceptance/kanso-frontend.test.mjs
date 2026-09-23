@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
-import { FIXTURES, materialize } from './fixtures.mjs';
+import { FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs';
 
 // Acceptance suite: Kanso, end to end, against the real kanso-frontend build.
 //
@@ -41,6 +41,7 @@ const STEPS = [
   { fixture: 'tbt', label: 'a main-thread busy loop fails on TBT', fails: ['tbt'] },
   { fixture: 'cls', label: 'a late-inserted block fails on CLS', fails: ['cls'] },
   { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'] },
+  { fixture: 'inp', label: 'a click held 800 ms fails on INP', fails: ['inp'] },
   { fixture: 'reflow', label: 'a block wider than a phone fails on reflow', fails: [], findings: ['accessibility: reflow-scroll'] },
   { fixture: 'baseline', label: 'reverting the regressions passes again', fails: [] },
 ];
@@ -74,9 +75,10 @@ before(async () => {
 
   // The repo's own budgets, at the run count the suite asks for. The reference
   // is always the unchanged build beside it, never a deployment: the suite
-  // reaches out to nothing.
+  // reaches out to nothing. The one state declared is the click on the button
+  // every fixture carries, which is what INP is timed on.
   const repoConfig = yaml.load(await readFile(join(FRONTEND_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
-  const testConfig = { ...repoConfig, runs: RUNS };
+  const testConfig = { ...repoConfig, runs: RUNS, states: [PRESS_STATE] };
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
 
@@ -144,6 +146,13 @@ for (const [index, step] of STEPS.entries()) {
       [],
       'every probe ran, on both pages'
     );
+    // INP is timed on every step, on both form factors and both pages — the
+    // click reached, none of it left out.
+    for (const [formFactor, sides] of Object.entries(result.modules.performance.scores)) {
+      assert.equal(typeof sides.current?.inp, 'number', `no INP on the ${formFactor} page`);
+      assert.equal(typeof sides.reference?.inp, 'number', `no INP on the ${formFactor} baseline`);
+      assert.deepEqual(result.modules.performance.diagnostics[formFactor].current.inp.failures, [], `the ${formFactor} click was not reached`);
+    }
 
     if (step.fails.length === 0 && (step.findings ?? []).length === 0) {
       assert.deepEqual(failing, [], `false positive — unchanged page failed on ${failing.join(', ')}`);
@@ -201,7 +210,8 @@ function describeScores(result) {
     }
     lines.push(
       `  ${formFactor.padEnd(7)} perf ${Math.round(s.performance)} · LCP ${Math.round(s.lcp)}ms · ` +
-        `TBT ${Math.round(s.tbt)}ms · CLS ${s.cls.toFixed(3)} · FCP ${Math.round(s.fcp)}ms`
+        `TBT ${Math.round(s.tbt)}ms · CLS ${s.cls.toFixed(3)} · FCP ${Math.round(s.fcp)}ms · ` +
+        `INP ${s.inp == null ? '—' : `${Math.round(s.inp)}ms`}`
     );
   }
   const levels = Object.entries(result.modules?.performance?.levels ?? {}).map(([m, l]) => `${m}:${l}`).join(' ');

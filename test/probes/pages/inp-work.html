@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page whose click does a fixed amount of work</title>
+</head>
+<body>
+<main>
+  <h1>A page whose click does a fixed amount of work</h1>
+  <!-- Counted in operations, not in milliseconds: how long it takes depends
+       on the CPU it runs on, which is what the test compares. -->
+  <button id="work" type="button">Work</button>
+  <p id="done" hidden>Done.</p>
+</main>
+<script>
+  document.getElementById('work').addEventListener('click', () => {
+    let sum = 0;
+    for (let i = 0; i < 3e7; i++) sum += i % 7;
+    document.getElementById('done').hidden = false;
+    document.getElementById('done').dataset.sum = sum;
+  });
+</script>
+</body>
+</html>

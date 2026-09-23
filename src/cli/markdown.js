@@ -1,6 +1,7 @@
 import { moduleConfig } from '../config/module-config.js';
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { MODULES } from '../modules/index.js';
+import { inpProbed } from '../modules/performance/inp.js';
 import { getMetric, METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, failThreshold, metricsWithStatus } from '../modules/performance/status.js';
 import { siteName } from '../serve/index.js';
@@ -33,6 +34,7 @@ export function renderMarkdown({ url, baseline, served = null, result, config = 
     referenceKind: perf?.referenceKind,
     referenceLabel: perf?.referenceKind === 'budgets' ? 'budget' : 'baseline',
     modules: result.modules,
+    diagnostics: perf?.diagnostics ?? {},
   });
 }
 
@@ -49,12 +51,17 @@ export function renderMarkdown({ url, baseline, served = null, result, config = 
 // already carried was inherited from.
 // `modules` is the audit's per-module results, from which the findings sections
 // are built; a module that reports none contributes nothing.
+// `diagnostics` is the performance module's, of which the report says only
+// why INP is missing, when it is.
 //
 // Exported for the tests, which are the only other caller.
-export function formatReport(scores, { header, budget = {}, referenceKind = 'baseline', referenceLabel = 'baseline', modules = {} } = {}) {
+export function formatReport(scores, { header, budget = {}, referenceKind = 'baseline', referenceLabel = 'baseline', modules = {}, diagnostics = {} } = {}) {
   const sections = [
-    renderSection('mobile', scores.mobile, budget, { referenceLabel, referenceKind }),
-    renderSection('desktop', scores.desktop, budget, { referenceLabel, referenceKind }),
+    renderSection('mobile', scores.mobile, budget, { referenceLabel, referenceKind, inp: diagnostics.mobile?.current?.inp }),
+    renderSection('desktop', scores.desktop, budget, { referenceLabel, referenceKind, inp: diagnostics.desktop?.current?.inp }),
+    ...(Object.keys(scores).length > 0 && !inpProbed({ diagnostics })
+      ? ['_INP not measured: no `states:` declared in `.kanso.yml`, so nothing was clicked to time._\n']
+      : []),
     // Findings are compared against the reference page, whatever the metrics
     // ended up being judged against — the two can differ, since budgets alone
     // can settle performance while accessibility still needs the comparison.
@@ -78,7 +85,7 @@ ${sections}`;
 // one: without it, a page scoring what its baseline scores can show ❌ with
 // nothing on the line saying why. Against budgets alone, the reference column
 // is the budget, and Δ the distance to it.
-function renderSection(formFactor, sides, budget, { referenceLabel, referenceKind }) {
+function renderSection(formFactor, sides, budget, { referenceLabel, referenceKind, inp = null }) {
   const { icon, label } = FORM_FACTOR_LABELS[formFactor];
   const currentScore = sides?.current ?? null;
 
@@ -103,7 +110,8 @@ function renderSection(formFactor, sides, budget, { referenceLabel, referenceKin
       formatValue(metric, referenceVal),
       formatValue(metric, currentVal),
       delta != null ? formatDelta(metric, delta) : '—',
-      STATUS_ICON[statuses[metric.key]],
+      // No icon for a metric nobody measured: INP with nothing clicked.
+      STATUS_ICON[statuses[metric.key]] ?? '',
     ];
     return `| ${cells.join(' | ')} |`;
   });
@@ -112,7 +120,14 @@ function renderSection(formFactor, sides, budget, { referenceLabel, referenceKin
   const headings = ['Metric', ...(againstBaseline ? ['budget'] : []), referenceLabel, 'current', 'Δ'];
   const table = [`| ${headings.join(' | ')} | |`, `|${'---|'.repeat(headings.length + 1)}`, ...rows].join('\n');
 
-  return `### ${icon} ${label}\n\n${table}\n`;
+  // A state not reached leaves its click out of the INP: said, so that an INP
+  // missing it is not read as the page's.
+  // Kept apart from the table by a blank line, or GFM reads it as a row.
+  const unreached = (inp?.failures ?? []).map(({ at, error }) => (at
+    ? `_⚠️ ${code(at)} could not be reached (${error}): its click is not in the INP_`
+    : `_⚠️ INP not measured (${error})_`)).join('\n');
+
+  return `### ${icon} ${label}\n\n${table}\n${unreached ? `\n${unreached}\n` : ''}`;
 }
 
 function formatValue(metric, value) {

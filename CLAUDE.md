@@ -84,15 +84,18 @@ run where the code is.
   resolved `.kanso.yml` — the config travels with the load into the worker —
   so what it checks, and the rules it answers for, can be a matter of
   configuration. A probe that fails costs its own rules, reported as unchecked,
-  never as clean. A probe marked `states: true` (axe alone, today) also goes
+  never as clean. A probe marked `states: true` (axe and INP, today) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
   reads them, `states.js` here reaches one: a click, then `wait_for`), in the
   page it loaded — cumulative, no load of their own — and each finding made
-  there carries `at`, listing only what no earlier reading found. A state that
+  there carries `at`, listing only what no earlier reading found (the INP
+  probe, `measures: true`, keeps every reading as it is: two clicks are two
+  measures). A state that
   cannot be reached fails, with every state after it, under that same `at`. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
-  first successful load of a page only
+  first successful load of a page only — except a probe that measures, which
+  runs on every load
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -112,11 +115,17 @@ run where the code is.
   (measures) and `findings` (constats).
   **Adding a concern = adding a folder + one line in `index.js`.**
   `performance/` is the first: `metrics.js` is the single source of truth for
-  the five metrics (labels, units, thresholds), `status.js` derives
-  `pass`/`warn`/`fail`, `median.js` folds repeated runs, `diagnostics.js` keeps
+  the six metrics (labels, units, thresholds), `status.js` derives
+  `pass`/`warn`/`fail` — none for a metric nobody measured —, `median.js` folds
+  repeated runs, `inp.js` is the one probe that times rather than checks: INP,
+  which Lighthouse cannot measure on a load, clocked on the clicks the
+  declared states make, on a CPU slowed by Lighthouse's multiplier, on every
+  load so that `runs:` gives it a median; with no state declared it does not
+  run and INP is `null`, reported as not measured. `diagnostics.js` keeps
   what Lighthouse says about why — the LCP element and breakdown, render-blocking requests,
   layout shifts — from the load behind each median. They explain and are never
-  judged.
+  judged. The slowest interaction — its element, state and three parts —
+  joins them from `inp.js`.
   `accessibility/` is the second, and the one that proves the interface holds
   for something other than a measure: a rule is broken or it is not, so nothing
   is averaged and one load settles it. **It is also the one module that reads

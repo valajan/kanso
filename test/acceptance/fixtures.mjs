@@ -53,6 +53,15 @@ export const FIXTURES = {
     )),
   },
 
+  // The button every fixture carries (PRESS, below), made to hold the main
+  // thread 800 ms when clicked: the heavy handler. INP is timed on the click
+  // the suite declares as a state; nothing Lighthouse measures moves, since
+  // nobody clicks during a load.
+  inp: {
+    description: 'a click whose handler holds the main thread 800 ms',
+    apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html, '<script>window.kansoAcceptanceHold=800</script>')),
+  },
+
   // A multi-megabyte image as the first, largest element: the unoptimized hero.
   // Its pixels are random so no compression can shrink it, and explicit
   // dimensions keep it from also causing a layout shift.
@@ -79,11 +88,28 @@ export const FIXTURES = {
 // not rest on a page staying imperfect.
 const INHERITED = '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" width="1" height="1">';
 
-// Copies the build into `dir`, gives it the violation every fixture shares,
-// and applies the fixture's own regression.
+// A button every fixture carries, for INP to time: the suite declares its
+// click as a state (PRESS_STATE), and says it was reached by aria-pressed.
+// It answers at once, unless a fixture sets how long it holds the main thread
+// first — which the `inp` fixture does. Carried by the baseline too, so that
+// every step, and not only the one that regresses it, proves INP is measured.
+//
+// In a named region, like the reflow fixture's block: a button bolted onto the
+// end of a body belongs to no part of the page, and `region` would say so.
+const PRESS = '<section aria-label="Acceptance control"><button type="button" id="kanso-acceptance-press" aria-pressed="false">Press</button></section>'
+  + '<script>(function(){var b=document.getElementById("kanso-acceptance-press");b.addEventListener("click",function(){var t=Date.now(),h=window.kansoAcceptanceHold||0;while(Date.now()-t<h){}b.setAttribute("aria-pressed","true")})})()</script>';
+
+export const PRESS_STATE = {
+  name: 'press',
+  click: '#kanso-acceptance-press',
+  wait_for: "#kanso-acceptance-press[aria-pressed='true']",
+};
+
+// Copies the build into `dir`, gives it the violation and the button every
+// fixture shares, and applies the fixture's own regression.
 export async function materialize(fixtureId, distDir, dir) {
   await cp(distDir, dir, { recursive: true });
-  await editIndex(dir, (html) => beforeBodyEnd(html, INHERITED));
+  await editIndex(dir, (html) => beforeBodyEnd(html, INHERITED + PRESS));
   await FIXTURES[fixtureId].apply(dir);
 }
 

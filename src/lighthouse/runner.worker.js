@@ -25,10 +25,11 @@ const DESKTOP_CONFIG = {
 };
 
 // One page load serves every requested module: Lighthouse collects the union
-// of their categories, then each module extracts its own sample. With `probe`,
-// the modules' probes run afterwards on the same Chrome; with `screenshot`, the
-// page as its load ended comes back beside the samples.
-async function audit({ url, formFactor, moduleIds, config, probe, screenshot }) {
+// of their categories, then each module extracts its own sample. The modules'
+// probes run afterwards on the same Chrome — `probes: 'all'`, or 'measures'
+// for the ones that measure alone; with `screenshot`, the page as its load
+// ended comes back beside the samples.
+async function audit({ url, formFactor, moduleIds, config, probes = 'all', screenshot }) {
   const modules = moduleIds.map(getModule);
 
   // The Launcher is built by hand rather than through chromeLauncher.launch(),
@@ -61,9 +62,10 @@ async function audit({ url, formFactor, moduleIds, config, probe, screenshot }) 
       throw new Error(`${runtimeError.code}: ${runtimeError.message}`);
     }
 
-    const probed = probe
-      ? await runProbes({ port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules, config })
-      : {};
+    const probed = await runProbes({
+      port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules, config,
+      measuresOnly: probes === 'measures',
+    });
 
     // The artifacts stay in this thread: a module keeps what it needs of them
     // in its sample, which is all that crosses back.

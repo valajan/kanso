@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page slow to answer one click</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>A page slow to answer one click</h1>
+  <!-- Answers at once: its click is timed, and is not the slowest. -->
+  <button id="quick" type="button" aria-expanded="false">Quick</button>
+  <!-- Holds the main thread for 300 ms before it shows anything: the INP. -->
+  <button id="slow" type="button" aria-expanded="false">Slow</button>
+  <p id="said" hidden>Heard.</p>
+</main>
+<script>
+  const said = document.getElementById('said');
+  document.getElementById('quick').addEventListener('click', (event) => {
+    event.currentTarget.setAttribute('aria-expanded', 'true');
+  });
+  document.getElementById('slow').addEventListener('click', (event) => {
+    const until = performance.now() + 300;
+    while (performance.now() < until) { /* the work a heavy handler does */ }
+    event.currentTarget.setAttribute('aria-expanded', 'true');
+    said.hidden = false;
+  });
+</script>
+</body>
+</html>

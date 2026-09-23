@@ -245,3 +245,28 @@ test('a state that could not be reached is said, with how many rules went unchec
 
   assert.ok(body.includes('_⚠️ `menu` could not be reached on the desktop page (nothing visible to click at #open): 100 rules unchecked there_'));
 });
+
+// INP is only measured on declared clicks: without any, its row has no value
+// and no icon, and a line under the tables says why — once.
+test('an INP nobody measured has no icon, and the report says why', () => {
+  const body = report(noReference);
+  assert.ok(body.includes('| INP | 500ms | — | — | — |  |'));
+  assert.equal(body.match(/INP not measured: no `states:` declared/g).length, 1);
+});
+
+test('a state the INP could not reach is said under its table, apart from it', () => {
+  const diagnostics = {
+    mobile: { current: { inp: { interaction: null, count: 1, failures: [{ at: 'signup', error: 'nothing visible to click at #signup' }] } } },
+    desktop: { current: { inp: { interaction: null, count: 1, failures: [] } } },
+  };
+  const scores = {
+    mobile: { current: { ...mobileScore, inp: 120 }, reference: null },
+    desktop: { current: { ...desktopScore, inp: 80 }, reference: null },
+  };
+  const body = report(scores, { diagnostics, referenceKind: 'budgets', referenceLabel: 'budget' });
+
+  assert.ok(body.includes('| INP | 500ms | 120ms | -380ms | ✅ |'));
+  // A blank line between: GFM would read a line right under a table as a row.
+  assert.match(body, /\| INP \| 500ms \| 120ms \| -380ms \| ✅ \|\n\n_⚠️ `signup` could not be reached \(nothing visible to click at #signup\): its click is not in the INP_\n/);
+  assert.doesNotMatch(body, /INP not measured/);
+});

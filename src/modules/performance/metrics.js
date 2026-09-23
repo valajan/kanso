@@ -1,4 +1,7 @@
-// Single source of truth for the five Lighthouse metrics Kanso tracks.
+// Single source of truth for the six metrics Kanso tracks: five read from
+// Lighthouse's report, and INP, which Lighthouse does not measure on a page
+// load — nobody clicks during one — and which Kanso's own probe measures on the
+// interactions a project declares (inp.js).
 //
 // Each descriptor carries everything the rest of the codebase needs to know
 // about a metric, so thresholds, labels and formatting rules live in exactly
@@ -15,6 +18,7 @@ export const METRICS = [
   { key: 'tbt', label: 'TBT', unit: 'ms', lowerIsBetter: true, good: 200, poor: 600, decimals: 0, round: (v) => Math.round(v) },
   { key: 'cls', label: 'CLS', unit: '', lowerIsBetter: true, good: 0.1, poor: 0.25, decimals: 2, round: (v) => parseFloat(v.toFixed(2)) },
   { key: 'fcp', label: 'FCP', unit: 'ms', lowerIsBetter: true, good: 1800, poor: 3000, decimals: 0, round: (v) => Math.round(v) },
+  { key: 'inp', label: 'INP', unit: 'ms', lowerIsBetter: true, good: 200, poor: 500, decimals: 0, round: (v) => Math.round(v) },
 ];
 
 const METRIC_KEYS = METRICS.map((m) => m.key);

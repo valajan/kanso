@@ -109,7 +109,7 @@ no minification and no cache: the numbers it produces describe nothing your
 visitors will ever see. And Kanso builds nothing: after a change, build again,
 or the audit measures the build before it.
 
-Kanso returns two kinds of result. Performance gives you **measures** — five
+Kanso returns two kinds of result. Performance gives you **measures** — six
 numbers, read against your budgets:
 
 | | What it is | Good below |
@@ -119,6 +119,14 @@ numbers, read against your budgets:
 | **TBT** | how long the page ignores clicks | 200 ms |
 | **CLS** | how much the layout jumps around | 0.1 |
 | **FCP** | when the first pixel of content appears | 1,800 ms |
+| **INP** | how long the page takes to show it heard a click | 200 ms |
+
+INP is the Core Web Vital Lighthouse cannot measure: it times clicks, and
+nobody clicks during a page load — Lighthouse puts TBT in its place. Kanso
+clicks, on the `states:` you declare (section 3), on a CPU slowed as Lighthouse
+slows it, and reports the slowest as the page's INP. Declare no state and INP
+is **not measured**: the table says so, and judges nothing — never a green
+0 ms.
 
 When one of them does not pass, Kanso prints what Lighthouse found behind it:
 
@@ -127,11 +135,14 @@ When one of them does not pass, Kanso prints what Lighthouse found behind it:
   LCP, observed    32ms = 2ms to first byte + 4ms load delay + 7ms load duration + 19ms render delay
   render-blocking  http://localhost:4173/assets/index.css  152ms
   layout shifts    main  0.365  Unsized image element: body > img  <img src="/hero.png" …>
+  INP interaction  click  header > button#open  "Menu"  @ menu
+  INP, parts       640ms = 12ms input delay + 600ms processing + 28ms presentation
 ```
 
 Those timings come from the page load as it happened, while the table's numbers
 are Lighthouse's simulation of a slower device: read them as where the time
-goes, not as the metric itself.
+goes, not as the metric itself. INP's parts are the exception: they are the
+click as it was timed, and add up to the number in the table.
 
 Accessibility gives you **findings**: a rule broken, on named elements. No
 average, no median — a rule is violated or it is not. Kanso runs axe-core on
@@ -195,6 +206,8 @@ states:
 
 Each state is reached from the one before it, as a visitor would, and reports
 what it shows broken that the ones before it did not: `button-name @ menu`.
+Each click is also timed, and the slowest is the page's INP — so a state is
+worth declaring for the interaction it measures as much as for what it shows.
 Against a baseline, a state is compared with the same state there. A state that
 cannot be reached — the button renamed, the menu that never opens — is reported
 as unchecked, with every state after it, and never reads as a clean one.
@@ -307,6 +320,7 @@ budgets:
   tbt: 200           # ms
   cls: 0.1
   fcp: 1800          # ms
+  inp: 200           # ms — timed on the states declared below
 
 # Accessibility, SEO, best practices: the impact from which a finding fails
 # the audit. minor | moderate | serious | critical

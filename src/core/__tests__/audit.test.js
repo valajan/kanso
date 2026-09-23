@@ -4,7 +4,7 @@ import { audit, SCREENSHOT } from '../audit.js';
 import performance from '../../modules/performance/index.js';
 
 const GOOD = { performance: 96, lcp: 1500, tbt: 80, cls: 0.01, fcp: 800 };
-const ALL_BUDGETS = { performance: 90, lcp: 2500, tbt: 200, cls: 0.1, fcp: 1800 };
+const ALL_BUDGETS = { performance: 90, lcp: 2500, tbt: 200, cls: 0.1, fcp: 1800, inp: 200 };
 
 // Answers each load with what the requested modules would have extracted, and
 // records the load so tests can assert on what was fetched.
@@ -89,7 +89,7 @@ test('the budgets a verdict was read against come back with it, baseline or not'
   const perf = result.modules.performance;
   assert.equal(perf.referenceKind, 'baseline');
   assert.equal(perf.levels.performance, 'fail', 'equal to the baseline, and still under the budget');
-  assert.deepEqual(perf.budgets, { performance: 101, lcp: 4000, tbt: 600, cls: 0.25, fcp: 3000 });
+  assert.deepEqual(perf.budgets, { performance: 101, lcp: 4000, tbt: 600, cls: 0.25, fcp: 3000, inp: 500 });
 });
 
 test('a module that can judge from its config alone skips the baseline load', async () => {

@@ -276,7 +276,9 @@ test('the project configuration is what list_modules reports', async () => {
     ['focus-trap', 'focus-visible', 'focus-obscured'],
     ['reduced-motion'],
   ]);
-  assert.deepEqual(payload.modules[0].probes, [], 'performance checks nothing Lighthouse does not');
+  // Performance times INP itself, on the clicks the states make, and on
+  // nothing else.
+  assert.deepEqual(payload.modules[0].probes.map(({ id, rules, states }) => [id, rules, states]), [['inp', ['inp'], true]]);
 
   // A check the project configures reports what this project's configuration
   // makes of it, not what Kanso would check by default.
