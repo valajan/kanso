@@ -96,14 +96,17 @@ run where the code is.
   never as clean. A probe marked `states: true` (axe and INP, today) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
   reads them, `states.js` here reaches one: a click, then `wait_for`), in the
-  page it loaded — cumulative, no load of their own — and each finding made
+  page it loaded — a tree (`from:`), walked depth first: down a branch in the
+  same page, each branch after the first in the page loaded again and brought
+  to where it starts — and each finding made
   there carries `at`, listing only what no earlier reading found (the INP
   probe, `measures: true`, keeps every reading as it is: two clicks are two
-  measures). A state that
-  cannot be reached fails, with every state after it, under that same `at`.
+  measures; the clicks made again on the way back are not). A state that
+  cannot be reached fails, with every state reached through it, under that
+  same `at`.
   A probe marked `transitions: true` checks the way into and out of each state
-  rather than the state: for each, a page of its own brought to the state
-  before (`reach`, `states.js`), and `transition(page, state, tools)` with what
+  rather than the state: for each, a page of its own brought to the state it
+  starts from (`reach`, `states.js`), and `transition(page, state, tools)` with what
   `transition.js` hands it — open by click or by key, whether it is open (its
   `wait_for`, else its trigger's `aria-expanded`, else `null`), close by
   Escape or by its `close:`, where focus is — each move journaled. A state it
@@ -292,9 +295,10 @@ an agent's audit is judged by them too. Config controls budgets, each module's
 own thresholds and `runs`.
 
 `states:`, at the root like `runs:`, lists the states of the page beyond the
-one it loads in — `name`, `click`, optional `wait_for`, optional `close` (what
-closes it when Escape is not meant to) — which a check can go
-through; a malformed one fails the config as it loads (`local-config.js`).
+one it loads in — `name`, `click`, optional `from` (the state declared before
+it that it starts from; without, the page as it loads), optional `wait_for`,
+optional `close` (what closes it when Escape is not meant to) — which a check
+can go through; a malformed one fails the config as it loads (`local-config.js`).
 
 `serve:` says how to serve the project when a local surface is given no page:
 `dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves

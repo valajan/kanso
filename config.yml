@@ -98,24 +98,29 @@ runs: 1
 # shown, a form revealed — what only a click shows, and what a load alone never
 # checks. Each is a name, the CSS selector of what to click to reach it, and
 # optionally the selector of what says it has been reached; without one, Kanso
-# waits for the page to go quiet. They are cumulative: each is reached from the
-# one before, in the same page, as a visitor would.
+# waits for the page to go quiet. Each is reached from the page as it loads,
+# unless it says it starts `from` a state declared before it: the states form a
+# tree, and a dialog one leaves open does not stand in the way of the next.
 #
 #   states:
 #     - name: menu
 #       click: "[aria-label='Menu']"
 #       wait_for: "#menu[aria-expanded='true']"
 #     - name: signup
+#       from: menu
 #       click: "#signup"
+#     - name: settings
+#       click: "#settings"
 #
 # Performance times each click, on a CPU slowed as Lighthouse slows it, and
 # reports the slowest as the page's INP — Interaction to Next Paint, the Core
 # Web Vital Lighthouse cannot measure on a load nobody clicks during.
 #
-# axe reads the page again in each, at no extra page load, and reports what
-# each state shows broken that the ones before it did not, as
-# `button-name @ menu`. A state that cannot be reached — its button renamed —
-# is reported, with every state after it, as unchecked there, never as clean;
+# axe reads the page again in each — in the same page down a branch, in the
+# page loaded again for the next — and reports what each state shows broken
+# that no reading before it did, as `button-name @ menu`. A state that cannot
+# be reached — its button renamed — is reported, with every state reached
+# through it, as unchecked there, never as clean;
 # on the reference, it leaves what the change shows there judged as it stands.
 #
 # At the root, like `runs:`: a state is a way through the page, not a setting

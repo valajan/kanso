@@ -1,7 +1,7 @@
 import puppeteer from 'puppeteer-core';
 
 import { moduleConfig } from '../config/module-config.js';
-import { parseStates } from '../config/states.js';
+import { parseStates, pathTo, walkOrder } from '../config/states.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
 import { applyState, reach } from './states.js';
 import { transitionTools } from './transition.js';
@@ -53,14 +53,17 @@ const SETTLE_MS = 5_000;
 // declares at the root of the file (src/config/states.js), in the page it
 // loaded: it runs once as the page loads, then once more in each state, and a
 // finding made in a state says which — `at: 'menu'` — and lists what that
-// state showed broken that no reading before it had. The load is paid once,
-// whatever the number of states. A probe that does not say so runs as the
-// page loads, and its cost does not move.
+// state showed broken that no reading before it had. The states are a tree,
+// walked depth first (`walkOrder`): a state that starts from the one just read
+// is reached in the same page, and one that starts down another branch in the
+// page loaded again, brought to where it starts. A chain costs one load
+// whatever its length; each branch after the first, one more. A probe that
+// does not say so runs as the page loads, and its cost does not move.
 //
-// A state that cannot be reached stops the way through: it, and every state
-// after it, are failures of their own — `at` says which — since what the page
-// looks like there is unknown, and nothing found there would be nothing
-// checked.
+// A state that cannot be reached is a failure of its own — `at` says which —
+// and so is every state reached through it, since what the page looks like
+// there is unknown, and nothing found there would be nothing checked. The
+// other branches go on.
 //
 // A probe that says `onlyInStates: true` has nothing to read in a page nobody
 // clicked, and is not run at all when no state is declared.
@@ -68,11 +71,11 @@ const SETTLE_MS = 5_000;
 // A probe that says `transitions: true` checks the way into and out of each
 // state rather than the state itself: what focus does when it opens, what is
 // left when it closes. For each state, it gets a page of its own, brought to
-// the state before — the states being cumulative — and its `transition(page,
-// state, context)` goes in and out with the tools src/probes/transition.js
-// hands it. A state it could not check costs that state; one the way to it
-// could not reach costs it and every state after, as above. It needs a state,
-// and does not run without one.
+// the state it starts from, and its `transition(page, state, context)` goes in
+// and out with the tools src/probes/transition.js hands it. A state it could
+// not check costs that state; one it could not reach on the way costs every
+// state reached through it, as above. It needs a state, and does not run
+// without one.
 //
 // With a `journal` (src/probes/journal.js), each probe's way through the page
 // is logged — its load, each state, how it ended, each finding — and the probe
@@ -130,16 +133,11 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
       log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
         const run = probe.transitions ? runTransitions : runProbe;
-        const { findings, unreached, unchecked = [] } = await run(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
+        const { findings, unchecked } = await run(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
         results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
         if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
-        log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unreached ? { unreached: unreached.states.map(({ name }) => name) } : {}) });
+        log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
         for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
-        if (unreached) {
-          const [first, ...rest] = unreached.states;
-          fail(mod, probe, config, message(unreached.error), first.name);
-          for (const { name } of rest) fail(mod, probe, config, `not reached: ${first.name} could not be`, name);
-        }
       } catch (err) {
         log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
         failEverywhere(mod, probe, config, err);
@@ -152,71 +150,117 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
 }
 
 // One probe, in a page of its own: loaded, read, then taken through `states`,
-// read again in each. A measuring probe's readings are what it measured — an
-// interaction's latency — and are kept as they are: two clicks on the same
-// button are two measures, where they would be one finding. Each step — the
-// load and its reading, then each state and its reading — is allowed
-// `timeoutMs` of its own. Resolves to the
-// findings, and to `unreached` — { states, error } — when a state could not be
-// reached: that state and the ones after it. Rejects when the page could not
-// be read as it loaded.
+// read again in each — depth first, the page loaded again, in a context of its
+// own, for each branch after the first. A measuring probe's readings are what
+// it measured — an interaction's latency — and are kept as they are: two
+// clicks on the same button are two measures, where they would be one finding.
+// Each step — the load and its reading, a reload and the way back to where a
+// branch starts, then each state and its reading — is allowed `timeoutMs` of
+// its own. Resolves to the findings, and to `unchecked` — [{ at, error }] —
+// for each state that could not be reached, and each reached through one.
+// Rejects when the page could not be read as it loaded.
 async function runProbe(browser, probe, { url, formFactor, settings, config, states = [], timeoutMs, log = NO_JOURNAL }) {
-  const context = await browser.createBrowserContext();
+  const contexts = [];
+  const open = async (at) => {
+    // The page a branch leaves behind is not gone back to.
+    await Promise.all(contexts.splice(0).map((context) => context.close().catch(() => {})));
+    const context = await browser.createBrowserContext();
+    contexts.push(context);
+    return loadPage(context, probe, { url, settings, timeoutMs, log: at });
+  };
   const step = (work) => withTimeout(work, timeoutMs);
   try {
-    const { page, found } = await step(async () => {
-      const page = await loadPage(context, probe, { url, settings, timeoutMs, log });
+    let { page, found } = await step(async () => {
+      const page = await open(log);
       return { page, found: await probe.run(page, { url, formFactor, config, log }) };
     });
     const findings = [...found];
+    const unchecked = [];
     const seen = probe.measures ? null : new Seen(found);
+    // Where the page stands: the state it is in, null as it loaded, undefined
+    // once a state failed on it and nobody knows.
+    let here = null;
+    const missed = new Set();
 
-    for (const [i, state] of states.entries()) {
+    for (const state of walkOrder(states)) {
+      const at = log.with({ at: state.name });
+      const path = pathTo(states, state);
+      const beyond = path.find(({ name }) => missed.has(name));
+      if (beyond) {
+        missed.add(state.name);
+        unchecked.push({ at: state.name, error: new Error(`not reached: ${beyond.name} could not be`) });
+        continue;
+      }
       try {
-        const at = log.with({ at: state.name });
+        if (here !== (state.from ?? null)) {
+          page = await step(async () => {
+            const fresh = await open(at);
+            await reach(fresh, path, { waitMs: timeoutMs / 3, log: at });
+            // What the way back measured was measured the first time down it,
+            // and is not this state's: read, and left out.
+            if (probe.measures) await probe.run(fresh, { url, formFactor, config, log: at });
+            return fresh;
+          });
+          here = state.from ?? null;
+        }
         const found = await step(async () => {
           const started = Date.now();
           await applyState(page, state, { waitMs: timeoutMs / 3 });
           await at.shot(page, 'state-reached', { click: state.click, ...(state.waitFor ? { waitFor: state.waitFor } : {}), ms: Date.now() - started });
           return probe.run(page, { url, formFactor, config, at: state.name, log: at });
         });
+        here = state.name;
         findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
-        log.log('state-unreached', { at: state.name, click: state.click, error: message(error) });
-        return { findings, unreached: { states: states.slice(i), error } };
+        here = undefined;
+        missed.add(state.name);
+        // A state on the way, reached the first time down it: the ones
+        // reached through it lie beyond it now.
+        if (error.state) missed.add(error.state.name);
+        log.log('state-unreached', { at: (error.state ?? state).name, click: (error.state ?? state).click, error: message(error) });
+        unchecked.push({ at: state.name, error });
       }
     }
-    return { findings };
+    return { findings, unchecked };
   } finally {
-    // Closing the context closes its page, and whatever the probe left
-    // pending in it.
-    await context.close().catch(() => {});
+    // Closing a context closes its page, and whatever the probe left pending
+    // in it.
+    await Promise.all(contexts.map((context) => context.close().catch(() => {})));
   }
 }
 
 // A transition probe, state by state: for each, a page of its own in a
-// context of its own, loaded, brought to the state before, and handed to
-// `probe.transition` with the tools to go in and out of this one. Resolves to
-// the findings, each carrying its state, and to `unchecked` — [{ at, error }]
-// — for each state whose check failed, or that lies beyond one the way could
-// not get past.
+// context of its own, loaded, brought to the state it starts from, and handed
+// to `probe.transition` with the tools to go in and out of this one. Resolves
+// to the findings, each carrying its state, and to `unchecked` — [{ at, error
+// }] — for each state whose check failed, or that is reached through one the
+// way could not get past.
 async function runTransitions(browser, probe, { url, formFactor, settings, config, states, timeoutMs, log = NO_JOURNAL }) {
   const findings = [];
   const unchecked = [];
-  for (const [i, state] of states.entries()) {
+  // The states the way could not get past, by name, with why.
+  const missed = new Map();
+  for (const state of states) {
     const at = log.with({ at: state.name });
+    const path = pathTo(states, state);
+    const beyond = path.find(({ name }) => missed.has(name));
+    if (beyond) {
+      unchecked.push({ at: state.name, error: new Error(`not reached: ${beyond.name} could not be (${missed.get(beyond.name)})`) });
+      continue;
+    }
     const context = await browser.createBrowserContext();
     try {
       const page = await withTimeout(() => loadPage(context, probe, { url, settings, timeoutMs, log: at }), timeoutMs);
       try {
-        await withTimeout(() => reach(page, states.slice(0, i), { waitMs: timeoutMs / 3, log: at }), timeoutMs);
+        await withTimeout(() => reach(page, path, { waitMs: timeoutMs / 3, log: at }), timeoutMs);
       } catch (error) {
-        // A state before this one, which its own turn may well have opened:
-        // this one, and every one after, lie beyond it.
-        const missed = error.state ?? states[i - 1];
-        at.log('state-unreached', { at: missed.name, click: missed.click, error: message(error) });
-        for (const { name } of states.slice(i)) unchecked.push({ at: name, error: new Error(`not reached: ${missed.name} could not be (${message(error)})`) });
-        return { findings, unchecked };
+        // A state this one starts from, which its own turn may well have
+        // opened: this one, and every one reached through it, lie beyond it.
+        const stuck = error.state ?? path.at(-1);
+        at.log('state-unreached', { at: stuck.name, click: stuck.click, error: message(error) });
+        missed.set(stuck.name, message(error));
+        unchecked.push({ at: state.name, error: new Error(`not reached: ${stuck.name} could not be (${message(error)})`) });
+        continue;
       }
       try {
         const tools = transitionTools(page, state, { waitMs: timeoutMs / 3, log: at });
@@ -255,8 +299,8 @@ async function loadPage(context, probe, { url, settings, timeoutMs, log }) {
 }
 
 // What the readings of one page have found so far, element by element, rule
-// by rule. The states are cumulative, and the page's own faults are still
-// there with the menu open: read as they are, a logo without alt would be
+// by rule. The page's own faults are still there with the menu open, and in
+// every branch loaded again: read as they are, a logo without alt would be
 // reported as the page loads, then again in each state. A state reports what
 // it adds — the elements no reading before it found broken — and a rule it
 // adds nothing to is not reported there at all. Both pages under comparison

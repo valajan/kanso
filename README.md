@@ -201,16 +201,21 @@ states:
     click: "[aria-label='Menu']"             # what to click to get there
     wait_for: "#menu[aria-expanded='true']"  # what says you are there (optional)
   - name: signup
-    click: "#signup"                         # reached from the menu, still open
+    from: menu                               # reached from the menu, still open
+    click: "#signup"
+  - name: settings
+    click: "#settings"                       # reached from the page as it loads
 ```
 
-Each state is reached from the one before it, as a visitor would, and reports
-what it shows broken that the ones before it did not: `button-name @ menu`.
+Each state is reached from the page as it loads, or from the state it names in
+`from:`, as a visitor would, and reports what it shows broken that no reading
+before it did: `button-name @ menu`.
 Each click is also timed, and the slowest is the page's INP — so a state is
 worth declaring for the interaction it measures as much as for what it shows.
 Against a baseline, a state is compared with the same state there. A state that
 cannot be reached — the button renamed, the menu that never opens — is reported
-as unchecked, with every state after it, and never reads as a clean one.
+as unchecked, with every state reached through it, and never reads as a clean
+one.
 
 Each names the element to fix: the box too wide for the screen, the code block
 that neither wraps nor scrolls, the card that hides the end of its lines, the

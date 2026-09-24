@@ -5,7 +5,7 @@ import { applyState } from './states.js';
 // that says `transitions: true` (src/probes/index.js). A state is not only
 // what the page shows once it is open: it is a click, what happens to focus
 // when it opens, what is left when it closes. The runner brings a fresh page
-// to the state before this one; these open it, tell whether it is open, close
+// to the state this one starts from; these open it, tell whether it is open, close
 // it, and say where focus is — the moves every such check makes, whatever it
 // checks. Each is logged, so a journal shows the transition as it went — the
 // opening and the closing with a frame of the page as they left it.

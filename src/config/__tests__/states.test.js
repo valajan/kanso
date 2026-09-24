@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadLocalConfig } from '../local-config.js';
-import { InvalidStates, parseStates } from '../states.js';
+import { InvalidStates, parseStates, pathTo, walkOrder } from '../states.js';
 
 test('a project that declares no state has none', () => {
   assert.deepEqual(parseStates(undefined), []);
@@ -15,11 +15,37 @@ test('a project that declares no state has none', () => {
 test('the declared states are kept in order, with what reaches each and what says it was reached', () => {
   assert.deepEqual(parseStates([
     { name: 'menu', click: "[aria-label='Menu']", wait_for: "#menu[aria-expanded='true']" },
-    { name: 'signup', click: '#signup', close: '#cancel' },
+    { name: 'signup', from: 'menu', click: '#signup', close: '#cancel' },
   ]), [
     { name: 'menu', click: "[aria-label='Menu']", waitFor: "#menu[aria-expanded='true']" },
-    { name: 'signup', click: '#signup', close: '#cancel' },
+    { name: 'signup', click: '#signup', from: 'menu', close: '#cancel' },
   ]);
+});
+
+// A state starts from the page as it loads unless it names the one it starts
+// from: the states are a tree, and each is reached down its own branch.
+const TREE = parseStates([
+  { name: 'menu', click: '#menu' },
+  { name: 'settings', click: '#settings' },
+  { name: 'signup', from: 'menu', click: '#signup' },
+  { name: 'terms', from: 'signup', click: '#terms' },
+  { name: 'search', from: 'menu', click: '#search' },
+]);
+
+test('a state is reached through the ones it starts from, the first clicked first', () => {
+  const path = (name) => pathTo(TREE, TREE.find((s) => s.name === name)).map((s) => s.name);
+  assert.deepEqual(path('menu'), []);
+  assert.deepEqual(path('settings'), []);
+  assert.deepEqual(path('signup'), ['menu']);
+  assert.deepEqual(path('terms'), ['menu', 'signup']);
+});
+
+// Depth first: a state is read while the page is still in the one it starts
+// from, and a chain declared as a chain is walked as declared.
+test('a walk takes each state before the ones that start from it, siblings as declared', () => {
+  assert.deepEqual(walkOrder(TREE).map((s) => s.name), ['menu', 'signup', 'terms', 'search', 'settings']);
+  const chain = parseStates([{ name: 'a', click: '#a' }, { name: 'b', from: 'a', click: '#b' }, { name: 'c', from: 'b', click: '#c' }]);
+  assert.deepEqual(walkOrder(chain), chain);
 });
 
 // The runner reads the states again, in the worker, from whatever it is
@@ -43,6 +69,10 @@ test('a state the file got wrong fails the configuration, naming the state', () 
   refused([{ name: 'menu', click: '#open', wait_for: 3 }], /wait_for must be a selector/);
   refused([{ name: 'menu', click: '#open', close: '' }], /close must be a selector/);
   refused([{ name: 'menu', click: '#a' }, { name: 'menu', click: '#b' }], /states\[1\]: the name menu is taken/);
+  // `from` names a state declared before: no state is reached through itself.
+  refused([{ name: 'signup', from: 'menu', click: '#signup' }, { name: 'menu', click: '#menu' }], /states\[0\] \(signup\): from must name a state declared before it/);
+  refused([{ name: 'menu', from: 'menu', click: '#menu' }], /from must name a state declared before it/);
+  refused([{ name: 'menu', from: 3, click: '#menu' }], /from must name a state/);
 });
 
 test('a .kanso.yml whose states are wrong fails as it loads, before any page does', () => {

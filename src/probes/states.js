@@ -37,8 +37,9 @@ export async function applyState(page, { click, waitFor }, { waitMs, fromTop = t
 }
 
 // Brings `page` to the last of `states`, from the page as it loads, one state
-// after the other as `states:` is replayed — for a check that needs the page
-// in the state before the one it looks at, in a page of its own. Rejects with
+// after the other — the way to a state (`pathTo`, src/config/states.js), for a
+// check that needs the page in the state the one it looks at starts from, in a
+// page of its own. Rejects with
 // the state that could not be reached, as `state`, beside the reason.
 export async function reach(page, states, { waitMs, log }) {
   for (const state of states) {
