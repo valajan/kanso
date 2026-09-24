@@ -62,6 +62,23 @@ export const FIXTURES = {
     apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html, '<script>window.kansoAcceptanceHold=800</script>')),
   },
 
+  // The dialog every fixture carries (DIALOG, below), opened with the focus
+  // left behind it — on the button that opened it, in a page a screen reader
+  // is told is not there. The focus probe's to catch, going into the state
+  // from the keyboard; nothing a load measures moves.
+  focus: {
+    description: 'a modal dialog that leaves focus behind it',
+    apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html, '<script>window.kansoAcceptanceDialog={focus:false}</script>')),
+  },
+
+  // The same dialog, closed without giving the page its scrolling back: the
+  // `overflow: hidden` it puts on <body> while open stays. The residues probe's
+  // to catch, comparing the page before and after.
+  residue: {
+    description: 'a modal dialog that leaves the page locked once closed',
+    apply: (dir) => editIndex(dir, (html) => beforeBodyEnd(html, '<script>window.kansoAcceptanceDialog={unlock:false}</script>')),
+  },
+
   // A multi-megabyte image as the first, largest element: the unoptimized hero.
   // Its pixels are random so no compression can shrink it, and explicit
   // dimensions keep it from also causing a layout shift.
@@ -105,11 +122,36 @@ export const PRESS_STATE = {
   wait_for: "#kanso-acceptance-press[aria-pressed='true']",
 };
 
-// Copies the build into `dir`, gives it the violation and the button every
-// fixture shares, and applies the fixture's own regression.
+// A modal dialog every fixture carries, declared as a state after the button
+// (DIALOG_STATE), for the probes that go into and out of a state: focus, what
+// is left behind, what memory keeps. Done right by default — focus moved in
+// and held there, the page locked and hidden behind it, Escape closing it and
+// giving all of it back, focus returned — and a fixture may undo one part of
+// it (`window.kansoAcceptanceDialog`): `focus` and `residue` do.
+const DIALOG = '<section aria-label="Acceptance dialog"><button type="button" id="kanso-acceptance-dialog-open">Open the dialog</button>'
+  + '<div id="kanso-acceptance-dialog" role="dialog" aria-modal="true" aria-label="Acceptance dialog" hidden style="position:fixed;inset:20% 10%;background:#fff;color:#111;padding:1rem;z-index:1000">'
+  + '<button type="button" id="kanso-acceptance-dialog-ok">OK</button></div></section>'
+  + '<script>(function(){var o=document.getElementById("kanso-acceptance-dialog-open"),d=document.getElementById("kanso-acceptance-dialog"),k=document.getElementById("kanso-acceptance-dialog-ok");'
+  + 'function c(){var f=window.kansoAcceptanceDialog||{};d.hidden=true;if(f.unlock!==false)document.body.style.overflow="";o.focus()}'
+  + 'o.addEventListener("click",function(){var f=window.kansoAcceptanceDialog||{};d.hidden=false;document.body.style.overflow="hidden";if(f.focus!==false)k.focus()});'
+  + 'd.addEventListener("keydown",function(e){if(e.key==="Tab"){e.preventDefault();k.focus()}});'
+  + 'document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!d.hidden)c()})})()</script>';
+
+export const DIALOG_STATE = {
+  name: 'dialog',
+  click: '#kanso-acceptance-dialog-open',
+  wait_for: '#kanso-acceptance-dialog:not([hidden])',
+};
+
+// Copies the build into `dir`, gives it the violation, the button and the
+// dialog every fixture shares, and applies the fixture's own regression.
 export async function materialize(fixtureId, distDir, dir) {
   await cp(distDir, dir, { recursive: true });
-  await editIndex(dir, (html) => beforeBodyEnd(html, INHERITED + PRESS));
+  // The dialog at the top, away from the end of the page: where the button's
+  // click scrolls to, and where what the fixtures add lands, stays what it was
+  // before there was a dialog — and so does what axe can and cannot decide
+  // there, which a line more at the end was enough to change.
+  await editIndex(dir, (html) => afterBodyOpen(beforeBodyEnd(html, INHERITED + PRESS), DIALOG));
   await FIXTURES[fixtureId].apply(dir);
 }
 

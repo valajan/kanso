@@ -20,8 +20,10 @@ pages in `test/probes/pages/` each break one thing on purpose, or carry every
 pattern that looks like a failure and is not.
 
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
-kanso-landing page, injects known regressions (TBT, CLS, LCP, and a
-block too wide for a phone) into the build, and asserts Kanso fails each one on
+kanso-landing page, injects known regressions (TBT, CLS, LCP, INP, a
+block too wide for a phone, a dialog that leaves focus behind it and one that
+leaves the page locked — every fixture carries the dialog, declared as a
+state) into the build, and asserts Kanso fails each one on
 the right metric or rule while the unchanged page passes. Every step is audited
 against the unchanged build as its reference, the way a change is judged against
 its base. Every fixture, the baseline included, also carries one violation of
