@@ -8,6 +8,18 @@ import { inPage } from '../probes/dom.js';
 // The elements are kept, in page order, under Symbol.for('kanso.discover'):
 // the element numbered `i` is `nodes[i]`, which is how a selector computed on
 // this side is checked to point back at it (./selectors.js).
+//
+// While a modal dialog is open, the page is that dialog: what is read — its
+// controls, its dialogs, its text — is what is inside it, and nothing of the
+// page behind. A visitor can reach nothing else, and what is behind says
+// nothing of the state: a dialog opened from the header's account button,
+// which says it is expanded, and the same dialog opened from a button in the
+// page, which says nothing, are one state — which a reading of the whole page,
+// the button's `aria-expanded` in it, would take for two. showModal() makes
+// the page behind inert with no attribute to say so, which is why it is not
+// enough to leave out what is `[inert]`. A modal already open as the page
+// loads — a consent dialog — is the page as it loads, and narrows nothing:
+// the page is explored behind it, as it was before (`markLoaded`).
 
 // More than this, and a page is mostly a list of links: three hundred of them
 // are not three hundred states.
@@ -15,6 +27,16 @@ const MAX_ELEMENTS = 250;
 
 export function snapshot(page, { maxElements = MAX_ELEMENTS } = {}) {
   return inPage(page, read, { maxElements });
+}
+
+// The modal dialogs open as the page has just loaded, kept in it: the ones a
+// reading is never narrowed to.
+export function markLoaded(page) {
+  return inPage(page, (dom) => {
+    const shows = (el) => el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    const open = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')].filter((d) => shows(d) && dom.modal(d));
+    window[Symbol.for('kanso.discover.loaded')] = new WeakSet(open);
+  });
 }
 
 // Runs in the page.
@@ -34,10 +56,19 @@ function read(dom, { maxElements }) {
 
   const docWidth = document.documentElement.clientWidth;
 
+  // The modal dialog open, if one is, that the page did not load with: where
+  // focus is when more than one is, else the last.
+  const loaded = window[Symbol.for('kanso.discover.loaded')];
+  const modals = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')]
+    .filter((d) => !loaded?.has(d) && d.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && dom.modal(d));
+  const scope = modals.filter((d) => d.contains(document.activeElement)).at(-1) ?? modals.at(-1) ?? null;
+
   // Seen by a visitor: rendered, not hidden from assistive technology, bigger
   // than the one-pixel box a visually hidden element is kept in, and not
-  // parked off the side of the page the way an off-canvas menu waits.
+  // parked off the side of the page the way an off-canvas menu waits — and,
+  // while a modal dialog is open, inside it.
   function visible(e) {
+    if (scope && !scope.contains(e)) return false;
     if (e.closest('[aria-hidden="true"],[inert]')) return false;
     if (!e.checkVisibility({ opacityProperty: true, visibilityProperty: true, checkOpacity: true, checkVisibilityCSS: true })) return false;
     const r = e.getBoundingClientRect();
@@ -181,12 +212,12 @@ function read(dom, { maxElements }) {
   }
 
   const dialogs = [...document.querySelectorAll('dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]')]
-    .filter(visible)
+    .filter((d) => d === scope || visible(d))
     .map((d) => clean(d.getAttribute('aria-label') || name(document.getElementById(d.getAttribute('aria-labelledby') || '')) || d.localName, 60));
 
   // Every line of text the page renders, top to bottom: what a tab switcher
   // that only swaps a panel's text changes, when no interactive element does.
-  const lines = document.body.innerText.split('\n').map((l) => clean(l, 200)).filter(Boolean).slice(0, 5_000);
+  const lines = (scope ?? document.body).innerText.split('\n').map((l) => clean(l, 200)).filter(Boolean).slice(0, 5_000);
 
   return {
     url: location.href,

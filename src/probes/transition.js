@@ -274,17 +274,8 @@ function whatOpenedInPage(dom, triggerSelector, waitFor, keep) {
   const fresh = (el) => !store.before.includes(el) && shows(el);
   const trigger = document.querySelector(triggerSelector);
 
-  // Everything under <body> but what holds the dialog is hidden from
-  // assistive technology, or inert — and some of it shows.
-  const behindHidden = (dialog) => {
-    const behind = [...document.body.children].filter((el) => !['script', 'style', 'template', 'link', 'noscript'].includes(el.localName) && !el.contains(dialog));
-    const hidden = (el) => el.getAttribute('aria-hidden') === 'true' || el.inert;
-    return behind.some((el) => shows(el) && hidden(el)) && behind.every((el) => hidden(el) || !shows(el));
-  };
-  const modal = (el) => el.matches('dialog:modal') || el.getAttribute('aria-modal') === 'true' || behindHidden(el);
-
   let kind = 'other';
-  let container = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].find((el) => fresh(el) && modal(el));
+  let container = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].find((el) => fresh(el) && dom.modal(el));
   if (container) kind = 'modal';
   else if ((container = [...document.querySelectorAll('[role="menu"], [role="listbox"]')].find(fresh))) kind = 'menu';
   else {

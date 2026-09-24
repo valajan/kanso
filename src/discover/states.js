@@ -11,7 +11,7 @@ import yaml from 'js-yaml';
 // every state it reached: the element clicked, the state it was clicked from,
 // what says it opened, and what the element is called.
 //
-//   { mobile: [{ id, parent, click, waitFor, role, name }, …] | null,
+//   { mobile: [{ id, parent, click, waitFor, role, name, alsoOpenedBy? }, …] | null,
 //     desktop: … }
 //
 // A state is known by its way there: the elements clicked, from the page as it
@@ -88,6 +88,11 @@ function unique(base, taken) {
 // its parent either, as the way to it goes through the parent: a screen that
 // reached the child reached the parent first.
 //
+// The other elements that opened a state from where it is opened — on either
+// screen — are said beside it, `also_opened_by`, which the file writes as a
+// comment: one state is audited once, whichever of its triggers is clicked,
+// and the comment says where the others went.
+//
 // What says a state opened is kept when both screens saw the same; when they
 // saw different things, or one saw nothing, it is left out, and the state is
 // taken as reached once the network goes quiet (src/probes/states.js). A
@@ -108,18 +113,19 @@ export function statesFrom(explored, { taken = [] } = {}) {
     for (const [key, node] of found) {
       const state = merged.get(key);
       if (!state) {
-        merged.set(key, { node, on: [formFactor], waitFor: node.waitFor ?? null });
+        merged.set(key, { node, on: [formFactor], waitFor: node.waitFor ?? null, also: new Set(node.alsoOpenedBy) });
         continue;
       }
       state.on.push(formFactor);
       if (state.waitFor !== (node.waitFor ?? null)) state.waitFor = null;
+      for (const selector of node.alsoOpenedBy ?? []) state.also.add(selector);
     }
   }
 
   const names = new Set(taken);
   const roots = [];
   const built = new Map();
-  for (const { node, on, waitFor } of merged.values()) {
+  for (const { node, on, waitFor, also } of merged.values()) {
     const single = on.length === 1 ? on[0] : null;
     const parent = node.parentKey == null ? null : built.get(node.parentKey);
     const implied = parent?.on ?? null;
@@ -128,6 +134,7 @@ export function statesFrom(explored, { taken = [] } = {}) {
       ...(single != null && single !== implied ? { form_factor: single } : {}),
       click: node.click,
       ...(waitFor != null ? { wait_for: waitFor } : {}),
+      ...(also.size > 0 ? { also_opened_by: [...also] } : {}),
     };
     built.set(node.key, { state, on: single });
     if (parent == null) {
@@ -193,7 +200,9 @@ function renderState(state, depth) {
   return keys.flatMap((key, i) => {
     const lead = i === 0 ? `${dash}- ` : indent;
     if (key === 'states') return [`${lead}states:`, ...state.states.flatMap((child) => renderState(child, depth + 1))];
-    return [`${lead}${key}: ${scalar(key, state[key])}`];
+    const line = `${lead}${key}: ${scalar(key, state[key])}`;
+    if (key !== 'click') return [line];
+    return [line, ...(state.also_opened_by ?? []).map((selector) => `${indent}# also opened by ${scalar(key, selector)}`)];
   });
 }
 

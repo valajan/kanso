@@ -2,7 +2,7 @@ import { diff, fingerprint, volatileLines } from './fingerprint.js';
 import { guardPage, verdict, writeKey } from './guards.js';
 import { emulate } from './screens.js';
 import { selectorFor } from './selectors.js';
-import { snapshot } from './snapshot.js';
+import { markLoaded, snapshot } from './snapshot.js';
 
 // How long a loaded page is given to go quiet, as src/probes/index.js does.
 const SETTLE_MS = 5_000;
@@ -29,7 +29,8 @@ export async function openPage(browser, formFactor) {
 }
 
 // Loads `url`, the one navigation the guard lets through, and waits for the
-// page to go quiet.
+// page to go quiet — then notes the modal dialogs it shows already, which a
+// reading is not narrowed to (./snapshot.js).
 export async function load({ page, guard }, url) {
   guard.allow(url);
   try {
@@ -38,6 +39,7 @@ export async function load({ page, guard }, url) {
     guard.allow(null);
   }
   await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
+  await markLoaded(page);
 }
 
 // One reading of the page as it stands: the snapshot, what the guards make of

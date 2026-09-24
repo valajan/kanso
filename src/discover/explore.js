@@ -31,12 +31,16 @@ export const DEFAULTS = { maxDepth: 2, maxClicks: 60, timeoutMs: 180_000 };
 
 // Resolves to { nodes, clicks, stable, unprompted, leftInQueue, outOfTime }.
 // `nodes` are the states found, parents before children, each as
-// { id, parent, click, waitFor, role, name, depth } — `parent` null for one
-// reached from the page as it loads; `clicks`, every click made and what it
-// came to: `new-state`, `repeat`, `no-change`, `left` (another address,
-// nothing loaded), `guarded` (the guards stopped something it did, named in
-// `stopped`) or `error`; `unprompted`, where the page writes with nothing
-// clicked (./guards.js, `stoppedBy`). `onClick` hears of each as it lands.
+// { id, parent, click, waitFor, role, name, depth, alsoOpenedBy? } — `parent`
+// null for one reached from the page as it loads, `alsoOpenedBy` the other
+// elements that opened it from the same place; `clicks`, every click made —
+// from the node `from`, 0 the page as it loads — what it changed there
+// (`appeared`, `disappeared`, `newText`) and what it came to: `new-state`
+// (`node`), `repeat` (of the node `repeats`), `no-change`, `left` (another
+// address, nothing loaded), `guarded` (the guards stopped something it did,
+// named in `stopped`) or `error`; `unprompted`, where the page writes with
+// nothing clicked (./guards.js, `stoppedBy`). `onClick` hears of each as it
+// lands.
 export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onClick = () => {} } = {}) {
   const deadline = Date.now() + timeoutMs;
   const prep = await prepare(browser, formFactor, url);
@@ -45,7 +49,9 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
 
   const root = { id: 0, depth: 0, path: [], reading: rootReading };
   const nodes = [root];
-  const seen = new Set([keyOf(rootReading, rootReading, volatile)]);
+  // Each state seen, by its key, and the node it is: what a click that comes
+  // back to it repeated.
+  const seen = new Map([[keyOf(rootReading, rootReading, volatile), root]]);
   const queue = [];
   const clicks = [];
 
@@ -108,10 +114,17 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
         click.stopped = stopped.map((b) => describeStopped(b, url));
       } else if (left) click.outcome = 'left';
       else if (fromParent.appeared.length === 0 && fromParent.disappeared.length === 0 && newText.length === 0) click.outcome = 'no-change';
-      else if (seen.has(key)) click.outcome = 'repeat';
-      else {
-        seen.add(key);
+      else if (seen.has(key)) {
+        click.outcome = 'repeat';
+        const same = seen.get(key);
+        click.repeats = same.id;
+        // Another element that opens the same state from the same place — a
+        // dialog the header's button and a button in the page both open —
+        // is worth a word beside the one kept.
+        if (same !== root && same.parent === parent.id) (same.alsoOpenedBy ??= []).push(element.selector.selector);
+      } else {
         const node = { id: nodes.length, parent: parent.id, depth: path.length, path, reading: after };
+        seen.set(key, node);
         node.waitFor = await waitForOf(tab.page, after, parent.reading, fromParent.appeared);
         nodes.push(node);
         click.outcome = 'new-state';
@@ -134,9 +147,9 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
   }
 
   return {
-    nodes: nodes.slice(1).map(({ id, parent, depth, path, waitFor }) => {
+    nodes: nodes.slice(1).map(({ id, parent, depth, path, waitFor, alsoOpenedBy }) => {
       const { role, name, selector } = path.at(-1);
-      return { id, parent: parent === 0 ? null : parent, click: selector.selector, waitFor, role, name, depth };
+      return { id, parent: parent === 0 ? null : parent, click: selector.selector, waitFor, role, name, depth, ...(alsoOpenedBy ? { alsoOpenedBy } : {}) };
     }),
     clicks,
     stable: prep.stable,

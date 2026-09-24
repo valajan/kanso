@@ -27,7 +27,8 @@ import { serveDirectory } from '../../src/serve/static.js';
 // everything it must not; stopped.html clicks that would pay or clear a basket
 // beside a harmless one, under a beacon that never stops; spa.html a route change that is another page,
 // redirect.html an app that changes its address as it starts;
-// door.html a state that opens once and never again.
+// door.html a state that opens once and never again; signin.html one native
+// dialog two buttons open.
 //
 // What is tested is the product's side: what may be clicked, how it is found
 // again, which clicks are states, that a state found is one Kanso's probes
@@ -249,6 +250,27 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     // Closing the dialog brings back the page as it loaded: a state already
     // seen, not a new one.
     assert.equal(run.clicks.find((c) => c.name === 'btn').outcome, 'repeat');
+  });
+
+  // What is behind a modal dialog is out of reach, and says nothing of the
+  // state: read with the page, the header's button — expanded — and the
+  // plain one in the page — which says nothing — would open two states,
+  // each explored, each audited.
+  test('a modal dialog two buttons open is one state, the second click a repeat of it, named beside it', async () => {
+    const run = await explored('signin.html', 'desktop');
+    const account = run.nodes.find((node) => node.name === 'Account');
+    assert.ok(account);
+    assert.equal(run.nodes.some((node) => node.name === 'Sign in'), false);
+    const signIn = run.clicks.find((c) => c.name === 'Sign in');
+    assert.equal(signIn.outcome, 'repeat');
+    assert.equal(signIn.repeats, account.id);
+    assert.deepEqual(account.alsoOpenedBy, ['#signin']);
+    // Its controls are the dialog's alone: the page behind is inert, though
+    // no attribute says so, and nothing behind it is tried from it.
+    assert.deepEqual(signIn.appeared, ['button|Close|', 'button|Forgot your email?|expanded=false', 'dialog|Sign in']);
+    assert.ok(signIn.disappeared.includes('button|Account|expanded=false'));
+    assert.deepEqual(run.clicks.filter((c) => c.from === account.id).map((c) => c.name).sort(), ['Close', 'Forgot your email?']);
+    assert.equal(run.clicks.some((c) => c.from !== 0 && c.name === 'Like'), false);
   });
 
   test('each tab not already chosen is a state, and the one already chosen changes nothing', async () => {

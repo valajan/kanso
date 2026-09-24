@@ -68,4 +68,21 @@ function describe(element) {
   }
 }
 
-const DOM = `({ describe: ${describe} })`;
+// Whether `element` is a modal dialog: `dialog:modal` — a <dialog> shown with
+// showModal(), which makes the page behind it inert with no attribute to say
+// so —, `aria-modal="true"`, or a dialog with the rest of the page hidden from
+// assistive technology or made inert behind it, which is how Radix, Reka UI
+// and their kin make one modal. The one reading of it that
+// src/probes/transition.js tells what opened by and src/discover/ narrows what
+// it reads to.
+function modal(element) {
+  if (element.matches('dialog:modal') || element.getAttribute('aria-modal') === 'true') return true;
+  // Everything under <body> but what holds the dialog is hidden from
+  // assistive technology, or inert — and some of it shows.
+  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
+  const behind = [...document.body.children].filter((el) => !['script', 'style', 'template', 'link', 'noscript'].includes(el.localName) && !el.contains(element));
+  const hidden = (el) => el.getAttribute('aria-hidden') === 'true' || el.inert;
+  return behind.some((el) => shows(el) && hidden(el)) && behind.every((el) => hidden(el) || !shows(el));
+}
+
+const DOM = `({ describe: ${describe}, modal: ${modal} })`;
