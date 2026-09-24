@@ -104,7 +104,7 @@ run where the code is.
   the JSON and the record's page say so apart from a failure — not checked,
   not clean, with `kanso discover --write` to find the states. States declared
   for one screen only are states declared: the other has none to open, and
-  nothing is skipped there. A probe marked `states: true` (axe and INP, today) also goes
+  nothing is skipped there. A probe marked `states: true` (axe, reflow, keyboard and INP) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
   reads them, `states.js` here reaches one: a click, then `wait_for`, then
   `settle.js` — the network quiet, then the page's finite animations
@@ -117,7 +117,9 @@ run where the code is.
   probe, `measures: true`, keeps every reading as it is: two clicks are two
   measures; the clicks made again on the way back are not). A state that
   cannot be reached fails, with every state reached through it, under that
-  same `at`.
+  same `at`. A probe marked `disturbs: true` (keyboard: Tab moves the page, a
+  menu closes as focus leaves it) is not gone on from: each state it reads is
+  reached in a page loaded for it.
   A probe marked `transitions: true` checks the way into and out of each state
   rather than the state: for each, a page of its own brought to the state it
   starts from (`reach`, `states.js`), and `transition(page, state, tools)` with what
@@ -253,9 +255,14 @@ run where the code is.
   capped at `moderate`, so a contrast nobody can compute no longer reads as one
   that passed. The other four probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
-  `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
+  `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off
+  — in the mobile load's states too, a state its trigger is gone from at that
+  width failing as unreached;
   `keyboard.js` presses Tab from the top until focus leaves the page —
-  `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
+  `focus-trap`, `focus-visible`, `focus-obscured` — and in each state from
+  where the click left focus, which is no stop (a click lights no
+  `:focus-visible`), held to a modal dialog open there: focus leaving it ends
+  the walk, `focus-escapes-modal` being `focus.js`'s; `motion.js` loads and
   scrolls through it under `prefers-reduced-motion: reduce` —
   `reduced-motion`; `focus.js`, a transition probe, opens each declared state
   from the keyboard and closes it with Escape — `keyboard-inoperable`,

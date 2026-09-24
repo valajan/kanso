@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page whose widest panel only a click shows</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  header { position: relative; }
+  /* Laid out as a desktop dropdown, whatever the width: 480 px at 320. */
+  #menu { position: absolute; top: 2.5rem; left: 0; width: 480px; background: #eee; }
+  #menu a { display: inline-block; padding: .5rem; }
+  /* The one fault the page shows as it loads, and in every state after. */
+  .banner { width: 400px; background: #def; }
+  /* Only a desktop has it: 320 px never gets to click it. */
+  #wide { display: none; }
+  @media (min-width: 1024px) { #wide { display: inline-block; } }
+</style>
+</head>
+<body>
+<header>
+  <button id="open" type="button" aria-expanded="false" aria-controls="menu">Menu</button>
+  <button id="wide" type="button">Everything</button>
+  <nav id="menu" aria-label="Main" hidden>
+    <a href="#">Pricing</a> <a href="#">Docs</a> <a href="#">Blog</a>
+  </nav>
+</header>
+<main>
+  <h1>Reflow, in a state</h1>
+  <div class="banner">A banner laid out wider than the screen.</div>
+  <details id="faq">
+    <summary>Does the answer reflow?</summary>
+    <p>It does: a paragraph of text wraps at whatever width it is given, and
+      nothing in it is wider than 320 CSS pixels.</p>
+  </details>
+</main>
+<script>
+  const open = document.getElementById('open');
+  open.addEventListener('click', () => {
+    document.getElementById('menu').hidden = false;
+    open.setAttribute('aria-expanded', 'true');
+  });
+</script>
+</body>
+</html>

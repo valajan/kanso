@@ -271,7 +271,7 @@ test('a state is read once its animations have finished, and one that never ends
 // Only a check that says so goes through the states: the others cost a load
 // of their own, and that cost does not move.
 test('a check that does not ask for the states runs on the page as it loads alone', async () => {
-  const { accessibility: result } = await probe('states-menu.html', { modules: only(reflow), config: { states: [MENU] } });
+  const { accessibility: result } = await probe('states-menu.html', { modules: only(motion), config: { states: [MENU] } });
   assert.deepEqual(result, { findings: [], failures: [] });
 });
 
@@ -321,6 +321,38 @@ test('a page hiding its sideways overflow does not scroll, and loses what was pa
 // has no probe to run.
 test('reflow runs on the mobile load only', async () => {
   assert.deepEqual(await probe('reflow-scroll.html', { formFactor: 'desktop', modules: only(reflow) }), {});
+});
+
+// A panel of fixed width is where a page that reflows stops reflowing — and a
+// menu is one. The banner the page shows as it loads is reported there, and
+// not again with the menu open over it.
+const WIDE_MENU = { name: 'menu', click: '#open', wait_for: "#open[aria-expanded='true']" };
+
+test('reflow lays each state out at 320 px too, and reports what it adds', async () => {
+  const faq = { name: 'faq', click: '#faq summary', wait_for: '#faq[open]' };
+  const { accessibility: result } = await probe('reflow-states.html', { modules: only(reflow), config: { states: [WIDE_MENU, faq] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.findings.map(({ rule, at, nodes }) => [rule, at ?? null, nodes.map((node) => node.selector)]), [
+    ['reflow-scroll', null, ['body > main > div.banner']],
+    ['reflow-scroll', 'menu', ['body > header > nav#menu']],
+  ]);
+});
+
+// The states reflow goes through are the mobile load's: one only a desktop
+// has is not looked for. One the mobile screen claims and 320 px has not is
+// not reached, and nothing is checked there.
+test('reflow leaves a desktop state alone, and fails one it cannot reach at 320 px', async () => {
+  const desktop = { name: 'everything', form_factor: 'desktop', click: '#wide' };
+  const clean = await probe('reflow-states.html', { modules: only(reflow), config: { states: [desktop] } });
+  assert.deepEqual(clean.accessibility.failures, []);
+  assert.deepEqual(clean.accessibility.findings.map(({ at }) => at ?? null), [null]);
+
+  const unreachable = { name: 'everything', click: '#wide' };
+  const { accessibility: result } = await probe('reflow-states.html', { modules: only(reflow), config: { states: [unreachable] }, timeoutMs: 6_000 });
+  assert.deepEqual(result.failures.map(({ probe, at, error, rules }) => ({ probe, at, error, rules })), [
+    { probe: 'reflow', at: 'everything', error: 'nothing visible to click at #wide', rules: ['reflow-scroll', 'reflow-clip'] },
+  ]);
 });
 
 // --- transitions ----------------------------------------------------------------------
@@ -716,6 +748,34 @@ test('a modal dialog that holds focus is no trap', async () => {
 test('the keyboard walk runs on the desktop load too', async () => {
   const { accessibility: result } = await probe('keyboard-unseen.html', { modules: only(keyboard), formFactor: 'desktop' });
   assert.equal(summary(result)[0].rule, 'focus-visible');
+});
+
+// A menu's links, a dialog's buttons: stops nobody reaches as the page loads.
+// The trigger clicked to open each is where the walk starts, not a stop —
+// clicked, it shows no ring, and that is no fault. The dialog holds nothing:
+// what Tab reaches behind it is focus.js's to report, not focus hidden behind
+// its backdrop. The menu closes as focus leaves it, and the state under it is
+// still reached, in a page loaded for it.
+test('the keyboard walk goes through each state from where it opened, and reports what it adds', async () => {
+  const journal = new Journal();
+  const menu = { name: 'menu', click: '#open-menu', wait_for: '#menu:not([hidden])' };
+  const more = { name: 'more', from: 'menu', click: '#more', wait_for: '#more-links:not([hidden])' };
+  const dialog = { name: 'dialog', click: '#open-dialog', wait_for: '#dialog:not([hidden])' };
+  const { accessibility: result } = await probe('keyboard-states.html', { modules: only(keyboard), config: { states: [menu, more, dialog] }, journal });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.findings.map(({ rule, at, nodes }) => [rule, at ?? null, nodes.map((node) => node.selector)]), [
+    ['focus-visible', null, ['body > header > button#bare']],
+    ['focus-visible', 'menu', ['body > header > div#menu > a.plain']],
+    ['focus-visible', 'dialog', ['body > div#dialog > div.box > a.plain']],
+  ]);
+
+  // Each state in a page of its own, and the dialog's walk ends as focus
+  // leaves it.
+  assert.deepEqual(journal.events.filter((e) => e.kind === 'loaded').map((e) => e.at ?? null), [null, 'menu', 'more', 'dialog']);
+  assert.deepEqual(journal.events.filter((e) => e.kind === 'tab-end').map((e) => [e.at ?? null, e.end]), [
+    [null, 'left'], ['menu', 'left'], ['more', 'left'], ['dialog', 'left-dialog'],
+  ]);
 });
 
 // --- reduced motion -------------------------------------------------------------------

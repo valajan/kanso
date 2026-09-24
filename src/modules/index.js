@@ -33,6 +33,8 @@ import seo from './seo/index.js';
 //               page again in each state the project declares — a menu
 //               opened, a dialog shown (src/config/states.js) — in the page it
 //               loaded, and each finding made there says which, as `at`;
+//               `disturbs: true` says a reading moves the page — the Tab
+//               walk — so that each state is read in a page loaded for it.
 //               `onlyInStates: true` has it skipped when none is declared,
 //               as a transition probe is — which the audit lists on the
 //               module's result as `skipped`, the rules it would have

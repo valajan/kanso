@@ -17,6 +17,14 @@ import { impactOf } from './rules.js';
 // What WCAG lets need two dimensions — images, video, maps, data tables — is
 // left out, as is a region the reader can scroll on its own: a code block
 // with a scrollbar reflows as it should.
+//
+// It goes through the declared states too: a menu, a dialog, an answer
+// unfolded is laid out at 320 px like the rest, and is where a panel of fixed
+// width hides. The states are the mobile load's — a phone's layout is the one
+// 320 px falls under, and a state only a desktop has is not looked for. One
+// the mobile screen has and 320 px does not — its trigger gone at that width —
+// cannot be reached, and fails as any state does: what it shows at 320 px is
+// unknown, and nothing found there would be nothing checked.
 const VIEWPORT_WIDTH = 320;
 
 export const reflow = {
@@ -25,6 +33,7 @@ export const reflow = {
   // 320 px is a width, not a device: one layout serves both form factors, and
   // the mobile load is the one that runs it.
   formFactors: ['mobile'],
+  states: true,
   // Laid out as a zoomed desktop window rather than a phone: a phone lays out a
   // page that asks for a wider viewport at that width, then shrinks it — which
   // is how a page fails to reflow without ever scrolling. Portrait, so that no
