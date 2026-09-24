@@ -311,7 +311,9 @@ test('the project configuration is what list_modules reports', async () => {
 
   const payload = message.result.structuredContent;
   assert.match(payload.configSource, /\.kanso\.yml$/);
-  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices']);
+  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices', 'interactions']);
+  // Interactions goes into and out of each state, and reads nothing else.
+  assert.deepEqual(payload.modules[4].probes.map(({ id, transitions }) => [id, transitions]), [['residues', true], ['leaks', true]]);
   assert.equal(payload.modules[0].config.budgets.lcp, 1000);
   assert.equal(payload.modules[1].config.fail_on, 'critical');
   // Accessibility asks Lighthouse for nothing: it runs axe itself.

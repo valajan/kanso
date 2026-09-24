@@ -69,19 +69,21 @@ export function transitionTools(page, state, { waitMs, log }) {
     // { opened: true | false | null, key, focusable }.
     //
     // Either way, it also says what opened: { kind, container }, the
-    // container described as findings describe an element, or null.
-    async open({ by = 'click' } = {}) {
+    // container described as findings describe an element, or null. The page
+    // is scrolled back to the top first, as a visitor who just arrived would
+    // find it, unless `fromTop: false`.
+    async open({ by = 'click', fromTop = true } = {}) {
       const started = Date.now();
       await inPage(page, beforeOpenInPage);
       if (by === 'click') {
-        await applyState(page, state, { waitMs });
+        await applyState(page, state, { waitMs, fromTop });
         const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
         log.log('open', { by, opened: true, what: opened.kind, ms: Date.now() - started });
         return { opened: true, ...opened };
       }
 
       const target = await trigger();
-      await page.evaluate('window.scrollTo(0, 0)');
+      if (fromTop) await page.evaluate('window.scrollTo(0, 0)');
       const focusable = await target.evaluate((el) => {
         el.focus();
         let active = document.activeElement;
@@ -133,6 +135,20 @@ export function transitionTools(page, state, { waitMs, log }) {
       await settle();
       log.log('close', { by, closed, ms: Date.now() - started });
       return { closed };
+    },
+
+    // Closes the state however it closes: Escape, then its declared `close:`,
+    // then a click away from it. Resolves to { closed, by } — by the way that
+    // closed it, or the last one tried.
+    async closeAnyway() {
+      let result = { closed: null, by: null };
+      for (const by of ['escape', 'close', 'outside']) {
+        if (by === 'close' && !state.close) continue;
+        const { closed } = await this.close({ by });
+        result = { closed, by };
+        if (closed !== false) break;
+      }
+      return result;
     },
 
     // Where focus is, down through shadow roots: the element as findings

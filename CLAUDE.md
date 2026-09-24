@@ -186,7 +186,19 @@ run where the code is.
   canonical, and the Open Graph tags a link preview needs — `extract` gets
   Lighthouse's artifacts as well as its report, for that. Best practices also
   passes through, unjudged, what Lighthouse says of the security headers
-  without scoring them
+  without scoring them.
+  `interactions/` is the fifth, and the first about what the page does when
+  it is used: two transition probes, nothing from Lighthouse, nothing without
+  a declared state. `residues.js` opens each state where the page stands and
+  closes it however it closes (`closeAnyway`: Escape, its `close:`, a click
+  away), then compares the page with what it was — `page-locked`,
+  `overlay-left`, `page-hidden-left`, `scroll-position-lost`,
+  `expanded-left`, `url-left`, `close-error`, and `scroll-not-locked` while a
+  modal dialog is open; `leaks.js` opens and closes each eight times, reads
+  the DOM counters after a forced garbage collection, leaves the first cycles
+  out as warm-up and reports steady growth — `dom-leak`, `listener-leak`.
+  Findings, judged like the other three's, its `rules.js` placing each on the
+  scale
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
   `core/audit.js`, `render.js` prints the tables for a terminal and
@@ -248,7 +260,7 @@ directories to `action.yml`.
 deep-merged key by key (partial overrides allowed at any depth). **Each module
 reads the section carrying its id** (`accessibility: { fail_on: serious }`) and
 never sees the rest of the file, so two concerns cannot fight over a key name —
-`src/config/module-config.js`. The three findings sections take the same keys:
+`src/config/module-config.js`. The four findings sections take the same keys:
 `fail_on` (an impact) and `ignore` (rule ids left unjudged — the `noindex`
 preview hosts add is what it is for). Performance's `budgets:` predate the sections and
 still work at the root, which is where every `.kanso.yml` written so far keeps

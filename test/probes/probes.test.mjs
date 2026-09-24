@@ -7,6 +7,8 @@ import * as chromeLauncher from 'chrome-launcher';
 import accessibility from '../../src/modules/accessibility/index.js';
 import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
 import { focus } from '../../src/modules/accessibility/focus.js';
+import { leaks } from '../../src/modules/interactions/leaks.js';
+import { residues } from '../../src/modules/interactions/residues.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
@@ -463,6 +465,78 @@ test('a disclosure whose content is at the end of the page, and a dialog that se
   assert.deepEqual(await focusIn('focus-broken.html', { name: 'noreturn', click: '#nr-open', wait_for: 'dialog#nr[open]' }), [
     ['focus-not-returned', 'noreturn', 'body > main#page > button#nr-open', 'focus went to body > a#skip when what it opened closed'],
   ]);
+});
+
+// --- what a state leaves behind, and keeps in memory -----------------------------
+
+// Each state alone, as for focus.
+async function leftBy(page, state, check = residues) {
+  const { accessibility: result } = await probe(page, { modules: only(check), config: { states: [state] } });
+  assert.deepEqual(result.failures, []);
+  return result.findings.map((finding) => [finding.rule, finding.nodes[0].selector, finding.nodes[0].explanation]);
+}
+
+test('states that give the page back as they found it leave nothing, and keep nothing', async () => {
+  for (const state of [
+    // The browser's modal dialog, the page locked behind it by CSS alone.
+    { name: 'native', click: '#native-open', wait_for: 'dialog#native[open]' },
+    // Locks, hides and covers the page while open; gives it all back.
+    { name: 'sheet', click: '#sheet-open', wait_for: '#sheet' },
+    // Closed by a click away from it, Escape doing nothing.
+    { name: 'menu', click: '#menu-open', wait_for: '#menu:not([hidden])' },
+    // Builds two hundred items the first time, and keeps them: a cache.
+    { name: 'cached', click: '#cached-open', wait_for: '#cached:not([hidden])' },
+  ]) {
+    assert.deepEqual(await leftBy('interactions-clean.html', state), [], `${state.name}, residues`);
+  }
+  for (const name of ['cached', 'sheet']) {
+    const state = name === 'cached'
+      ? { name, click: '#cached-open', wait_for: '#cached:not([hidden])' }
+      : { name, click: '#sheet-open', wait_for: '#sheet' };
+    assert.deepEqual(await leftBy('interactions-clean.html', state, leaks), [], `${name}, leaks`);
+  }
+});
+
+test('what a closed state leaves: a locked page, a backdrop, a hidden page, a lost place, a stale button', async () => {
+  const dialog = (name) => ({ name, click: `#${name}-open`, wait_for: `#${name}-open-dialog` });
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('locked')), [
+    ['page-locked', 'body', 'overflow: hidden on <body>, which it did not have before'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('scrim')), [
+    ['overlay-left', 'body > div.scrim', 'covers 100% of the screen and takes the clicks at its middle'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('hidden')), [
+    ['page-hidden-left', 'body > main#page', 'still aria-hidden once the state closed'],
+  ]);
+  const [[rule, , explanation]] = await leftBy('interactions-broken.html', dialog('jump'));
+  assert.equal(rule, 'scroll-position-lost');
+  assert.match(explanation, /^the page was scrolled to \d+ px, and is at 0 px once the state closed$/);
+  assert.deepEqual(await leftBy('interactions-broken.html', { name: 'stale', click: '#stale-open', wait_for: '#stale:not([hidden])' }), [
+    ['expanded-left', 'body > main#page > button#stale-open', 'aria-expanded is still true'],
+  ]);
+});
+
+test('an address left changed, an error on closing, a page that scrolls behind a modal dialog', async () => {
+  const dialog = (name) => ({ name, click: `#${name}-open`, wait_for: `#${name}-open-dialog` });
+  const [hash] = await leftBy('interactions-broken.html', dialog('hash'));
+  assert.equal(hash[0], 'url-left');
+  assert.match(hash[2], /to http:\/\/127\.0\.0\.1:\d+\/interactions-broken\.html#newsletter$/);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('throws')), [
+    ['close-error', 'body > main#page > button#throws-open', 'cleanup failed'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('loose')), [
+    ['scroll-not-locked', 'body > div#loose-open-dialog', 'the page behind it scrolled 400 px under the wheel'],
+  ]);
+});
+
+test('a state that keeps what it built on every opening, and a listener on each, leaks', async () => {
+  // Fifty items and their text on each opening, fifty listeners: the counts
+  // the page starts from are Chrome's business, what each opening adds is not.
+  const [dom, listeners] = await leftBy('interactions-broken.html', { name: 'leaky', click: '#leaky-open', wait_for: '#leaky:not([hidden])' }, leaks);
+  assert.equal(dom[0], 'dom-leak');
+  assert.match(dom[2], /^DOM nodes went from \d+ to \d+ over 6 more cycles — 100 kept per opening$/);
+  assert.equal(listeners[0], 'listener-leak');
+  assert.match(listeners[2], /^event listeners went from \d+ to \d+ over 6 more cycles — 50 added per opening$/);
 });
 
 // --- keyboard -------------------------------------------------------------------------

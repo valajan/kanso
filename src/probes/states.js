@@ -18,9 +18,11 @@ const IDLE_MS = 500;
 // in a report when it cannot be: no element to click, or what should have
 // appeared never did. `waitMs` is how long each of the two is waited for —
 // well inside the time the whole step is allowed (src/probes/index.js), so
-// that a state that is not there says which part was missing.
-export async function applyState(page, { click, waitFor }, { waitMs }) {
-  await page.evaluate('window.scrollTo(0, 0)');
+// that a state that is not there says which part was missing. `fromTop: false`
+// leaves the page scrolled where it is, for a check of what the state does to
+// it.
+export async function applyState(page, { click, waitFor }, { waitMs, fromTop = true }) {
+  if (fromTop) await page.evaluate('window.scrollTo(0, 0)');
 
   const target = await page.waitForSelector(click, { visible: true, timeout: waitMs })
     .catch(ifTimeout(`nothing visible to click at ${click}`));

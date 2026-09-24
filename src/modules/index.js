@@ -1,5 +1,6 @@
 import accessibility from './accessibility/index.js';
 import bestPractices from './best-practices/index.js';
+import interactions from './interactions/index.js';
 import performance from './performance/index.js';
 import seo from './seo/index.js';
 
@@ -92,7 +93,7 @@ import seo from './seo/index.js';
 // Performance produces the first; accessibility, SEO and best practices the
 // second. A module that produces neither still reports through `levels`, which
 // is the only part of the contract the core itself relies on.
-export const MODULES = [performance, accessibility, seo, bestPractices];
+export const MODULES = [performance, accessibility, seo, bestPractices, interactions];
 
 const BY_ID = new Map(MODULES.map((m) => [m.id, m]));
 

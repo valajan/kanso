@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>States that leave the page as they found it</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  .spacer { height: 1500px; }
+  /* The browser's modal dialog does not stop the page scrolling behind it on
+     its own: this does. */
+  html:has(dialog:modal) { overflow: hidden; }
+  #sheet { position: fixed; inset: 15% 10%; background: #fff; border: 1px solid #111; padding: 1rem; z-index: 2; }
+  #scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); z-index: 1; }
+  #menu { position: absolute; background: #fff; border: 1px solid #111; padding: .5rem; }
+</style>
+</head>
+<body>
+<main id="page">
+  <div class="spacer"></div>
+
+  <!-- The browser's own modal dialog, the page locked behind it by CSS. -->
+  <button id="native-open" type="button">Preferences</button>
+  <dialog id="native" aria-labelledby="native-title">
+    <h2 id="native-title">Preferences</h2>
+    <button id="native-close" type="button">Done</button>
+  </dialog>
+
+  <!-- A dialog of its own that locks the page, hides it and covers it while
+       open, and gives all of it back on Escape. -->
+  <button id="sheet-open" type="button">Share</button>
+
+  <!-- A menu Escape does not close and a click elsewhere does — its button
+       told as much. -->
+  <button id="menu-open" type="button" aria-expanded="false" aria-controls="menu">Sort</button>
+  <div id="menu" hidden>
+    <button type="button">By date</button>
+    <button type="button">By name</button>
+  </div>
+
+  <!-- A menu that builds its items the first time only, and keeps them. -->
+  <button id="cached-open" type="button" aria-expanded="false" aria-controls="cached">More</button>
+  <ul id="cached" hidden></ul>
+
+  <div class="spacer"></div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  $('native-open').addEventListener('click', () => $('native').showModal());
+  $('native-close').addEventListener('click', () => $('native').close());
+
+  let sheet = null;
+  const closeSheet = () => {
+    sheet.remove();
+    $('scrim').remove();
+    document.body.style.overflow = '';
+    $('page').removeAttribute('aria-hidden');
+    document.removeEventListener('keydown', onSheetKey);
+    sheet = null;
+    $('sheet-open').focus();
+  };
+  const onSheetKey = (event) => {
+    if (event.key === 'Escape') closeSheet();
+  };
+  $('sheet-open').addEventListener('click', () => {
+    const scrim = document.createElement('div');
+    scrim.id = 'scrim';
+    sheet = document.createElement('div');
+    sheet.id = 'sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-label', 'Share');
+    sheet.innerHTML = '<button type="button">Copy the link</button>';
+    document.body.append(scrim, sheet);
+    document.body.style.overflow = 'hidden';
+    $('page').setAttribute('aria-hidden', 'true');
+    document.addEventListener('keydown', onSheetKey);
+    sheet.querySelector('button').focus();
+  });
+
+  const menuButton = $('menu-open');
+  const setMenu = (open) => {
+    $('menu').hidden = !open;
+    menuButton.setAttribute('aria-expanded', String(open));
+  };
+  menuButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setMenu($('menu').hidden);
+  });
+  document.addEventListener('click', (event) => {
+    if (!$('menu').hidden && !$('menu').contains(event.target)) setMenu(false);
+  });
+
+  const cachedButton = $('cached-open');
+  cachedButton.addEventListener('click', () => {
+    const list = $('cached');
+    if (list.children.length === 0) {
+      for (let i = 0; i < 200; i++) list.insertAdjacentHTML('beforeend', `<li><a href="#i${i}">Item ${i}</a></li>`);
+    }
+    const open = list.hidden;
+    list.hidden = !open;
+    cachedButton.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('cached').hidden) {
+      $('cached').hidden = true;
+      cachedButton.setAttribute('aria-expanded', 'false');
+    }
+  });
+</script>
+</body>
+</html>
