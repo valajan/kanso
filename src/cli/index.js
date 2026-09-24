@@ -33,9 +33,11 @@ neither, and Kanso serves the project the way the serve: block of its
 
 \`kanso discover\` finds the states of the page — a menu, a dialog, a tab — by
 clicking through it, two clicks deep, on mobile and desktop, without typing,
-sending or leaving it. It prints them as the states: of a .kanso.yml, or, with
---write, adds them to the project's own; the states it already declares are
-kept. Each state found is reached a second time before it is kept.
+sending or leaving it. It prints them, or, with --write, writes them to
+.kanso/states.yml beside .kanso.yml — rewritten whole each time, and read with
+it. .kanso.yml is never touched: a state written by hand there is kept, and
+wins over a found one. Each state found is reached a second time before it is
+kept.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the
@@ -58,7 +60,8 @@ Options
                         audit.json — to look at, share or analyse
 
 Options for discover
-  -w, --write           add the states found to .kanso.yml (or --config)
+  -w, --write           write the states found to .kanso/states.yml, beside
+                        .kanso.yml (or --config)
       --depth <n>       clicks deep, 1-3 (default: 2)
       --max-clicks <n>  clicks per screen before stopping (default: 60)
       --form-factor <mobile | desktop>

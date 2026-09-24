@@ -99,24 +99,26 @@ runs: 1
 # checks. Each is a name, the CSS selector of what to click to reach it, and
 # optionally the selector of what says it has been reached; without one, Kanso
 # waits for the page to go quiet. Each is reached from the page as it loads,
-# unless it says it starts `from` a state declared before it: the states form a
-# tree, and a dialog one leaves open does not stand in the way of the next.
+# and the states listed under it from it: the states form a tree, and a dialog
+# one leaves open does not stand in the way of the next.
 #
 #   states:
 #     - name: menu
 #       click: "[aria-label='Menu']"
 #       wait_for: "#menu[aria-expanded='true']"
-#     - name: signup
-#       from: menu
-#       click: "#signup"
+#       states:
+#         - name: signup           # reached with the menu open
+#           click: "#signup"
 #     - name: settings
 #       click: "#settings"
 #     - name: drawer
 #       form_factor: mobile        # a state only one screen has
 #       click: "[aria-label='Open the menu']"
 #
-# `kanso discover` finds them by clicking through the page, and `--write` adds
-# them here.
+# `kanso discover --write` finds them by clicking through the page, and writes
+# them to a file of their own, .kanso/states.yml, beside this one — rewritten
+# whole each time. Declare here, by hand, only what it cannot find: both are
+# read, and where both reach the same state, the one written here wins.
 #
 # Performance times each click, on a CPU slowed as Lighthouse slows it, and
 # reports the slowest as the page's INP — Interaction to Next Paint, the Core
