@@ -61,18 +61,22 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
       await load(tab, url);
       for (const step of parent.path) {
         await applyState(tab.page, { click: step.selector.selector }, { waitMs: CLICK_WAIT_MS });
-        await settle(tab.page, url);
+        await settle(tab.page);
       }
       const blockedBefore = tab.guard.blocked.length;
       await tab.page.evaluate(markPresent);
+      const before = tab.page.url();
       await applyState(tab.page, { click: element.selector.selector }, { waitMs: CLICK_WAIT_MS });
-      const after = await settle(tab.page, url);
+      const after = await settle(tab.page);
       const blocked = tab.guard.blocked.slice(blockedBefore);
       // A click the guards stopped from leaving the page reaches nothing a
       // state could be made of — nor does one that took the page to another
       // address without loading it, the way a single-page app changes route:
       // what it shows is another page, which is not replayed from this one.
-      const left = blocked.some((b) => b.kind === 'navigation' || b.kind === 'window') || !samePage(after.snap.url, url);
+      // Compared with where the page stood just before the click, not with
+      // the address it was loaded from: an app that sends `/` on to `/home`
+      // as it starts has not left anything when a menu opens on `/home`.
+      const left = blocked.some((b) => b.kind === 'navigation' || b.kind === 'window') || !samePage(after.snap.url, before);
 
       const fromParent = without(diff(parent.reading.print, after.print), volatile.parts);
       const newText = contentDiff(parent.reading.snap, after.snap, volatile.lines).appeared;
