@@ -1,9 +1,11 @@
-import { dirname } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates } from '../config/states.js';
 import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
+import { clearRecord, RECORD_RESULT } from '../core/record.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
 import { MODULES } from '../modules/index.js';
@@ -81,6 +83,10 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'Name a baseline to judge what a change did rather than what the page has always been: without one, '
       + 'every pre-existing finding counts against the page; with one, the ones the baseline already had are '
       + 'reported and not held against it. '
+      + 'Name a record directory to keep a journal of what the checks did on each load — the page loaded, '
+      + 'each state reached or not, each Tab stop, each finding with the path of its elements — one JSON '
+      + 'Lines file per load, beside the result as audit.json: for when a finding needs retracing to the '
+      + 'moment that produced it. '
       + 'Takes 10 to 60 seconds per run, and reports progress while it works.',
     inputSchema: {
       type: 'object',
@@ -104,6 +110,14 @@ function auditPage({ cwd, runLighthouse, now }) {
             + 'They cost context — ask for them when how the page looks is the question: an element that '
             + 'overlaps another, a hero that renders blank, a layout that breaks. Defaults to false.',
         },
+        record: {
+          type: 'string',
+          description:
+            'A directory to keep the journal in, relative to the project: one file per page load, '
+            + '<side>.<formFactor>.<run>.jsonl, and the result as audit.json. What an earlier audit recorded '
+            + 'there is replaced; nothing else in it is touched. The result says where it went, under record. '
+            + 'Defaults to no journal.',
+        },
         runs: {
           type: 'integer',
           minimum: 1,
@@ -116,17 +130,19 @@ function auditPage({ cwd, runLighthouse, now }) {
       },
       additionalProperties: false,
     },
-    // Kanso writes nothing itself, but it is not read-only: with no url, it
-    // runs the command the project's .kanso.yml names to serve the build — a
-    // command it does not control, and a host should not approve unseen on the
-    // strength of this hint. What it starts, it stops. The open world is the
-    // page: the same URL audited twice can differ.
+    // Kanso writes nothing itself unless asked for a record, and it is not
+    // read-only either way: with no url, it runs the command the project's
+    // .kanso.yml names to serve the build — a command it does not control,
+    // and a host should not approve unseen on the strength of this hint. What
+    // it starts, it stops. The open world is the page: the same URL audited
+    // twice can differ.
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
 
     async run(args, { progress }) {
       const named = args.url == null ? null : site(args.url, 'url', cwd);
       const reference = args.baseline == null ? null : site(args.baseline, 'baseline', cwd);
       if (args.screenshot != null && typeof args.screenshot !== 'boolean') throw new InvalidParams('screenshot must be true or false');
+      const recordDir = args.record == null ? null : recordArg(args.record, cwd);
 
       const { config, source } = loadLocalConfig({ cwd });
       config.runs = clampRuns(runsArg(args.runs) ?? config.runs);
@@ -139,6 +155,10 @@ function auditPage({ cwd, runLighthouse, now }) {
       }
       if (!page) throw new InvalidParams('url is required: the project has no serve: block in .kanso.yml saying how to serve it');
 
+      // Cleared only once the audit is sure to run, as on the command line: a
+      // call with a mistake in it leaves an earlier record as it was.
+      if (recordDir) clearRecord(recordDir);
+
       const started = now();
       const stopTicking = tick(progress, started, now);
       let report;
@@ -149,7 +169,10 @@ function auditPage({ cwd, runLighthouse, now }) {
           ...(served ? { served } : {}),
           // A baseline the caller named is always audited, as on the command
           // line: the comparison is what they asked for, budgets or no budgets.
-          result: await audit({ url, baseline, config, runLighthouse, alwaysCompare: true, screenshots: args.screenshot === true }),
+          result: await audit({
+            url, baseline, config, runLighthouse, alwaysCompare: true,
+            screenshots: args.screenshot === true, record: recordDir,
+          }),
         }));
       } catch (err) {
         return notServed(err);
@@ -166,6 +189,13 @@ function auditPage({ cwd, runLighthouse, now }) {
         elapsedMs: now() - started,
         ...audited,
       };
+      // The record holds the result as the call returned it, and the result
+      // says where the record is — the one thing audit.json leaves out, since
+      // it sits in that directory.
+      if (recordDir) {
+        writeFileSync(join(recordDir, RECORD_RESULT), JSON.stringify(payload, null, 2) + '\n');
+        payload.record = recordDir;
+      }
 
       // The same facts twice, on purpose: hosts that read structured output
       // get the object, the others get it serialized in the text block, and
@@ -267,6 +297,13 @@ function images(screenshots) {
       { type: 'image', data: image[2], mimeType: image[1] },
     ];
   });
+}
+
+// A record directory resolves against the project, as a directory to serve
+// does: an agent names it the way it names the build.
+function recordArg(value, cwd) {
+  if (typeof value !== 'string' || value === '') throw new InvalidParams('record must be a directory path');
+  return resolve(cwd, value);
 }
 
 function runsArg(value) {

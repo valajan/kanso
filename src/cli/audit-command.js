@@ -1,7 +1,8 @@
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { audit } from '../core/audit.js';
+import { clearRecord, RECORD_RESULT } from '../core/record.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
 import { siteFromArgument, siteFromConfig, siteName, withSites } from '../serve/index.js';
@@ -95,21 +96,6 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
   const { result } = report;
   if (!result.ok) return EXIT.error;
   return SEVERITY[result.conclusion] >= SEVERITY[failOn] ? EXIT.failed : EXIT.ok;
-}
-
-// What a record holds: one journal per load, named by src/probes/journal.js,
-// and the result.
-const RECORD_RESULT = 'audit.json';
-const RECORD_JOURNAL = /^(current|baseline)\.(mobile|desktop)\.\d+\.jsonl$/;
-
-// A record directory kept from an earlier audit loses what that audit wrote —
-// a third run's journal would otherwise sit beside a one-run audit's — and
-// nothing else in it.
-function clearRecord(dir) {
-  mkdirSync(dir, { recursive: true });
-  for (const name of readdirSync(dir)) {
-    if (name === RECORD_RESULT || RECORD_JOURNAL.test(name)) rmSync(join(dir, name));
-  }
 }
 
 // The result as `--json` prints it: what was loaded, how it was served when

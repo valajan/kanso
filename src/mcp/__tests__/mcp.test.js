@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -255,6 +255,54 @@ test('a page that never loaded is reported as the tool failing', async () => {
   assert.match(message.result.content[0].text, /chrome not found/);
 });
 
+// A record is where each load's journal goes, as on the command line: the
+// runner is told where, and which page it is loading, and the result lands
+// beside the journals. What an earlier audit left there goes; nothing else
+// does. The result says where the record is.
+test('record hands each load the directory and writes the result beside the journals', async () => {
+  const cwd = emptyProject();
+  const dir = join(cwd, 'rec');
+  mkdirSync(dir);
+  writeFileSync(join(dir, 'current.mobile.3.jsonl'), '{}\n');
+  writeFileSync(join(dir, 'notes.txt'), 'mine');
+  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD }, 'https://example.com/': { performance: GOOD } });
+
+  const [message] = await session([
+    call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'https://example.com', record: 'rec' }),
+  ], { runLighthouse, cwd });
+
+  assert.equal(message.result.isError, false);
+  assert.deepEqual(
+    runLighthouse.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
+    [
+      `http://localhost:4173/ current ${dir}`, `http://localhost:4173/ current ${dir}`,
+      `https://example.com/ baseline ${dir}`, `https://example.com/ baseline ${dir}`,
+    ],
+  );
+  const payload = message.result.structuredContent;
+  assert.equal(payload.record, dir);
+  assert.equal(JSON.parse(message.result.content[0].text).record, dir);
+  const recorded = JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8'));
+  assert.equal(recorded.url, 'http://localhost:4173/');
+  assert.equal(recorded.conclusion, payload.conclusion);
+  assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
+  assert.throws(() => readFileSync(join(dir, 'current.mobile.3.jsonl')));
+});
+
+test('without record, no load is asked to keep a journal; a call with a mistake leaves a record as it was', async () => {
+  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  assert.ok(runLighthouse.calls.every((c) => c.record === undefined));
+  assert.equal(plain.result.structuredContent.record, undefined);
+
+  const cwd = emptyProject();
+  mkdirSync(join(cwd, 'rec'));
+  writeFileSync(join(cwd, 'rec', 'audit.json'), '{}');
+  const [wrong] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'nope', record: 'rec' })], { cwd });
+  assert.equal(wrong.error.code, -32602);
+  assert.equal(readFileSync(join(cwd, 'rec', 'audit.json'), 'utf8'), '{}');
+});
+
 test('the project configuration is what list_modules reports', async () => {
   const cwd = emptyProject();
   writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\naccessibility:\n  fail_on: critical\nseo:\n  ignore: [is-crawlable]\n');
@@ -381,6 +429,7 @@ test('a call Kanso cannot make is an invalid-params error naming what is wrong',
     [{ name: 'audit_page', args: { url: 'file:///etc/passwd' } }, /url must be http or https/],
     [{ name: 'audit_page', args: { url: 'http://a', baseline: 'nope' } }, /baseline is neither a URL nor a directory: nope/],
     [{ name: 'audit_page', args: { url: 'http://a', runs: 9 } }, /between 1 and 5/],
+    [{ name: 'audit_page', args: { url: 'http://a', record: 3 } }, /record must be a directory path/],
     [{ name: 'lighthouse', args: {} }, /unknown tool: lighthouse/],
   ];
 

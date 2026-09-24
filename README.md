@@ -439,10 +439,13 @@ goes to the job summary, and the job fails on a regression:
 | `fail-on` | `fail` (default) or `warn` |
 | `config` | another configuration file |
 | `working-directory` | the project, in a monorepo |
+| `record` | `true` to keep a journal of what the checks did on each load, uploaded as an artifact — a failed audit included |
+| `record-name` | that artifact's name; defaults to `kanso-record-<job id>` |
 
 Its outputs are `conclusion` (`pass`, `warn`, `fail`, or `error`), and the paths
 of the Markdown `report` and the JSON `result`, for a later step to upload or
-post.
+post — and, when recording, the `record` directory and the `record-url` of its
+artifact.
 
 Needing no permission is also why it works on a pull request from a fork, whose
 token cannot write. Do not reach for `pull_request_target` to post a comment
@@ -485,7 +488,7 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `screenshot` | the whole verdict, as JSON — and with `screenshot: true`, the page as its load ended, on mobile and desktop, as two images |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs`, `screenshot` and `record` | the whole verdict, as JSON — and with `screenshot: true`, the page as its load ended, on mobile and desktop, as two images; with `record: <dir>`, a journal of what the checks did on each load kept in that directory, whose path the result gives |
 | `list_modules` | none | what Kanso checks, what this project judges it against, and how it is served |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
