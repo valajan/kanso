@@ -18,6 +18,7 @@
     "kanso": "node bin/kanso.js",
     "test": "node --test \"src/**/__tests__/*.test.js\"",
     "test:probes": "node --test --test-reporter=spec test/probes/probes.test.mjs",
+    "test:discover": "node --test --test-reporter=spec test/discover/discover.test.mjs",
     "test:acceptance": "node --test --test-concurrency=1 --test-reporter=spec test/acceptance/kanso-landing.test.mjs"
   },
   "engines": {

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twelve products and a toolbar</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  ul { list-style: none; padding: 0; display: grid; gap: .5rem; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Twelve products and a toolbar</h1>
+  <!-- Three buttons side by side, each opening a panel of its own: three
+       things to try, whatever they have in common. -->
+  <div class="toolbar">
+    <button type="button" aria-expanded="false">Filter</button>
+    <button type="button" aria-expanded="false">Sort</button>
+    <button type="button" aria-expanded="false">Share</button>
+  </div>
+  <div class="panels">
+    <p hidden>Filter by colour</p>
+    <p hidden>Sort by price</p>
+    <p hidden>Share this list</p>
+  </div>
+  <!-- Six filters side by side, alike: a set of options, one thing to try. -->
+  <div class="colours">
+    <button type="button" aria-pressed="false">Red</button>
+    <button type="button" aria-pressed="false">Green</button>
+    <button type="button" aria-pressed="false">Blue</button>
+    <button type="button" aria-pressed="false">Yellow</button>
+    <button type="button" aria-pressed="false">Black</button>
+    <button type="button" aria-pressed="false">White</button>
+  </div>
+  <p class="showing">Showing every colour</p>
+  <!-- Twelve cards, each with a button named after its product, each showing
+       the same kind of notice: one thing to try, not twelve. -->
+  <ul class="products"></ul>
+  <ol class="notices" aria-live="polite"></ol>
+</main>
+<script>
+  const names = ['Anvil', 'Rocket', 'Magnet', 'Spring', 'Glue', 'Kite', 'Rope', 'Skates', 'Paint', 'Seeds', 'Umbrella', 'Catapult'];
+  const list = document.querySelector('.products');
+  for (const name of names) {
+    const item = document.createElement('li');
+    item.innerHTML = `<div class="card"><span>${name}</span> <button type="button" aria-label="Add ${name} to the basket">+</button></div>`;
+    item.querySelector('button').addEventListener('click', () => {
+      const notice = document.createElement('li');
+      notice.textContent = `${name} added`;
+      document.querySelector('.notices').append(notice);
+    });
+    list.append(item);
+  }
+  document.querySelectorAll('.colours button').forEach((button) => button.addEventListener('click', () => {
+    button.setAttribute('aria-pressed', 'true');
+    document.querySelector('.showing').textContent = `Showing ${button.textContent.toLowerCase()} only`;
+  }));
+  const panels = document.querySelectorAll('.panels p');
+  document.querySelectorAll('.toolbar button').forEach((button, i) => button.addEventListener('click', () => {
+    const open = panels[i].hidden;
+    panels[i].hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  }));
+</script>
+</body>
+</html>

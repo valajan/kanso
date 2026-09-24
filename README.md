@@ -215,7 +215,25 @@ worth declaring for the interaction it measures as much as for what it shows.
 Against a baseline, a state is compared with the same state there. A state that
 cannot be reached — the button renamed, the menu that never opens — is reported
 as unchecked, with every state reached through it, and never reads as a clean
-one.
+one. A state only one screen has — the drawer behind a phone's menu button —
+says `form_factor: mobile`, and is not looked for on desktop.
+
+**Or let Kanso find them.** `kanso discover` clicks through the page, two clicks
+deep, on mobile and desktop, and prints what it found as a `states:` block;
+`--write` adds it to your `.kanso.yml`, keeping the states you declared:
+
+```bash
+kanso discover dist            # print the states found
+kanso discover dist --write    # add them to .kanso.yml
+```
+
+It only looks: nothing is typed, no form is sent, no other page is opened, a
+button named like `Delete` or `Buy` is left alone, and any request that would
+write is stopped before it leaves. Each state it finds is reached a second time,
+from a fresh visit, before it is kept — a state that comes back one time in two
+would make every other audit unchecked. Read what it found before you commit
+it: it names each state after what was clicked, and every state costs the
+checks that go through it a few seconds more.
 
 Each names the element to fix: the box too wide for the screen, the code block
 that neither wraps nor scrolls, the card that hides the end of its lines, the
@@ -578,6 +596,7 @@ kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
 kanso audit <url> --config other.yml     # another configuration file
+kanso discover dist --write              # find the states, add them to .kanso.yml
 kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```

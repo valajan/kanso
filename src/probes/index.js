@@ -1,7 +1,7 @@
 import puppeteer from 'puppeteer-core';
 
 import { moduleConfig } from '../config/module-config.js';
-import { parseStates, pathTo, walkOrder } from '../config/states.js';
+import { parseStates, pathTo, statesOn, walkOrder } from '../config/states.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
 import { applyState, reach } from './states.js';
 import { transitionTools } from './transition.js';
@@ -89,7 +89,9 @@ const SETTLE_MS = 5_000;
 // (src/lighthouse/runner.js), while a measure is taken on every load, to be
 // folded into a median like Lighthouse's.
 export async function runProbes({ port, url, formFactor, settings, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
-  const declared = parseStates(config.states);
+  // The states on this screen: a drawer only a phone's layout has is not
+  // looked for on a desktop, where it would read as one out of reach.
+  const declared = statesOn(parseStates(config.states), formFactor);
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
     .filter((probe) => !measuresOnly || probe.measures)

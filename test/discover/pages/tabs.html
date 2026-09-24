@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rocket X1 — a tab that fails to load</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  button { font: inherit; }
+  [role="tablist"] { display: flex; gap: .5rem; border-bottom: 1px solid #ccc; }
+  [role="tab"][aria-selected="true"] { border-bottom: 3px solid #0b5cad; }
+  .error { color: #8a1c1c; }
+</style>
+</head>
+<body>
+<header><p>Acme Rockets</p></header>
+<main>
+  <h1>Rocket X1</h1>
+  <div role="tablist" aria-label="About the rocket">
+    <button role="tab" id="tab-overview" aria-selected="true" aria-controls="overview">Overview</button>
+    <button role="tab" id="tab-specs" aria-selected="false" aria-controls="specs" tabindex="-1">Specs</button>
+    <button role="tab" id="tab-status" aria-selected="false" aria-controls="status" tabindex="-1">Delivery status</button>
+  </div>
+  <section role="tabpanel" id="overview" aria-labelledby="tab-overview">
+    <p>Goes up. Mostly.</p>
+  </section>
+  <section role="tabpanel" id="specs" aria-labelledby="tab-specs" hidden>
+    <p>Thrust: considerable. Steering: none.</p>
+  </section>
+  <!-- Broken once chosen: it asks a server that answers 404, logs the
+       failure, and tells the visitor it could not load. -->
+  <section role="tabpanel" id="status" aria-labelledby="tab-status" hidden>
+    <p id="status-text">Loading…</p>
+  </section>
+  <!-- Decoy. -->
+  <button id="share" type="button" aria-pressed="false">Save for later</button>
+</main>
+<footer><p>Acme Corporation</p></footer>
+<script>
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      for (const other of tabs) {
+        const selected = other === tab;
+        other.setAttribute('aria-selected', String(selected));
+        other.tabIndex = selected ? 0 : -1;
+        document.getElementById(other.getAttribute('aria-controls')).hidden = !selected;
+      }
+      if (tab.id === 'tab-status') loadStatus();
+    });
+  }
+  async function loadStatus() {
+    const text = document.getElementById('status-text');
+    try {
+      const response = await fetch('api/delivery-status.json');
+      if (!response.ok) throw new Error(`delivery status: HTTP ${response.status}`);
+      text.textContent = (await response.json()).status;
+    } catch (err) {
+      console.error('Could not load the delivery status', err.message);
+      text.className = 'error';
+      text.textContent = 'Something went wrong: we could not load the delivery status. Please try again later.';
+    }
+  }
+  const share = document.getElementById('share');
+  share.addEventListener('click', () => share.setAttribute('aria-pressed', String(share.getAttribute('aria-pressed') !== 'true')));
+</script>
+</body>
+</html>

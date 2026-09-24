@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everything the explorer may and may not touch</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  .card { cursor: pointer; border: 1px solid #ccc; padding: .5rem; margin: .5rem 0; }
+  .card span { cursor: pointer; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #drawer { position: fixed; top: 0; left: 0; width: 280px; transform: translateX(-100%); }
+  #drawer.open { transform: none; }
+</style>
+</head>
+<body>
+<a class="sr-only" href="#main">Skip to content</a>
+<header>
+  <!-- Allowed: they open something on this page. -->
+  <button id="drawer-toggle" type="button" aria-expanded="false" aria-controls="drawer">Open navigation</button>
+  <nav id="drawer" aria-label="Drawer">
+    <!-- Off the side of the page until opened: not seen, not listed. -->
+    <a href="#pricing">Pricing</a>
+  </nav>
+</header>
+<main id="main">
+  <h1>Guards</h1>
+  <details><summary>Show the details</summary><p>Details.</p></details>
+  <div role="tablist">
+    <button role="tab" aria-selected="true" data-testid="tab-one">One</button>
+    <button role="tab" aria-selected="false" data-testid="tab-two">Two</button>
+  </div>
+  <!-- Only a pointer cursor says this one is clickable; its span must not
+       be listed again. -->
+  <div class="card" id="card-1"><span>A card that opens</span></div>
+  <a href="#pricing">Jump to pricing</a>
+  <a href="javascript:void(0)">A script link</a>
+  <!-- A button outside any form, typed submit by default: harmless. -->
+  <button>Load more</button>
+  <!-- A generated id: not to select by. -->
+  <button id="radix-:r3:" type="button">Generated id</button>
+  <!-- No id: found by what a screen reader is told, what it opens, where
+       it jumps, or its tooltip. -->
+  <button type="button" aria-label="Close the banner">×</button>
+  <button type="button" aria-expanded="false" aria-controls="more-panel">More options</button>
+  <div id="more-panel" hidden><p>Options.</p></div>
+  <a href="#questions">Jump to the questions</a>
+  <button type="button" title="Print this page">⎙</button>
+
+  <!-- Refused. -->
+  <a href="/elsewhere.html">Another page</a>
+  <a href="https://example.com/">Another site</a>
+  <a href="#top" target="_blank">A new tab</a>
+  <a href="report.pdf" download>A download</a>
+  <a href="mailto:someone@example.com">Write to us</a>
+  <button type="button">Delete account</button>
+  <button type="button" disabled>Disabled</button>
+  <button type="button" aria-disabled="true">Also disabled</button>
+  <form action="/subscribe" method="post">
+    <label>Email <input type="email" name="email"></label>
+    <label><input type="checkbox" name="news"> News</label>
+    <select name="plan"><option>Free</option><option>Pro</option></select>
+    <button>Join</button>
+    <input type="reset" value="Clear">
+  </form>
+  <div role="switch" aria-checked="false" tabindex="0">Dark mode</div>
+
+  <!-- Refused by the net, not by the rules: nothing in the markup says this
+       button writes, or leaves. -->
+  <button type="button" id="beacon">Save preferences</button>
+  <button type="button" id="leave">Continue</button>
+  <button type="button" id="popup">Help</button>
+  <button type="button" id="alert">Info</button>
+  <h2 id="pricing">Pricing</h2>
+  <h2 id="questions">Questions</h2>
+</main>
+<script>
+  document.getElementById('drawer-toggle').addEventListener('click', (e) => {
+    document.getElementById('drawer').classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(document.getElementById('drawer').classList.contains('open')));
+  });
+  document.getElementById('card-1').addEventListener('click', () => {
+    const p = document.createElement('button');
+    p.textContent = 'Close the card';
+    document.getElementById('card-1').after(p);
+  });
+  document.getElementById('beacon').addEventListener('click', () => fetch('/preferences', { method: 'POST', body: '{}' }).catch(() => {}));
+  document.getElementById('leave').addEventListener('click', () => { location.href = '/next.html'; });
+  document.getElementById('popup').addEventListener('click', () => window.open('/help.html'));
+  document.getElementById('alert').addEventListener('click', () => alert('Info'));
+</script>
+</body>
+</html>

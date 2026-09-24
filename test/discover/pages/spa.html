@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — a single-page app that changes route without loading</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  button { font: inherit; }
+</style>
+</head>
+<body>
+<header><p>Acme Dashboard</p></header>
+<main id="view">
+  <h1>Overview</h1>
+  <!-- A route change, the way a router makes one: another address, another
+       view, and no load. What it shows is another page, not a state of this
+       one — replayed from this page's address, it is not there. -->
+  <button id="to-settings" type="button">Account settings</button>
+  <!-- The same history call to a fragment of this page: still this page, and
+       what it opens is a state. -->
+  <button id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters">Filters</button>
+  <div id="filters" hidden>
+    <button id="only-open" type="button" aria-pressed="false">Only open orders</button>
+  </div>
+</main>
+<footer><p>Acme Corporation</p></footer>
+<script>
+  document.getElementById('to-settings').addEventListener('click', () => {
+    history.pushState({}, '', 'settings');
+    document.getElementById('view').innerHTML = '<h1>Settings</h1><button type="button" id="rename">Rename the account</button>';
+  });
+  const toggle = document.getElementById('filters-toggle');
+  toggle.addEventListener('click', () => {
+    const filters = document.getElementById('filters');
+    filters.hidden = !filters.hidden;
+    toggle.setAttribute('aria-expanded', String(!filters.hidden));
+    history.pushState({}, '', '#filters');
+  });
+</script>
+</body>
+</html>

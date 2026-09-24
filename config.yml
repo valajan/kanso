@@ -111,6 +111,12 @@ runs: 1
 #       click: "#signup"
 #     - name: settings
 #       click: "#settings"
+#     - name: drawer
+#       form_factor: mobile        # a state only one screen has
+#       click: "[aria-label='Open the menu']"
+#
+# `kanso discover` finds them by clicking through the page, and `--write` adds
+# them here.
 #
 # Performance times each click, on a CPU slowed as Lighthouse slows it, and
 # reports the slowest as the page's INP — Interaction to Next Paint, the Core

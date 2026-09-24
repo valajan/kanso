@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme — a menu whose faults only opening it shows</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header { display: flex; gap: 1rem; align-items: flex-start; padding: 1rem; border-bottom: 1px solid #ddd; }
+  header > a { color: #111; font-weight: 700; text-decoration: none; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  button { font: inherit; }
+  main, footer { padding: 1rem; }
+  .nav a { color: #1a1a1a; }
+  /* A phone: the navigation waits behind the burger, and its links, once
+     shown, are a pale grey no one checked on white. */
+  .nav { display: none; }
+  .nav.open { display: block; }
+  .nav.open a { color: #a3a3a3; }
+  /* A desktop: no burger, the navigation always there, in a dark grey. */
+  @media (min-width: 768px) {
+    .burger { display: none; }
+    .nav, .nav.open { display: block; }
+    .nav ul.top { display: flex; gap: 1rem; }
+    .nav.open a, .nav a { color: #1a1a1a; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a href="#top" id="top">Acme</a>
+  <button class="burger" id="burger" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+  <nav class="nav" id="nav" aria-label="Main">
+    <ul class="top">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li>
+        <button id="products" type="button" aria-expanded="false" aria-controls="sub">Products</button>
+        <!-- A link that is only an icon, with nothing to name it: broken
+             once the submenu is open, on a phone two clicks deep. -->
+        <ul id="sub" hidden>
+          <li><a href="#anvils">Anvils</a></li>
+          <li><a href="#rockets"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><path d="M8 0l3 6H5z"/></svg></a></li>
+        </ul>
+      </li>
+    </ul>
+  </nav>
+</header>
+<main>
+  <h1>Acme supplies</h1>
+  <p>Everything a coyote needs, delivered.</p>
+  <!-- Decoys: they change the page, and hide nothing. -->
+  <button id="like" type="button" aria-pressed="false">Like</button>
+  <button id="more" type="button">Show more</button>
+  <p id="more-text" hidden>Anvils, rockets, roller skates and birdseed since 1949.</p>
+  <h2 id="features">Features</h2>
+  <p>Fast delivery.</p>
+  <h2 id="pricing">Pricing</h2>
+  <p>Fair.</p>
+</main>
+<footer><p>Acme Corporation</p></footer>
+<script>
+  const burger = document.getElementById('burger');
+  const nav = document.getElementById('nav');
+  burger.addEventListener('click', () => {
+    const open = nav.classList.toggle('open');
+    burger.setAttribute('aria-expanded', String(open));
+  });
+  const products = document.getElementById('products');
+  products.addEventListener('click', () => {
+    const sub = document.getElementById('sub');
+    sub.hidden = !sub.hidden;
+    products.setAttribute('aria-expanded', String(!sub.hidden));
+  });
+  const like = document.getElementById('like');
+  like.addEventListener('click', () => like.setAttribute('aria-pressed', String(like.getAttribute('aria-pressed') !== 'true')));
+  document.getElementById('more').addEventListener('click', () => { document.getElementById('more-text').hidden = false; });
+</script>
+</body>
+</html>

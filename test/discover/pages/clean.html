@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Style guide — every pattern, done right</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header { display: flex; gap: 1rem; align-items: flex-start; padding: 1rem; border-bottom: 1px solid #ddd; }
+  main, footer { padding: 1rem; }
+  a { color: #0b5cad; }
+  button { font: inherit; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .nav { display: none; }
+  .nav.open { display: block; }
+  @media (min-width: 768px) {
+    .burger { display: none; }
+    .nav, .nav.open { display: block; }
+    .nav ul { display: flex; gap: 1rem; }
+  }
+  [role="tablist"] { display: flex; gap: .5rem; border-bottom: 1px solid #ccc; }
+  .backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / .5); display: flex; align-items: center; justify-content: center; }
+  .backdrop[hidden] { display: none; }
+  .dialog { background: #fff; padding: 1.5rem; max-width: 22rem; border-radius: 8px; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<!-- The control page: a menu, a dialog, tabs, questions and a sort menu, each
+     built right — and, for a judgment to be fooled by, every word that sounds
+     like a fault and is not. Every state here is real; none hides anything. -->
+<header>
+  <a href="#top" id="top">Acme Style</a>
+  <button class="burger" id="burger" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+  <nav class="nav" id="nav" aria-label="Main">
+    <ul><li><a href="#errors">Error messages</a></li><li><a href="#empty">Empty states</a></li></ul>
+  </nav>
+</header>
+<main>
+  <h1>Writing the interface</h1>
+  <p>0 errors found in your last report.</p>
+  <button id="open-dialog" type="button">Preview a confirmation dialog</button>
+  <div role="tablist" aria-label="Guides">
+    <button role="tab" id="tab-errors" aria-selected="true" aria-controls="errors">Error messages</button>
+    <button role="tab" id="tab-empty" aria-selected="false" aria-controls="empty" tabindex="-1">Empty states</button>
+  </div>
+  <section role="tabpanel" id="errors" aria-labelledby="tab-errors">
+    <h2>Error messages that help</h2>
+    <p>Say what went wrong and what to do next — for example: “We could not save your changes. Check your connection and try again.”</p>
+  </section>
+  <section role="tabpanel" id="empty" aria-labelledby="tab-empty" hidden>
+    <h2>Empty states</h2>
+    <p>No results? Say so, and suggest a wider search.</p>
+  </section>
+  <details id="faq"><summary>Where are the full guidelines?</summary><p><a href="#guidelines">Read the full writing guidelines</a>.</p></details>
+  <button id="sort" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="sort-options">Sort by: newest</button>
+  <ul id="sort-options" role="listbox" aria-label="Sort by" hidden>
+    <li role="option" aria-selected="true">Newest</li>
+    <li role="option" aria-selected="false">Oldest</li>
+  </ul>
+  <h2 id="guidelines">Guidelines</h2>
+  <p>Plain words, short sentences.</p>
+</main>
+<footer><p>Acme Corporation</p></footer>
+<div class="backdrop" id="backdrop" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <h2 id="dialog-title">Delete this draft?</h2>
+    <p>This is only a preview: nothing will be deleted.</p>
+    <button id="close" type="button">Close the preview</button>
+  </div>
+</div>
+<script>
+  const burger = document.getElementById('burger');
+  burger.addEventListener('click', () => {
+    const open = document.getElementById('nav').classList.toggle('open');
+    burger.setAttribute('aria-expanded', String(open));
+  });
+  const backdrop = document.getElementById('backdrop');
+  document.getElementById('open-dialog').addEventListener('click', () => { backdrop.hidden = false; });
+  document.getElementById('close').addEventListener('click', () => { backdrop.hidden = true; });
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      for (const other of tabs) {
+        const selected = other === tab;
+        other.setAttribute('aria-selected', String(selected));
+        other.tabIndex = selected ? 0 : -1;
+        document.getElementById(other.getAttribute('aria-controls')).hidden = !selected;
+      }
+    });
+  }
+  const sort = document.getElementById('sort');
+  sort.addEventListener('click', () => {
+    const list = document.getElementById('sort-options');
+    list.hidden = !list.hidden;
+    sort.setAttribute('aria-expanded', String(!list.hidden));
+  });
+</script>
+</body>
+</html>

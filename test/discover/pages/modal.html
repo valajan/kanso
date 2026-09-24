@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newsletter — a dialog whose faults only opening it shows</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  button { font: inherit; }
+  .backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / .5); display: flex; align-items: center; justify-content: center; }
+  .backdrop[hidden] { display: none; }
+  .dialog { background: #fff; padding: 1.5rem; max-width: 22rem; border-radius: 8px; }
+</style>
+</head>
+<body>
+<header><p>The Weekly Anvil</p></header>
+<main>
+  <h1>Get the newsletter</h1>
+  <p>One email a week about falling objects.</p>
+  <button id="subscribe" type="button">Get the newsletter</button>
+  <!-- Decoy: a counter that goes up, and hides nothing. -->
+  <button id="clap" type="button">Applaud</button>
+  <p id="claps" aria-live="polite">0 applause</p>
+</main>
+<footer><p>Weekly Anvil Ltd</p></footer>
+<!-- Broken once open: a dialog with no name (its heading is not tied to it),
+     a close button named "btn" — which axe accepts and no one understands —
+     and, one click deeper, an image with no alt. -->
+<div class="backdrop" id="backdrop" hidden>
+  <div class="dialog" id="dialog" role="dialog" aria-modal="true">
+    <h2>Stay in touch</h2>
+    <p>We write rarely, and only about anvils.</p>
+    <button id="details" type="button" aria-expanded="false" aria-controls="details-panel">What will you send me?</button>
+    <div id="details-panel" hidden>
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="120" height="60">
+      <p>A sample issue, like the one above.</p>
+    </div>
+    <button id="close" type="button" aria-label="btn">×</button>
+  </div>
+</div>
+<script>
+  const backdrop = document.getElementById('backdrop');
+  document.getElementById('subscribe').addEventListener('click', () => {
+    // Drawn a moment later, as a dialog whose code arrives with the click is.
+    setTimeout(() => { backdrop.hidden = false; }, 300);
+  });
+  document.getElementById('close').addEventListener('click', () => { backdrop.hidden = true; });
+  const details = document.getElementById('details');
+  details.addEventListener('click', () => {
+    const panel = document.getElementById('details-panel');
+    panel.hidden = !panel.hidden;
+    details.setAttribute('aria-expanded', String(!panel.hidden));
+  });
+  let claps = 0;
+  document.getElementById('clap').addEventListener('click', () => {
+    document.getElementById('claps').textContent = `${++claps} applause`;
+  });
+</script>
+</body>
+</html>
