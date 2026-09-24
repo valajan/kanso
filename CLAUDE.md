@@ -111,8 +111,10 @@ run where the code is.
   rather than the state: for each, a page of its own brought to the state it
   starts from (`reach`, `states.js`), and `transition(page, state, tools)` with what
   `transition.js` hands it — open by click or by key, whether it is open (its
-  `wait_for`, else its trigger's `aria-expanded`, else `null`), close by
-  Escape or by its `close:`, where focus is — each move journaled. A state it
+  `wait_for`, else the modal dialog or menu that opened, else its trigger's
+  `aria-expanded`, else `null`), close by Escape or by its `close:`, where
+  focus is — each move journaled; a click or key that leaves the page fails
+  the state (`the click left the page, for <where>`). A state it
   could not check costs that state; one beyond a state the way could not get
   past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the

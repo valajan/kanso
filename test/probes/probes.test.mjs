@@ -575,6 +575,62 @@ test('a state that keeps what it built on every opening, and a listener on each,
   assert.match(listeners[2], /^event listeners went from \d+ to \d+ over 6 more cycles — 50 added per opening$/);
 });
 
+// --- what the page says of a state, and a state that leaves the page ---------------
+
+// A trigger whose aria-expanded is for something else, and never moves: what
+// opened — the dialog — says whether the state is open, not the attribute.
+const ACCOUNT = { name: 'account', click: '#account' };
+
+test('a dialog a key opens is open, and closed by Escape, whatever the aria-expanded its trigger never moves says', async () => {
+  const { recorder, seen } = transitionRecorder();
+  const { accessibility: result } = await probe('stale-expanded.html', { modules: only(recorder), config: { states: [ACCOUNT] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(seen.map(({ byKey, kind, inside, escaped, after }) => ({ byKey, kind, inside, escaped, after })), [{
+    byKey: { opened: true, key: 'Enter', focusable: true },
+    kind: 'modal',
+    inside: 'body > main#page > dialog#account-dialog > button#account-close',
+    escaped: true,
+    after: 'body > main#page > button#account',
+  }]);
+});
+
+test('a trigger a key works is not called inoperable on the strength of an aria-expanded nothing moves', async () => {
+  assert.deepEqual(await focusIn('stale-expanded.html', ACCOUNT), []);
+  assert.deepEqual(await leftBy('stale-expanded.html', ACCOUNT), []);
+});
+
+test('a trigger no key works is still inoperable, and one whose opening nothing shows says nothing of the keyboard', async () => {
+  assert.deepEqual(await focusIn('stale-expanded.html', { name: 'pointer', click: '#pointer-only' }), [
+    ['keyboard-inoperable', 'pointer', 'body > main#page > button#pointer-only', 'neither Enter nor Space opens what a click opens'],
+  ]);
+  // No key opens it and the click does, but no sign says so — neither what
+  // opened, which is nothing Kanso can name, nor an aria-expanded the click
+  // left as it was.
+  assert.deepEqual(await focusIn('stale-expanded.html', { name: 'plain', click: '#plain' }), []);
+});
+
+test('a click that leaves the page is no state to check, and says where it went', async () => {
+  const where = new URL('left.html', site.url);
+  const left = `left the page, for ${where.origin}${where.pathname}`;
+  const pay = { name: 'pay', click: '#pay' };
+  const { accessibility: result } = await probe('leaves.html', { modules: only(focus, residues, leaks), config: { states: [pay] } });
+
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.failures.map(({ probe: id, at, error }) => [id, at, error]), [
+    ['focus', 'pay', `pressing Enter ${left}`],
+    ['residues', 'pay', `the click ${left}`],
+    ['leaks', 'pay', `the click ${left}`],
+  ]);
+
+  // What it was waiting for never appears on the page it went to: the page
+  // left is the reason, not what is missing.
+  const { accessibility: waited } = await probe('leaves.html', {
+    modules: only(residues), config: { states: [{ ...pay, wait_for: '#paid' }] }, timeoutMs: 6_000,
+  });
+  assert.deepEqual(waited.failures.map(({ error }) => error), [`the click ${left}`]);
+});
+
 // --- keyboard -------------------------------------------------------------------------
 
 test('a page whose every stop shows its focus reports nothing, however it shows it', async () => {

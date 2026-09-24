@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A button that leaves the page</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <!-- A payment button: it sends the visitor to another page, the way one
+       sends them to the payment provider's. -->
+  <button id="pay" type="button">Pay</button>
+</main>
+<script>
+  document.getElementById('pay').addEventListener('click', () => { location.href = 'left.html?session=1'; });
+</script>
+</body>
+</html>
