@@ -41,15 +41,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  kanso-landing:
+  # What the probes run inside a page, on pages with known answers: ten
+  # seconds, and the quickest way to tell a probe that broke from a page that
+  # changed. Chrome comes preinstalled on the runner image.
+  probes:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
-      - name: Check out kanso
-        uses: actions/checkout@v7
-        with:
-          path: kanso
+      - uses: actions/checkout@v7
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run the probes against their pages
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run test:probes
+
+  # The landing page is built once, from the checked-out sources, and every
+  # step below audits that same build.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
       # The landing page is a public repository, so this needs no token and no
       # secret: a pull request from a fork checks it out exactly as a push to
       # main does, and runs the same suite.
@@ -57,38 +75,69 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: valajan/kanso-landing
-          path: kanso-landing
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            kanso/package-lock.json
-            kanso-landing/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kanso-landing-dist
+          path: dist
+          include-hidden-files: true
+          retention-days: 1
+
+  # One job per step: each audit takes about two minutes, and run one after the
+  # other they took twenty. The audits share nothing but the build, so they
+  # lose nothing by running apart — and a job to itself, a step's timing is
+  # not contended by another's Chromes.
+  steps:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        step: [baseline, tbt, cls, lcp, inp, reflow, focus, residue]
+    name: step (${{ matrix.step }})
+    steps:
+      - name: Check out kanso
+        uses: actions/checkout@v7
+        with:
+          path: kanso
+
+      # For its .kanso.yml; the build comes from the job above.
+      - name: Check out the landing page
+        uses: actions/checkout@v7
+        with:
+          repository: valajan/kanso-landing
+          path: kanso-landing
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: kanso-landing-dist
+          path: kanso-landing/dist
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kanso/package-lock.json
 
       - name: Install kanso
         working-directory: kanso
         run: npm ci
 
-      - name: Install the landing page
-        working-directory: kanso-landing
-        run: npm ci
-
-      # What the probes run inside a page, on pages with known answers: ten
-      # seconds, and the quickest way to tell a probe that broke from a page
-      # that changed. Chrome comes preinstalled on the runner image.
-      - name: Run the probes against their pages
-        working-directory: kanso
-        env:
-          CHROME_PATH: /usr/bin/google-chrome
-        run: npm run test:probes
-
-      # The suite builds the landing page itself, so the audit always measures
-      # the checked-out sources.
-      - name: Run the acceptance suite
+      - name: Run the acceptance step
         working-directory: kanso
         env:
           CHROME_PATH: /usr/bin/google-chrome
           KANSO_LANDING_DIR: ../kanso-landing
+          KANSO_ACCEPTANCE_SKIP_BUILD: '1'
+          KANSO_ACCEPTANCE_STEPS: ${{ matrix.step }}
         run: npm run test:acceptance
