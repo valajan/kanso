@@ -82,6 +82,26 @@ test('discover prints the file it would write, and writes nothing', async () => 
   assert.equal(existsSync(join(cwd, '.kanso.yml')), false);
 });
 
+test('the clicks left out because the guards stopped something are counted, with what was stopped, once each', async () => {
+  const guarded = [
+    { role: 'button', name: 'Tip 2 €', stopped: ['POST /api/payment/tip'] },
+    { role: 'button', name: 'Tip 5 €', stopped: ['POST /api/payment/tip'] },
+    { role: 'button', name: 'Clear all', stopped: ['confirm'] },
+  ];
+  const found = { ...FOUND, runs: { ...FOUND.runs, mobile: { ...FOUND.runs.mobile, guarded }, desktop: { ...FOUND.runs.desktop, guarded: guarded.slice(2) } } };
+  const { err } = await run(['discover', 'http://localhost:3000'], { discover: fakeDiscover(found) });
+
+  assert.match(err, /^mobile: 3 states from 12 clicks, 3 clicks not kept: they write, leave or ask \(POST \/api\/payment\/tip, confirm\)$/m);
+  assert.match(err, /^desktop: 2 states from 9 clicks, 1 click not kept: it writes, leaves or asks \(confirm\)$/m);
+});
+
+test('a run whose guards stopped nothing says nothing of them', async () => {
+  const found = { ...FOUND, runs: { ...FOUND.runs, mobile: { ...FOUND.runs.mobile, guarded: [] } } };
+  const { err } = await run(['discover', 'http://localhost:3000'], { discover: fakeDiscover(found) });
+  assert.match(err, /^mobile: 3 states from 12 clicks$/m);
+  assert.doesNotMatch(err, /not kept/);
+});
+
 test('--write writes the file whole under .kanso/, and leaves .kanso.yml byte for byte as it was', async () => {
   const kansoYml = '# the budgets we agreed on\nbudgets:\n  mobile:\n    lcp: 2500\nstates:\n  - name: nav\n    click: "#menu"\n    close: "#menu-close"\n';
   const cwd = project(kansoYml);

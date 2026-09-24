@@ -98,7 +98,7 @@ function summary({ explored, dropped, runs }, count) {
   for (const [formFactor, run] of Object.entries(runs)) {
     const states = explored[formFactor]?.length ?? 0;
     const short = run.outOfTime ? ', out of time' : run.leftInQueue > 0 ? `, ${run.leftInQueue} clicks left untried` : '';
-    lines.push(`${formFactor}: ${states} state${states === 1 ? '' : 's'} from ${run.clicks} click${run.clicks === 1 ? '' : 's'}${short}`);
+    lines.push(`${formFactor}: ${states} state${states === 1 ? '' : 's'} from ${run.clicks} click${run.clicks === 1 ? '' : 's'}${short}${refused(run.guarded)}`);
     if (!run.stable) lines.push(`  the page is not the same on two first visits: what moves on its own was left out of the comparison`);
   }
   for (const { formFactor, name, role, reason } of dropped) {
@@ -106,6 +106,19 @@ function summary({ explored, dropped, runs }, count) {
   }
   lines.push(`${count} state${count === 1 ? '' : 's'} found`);
   return lines.join('\n') + '\n';
+}
+
+// The clicks not kept because the guards stopped something they did, and
+// what — once each, the first few: that a "Pay" or a "Clear all" is missing
+// from the states is a choice, and says so, not a miss.
+const NAMED = 4;
+
+function refused(guarded = []) {
+  if (guarded.length === 0) return '';
+  const what = [...new Set(guarded.flatMap((c) => c.stopped ?? []))];
+  const named = what.slice(0, NAMED).join(', ') + (what.length > NAMED ? ', …' : '');
+  const one = guarded.length === 1;
+  return `, ${guarded.length} click${one ? '' : 's'} not kept: ${one ? 'it writes, leaves or asks' : 'they write, leave or ask'} (${named})`;
 }
 
 // A click-through takes a minute or more; each click said as it lands keeps

@@ -5,7 +5,8 @@ import { launchedPid, stopOnExit } from '../process/children.js';
 import { NO_JOURNAL } from '../probes/journal.js';
 import { reach } from '../probes/states.js';
 import { DEFAULTS, explore } from './explore.js';
-import { load, openPage } from './page.js';
+import { describeStopped, stoppedBy } from './guards.js';
+import { load, openPage, settle } from './page.js';
 
 // Finds the states of a page, so that nobody has to write `states:` by hand:
 // the page explored on each screen Kanso audits (./explore.js), then each
@@ -19,7 +20,8 @@ import { load, openPage } from './page.js';
 //
 // Resolves to { explored: { [formFactor]: nodes }, dropped, runs }: the states
 // kept on each screen, as ./explore.js lists them; the ones left out, with
-// why; and, per screen, what the exploration came to.
+// why; and, per screen, what the exploration came to — `guarded` naming each
+// click not kept because the guards stopped something it did.
 export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onProgress = () => {} } = {}) {
   // Built by hand rather than through chromeLauncher.launch(), for the reason
   // src/lighthouse/runner.worker.js gives: a Chrome whose port never opened
@@ -46,7 +48,7 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
     const explored = {};
     const dropped = [];
     for (const formFactor of formFactors) {
-      const { kept, left } = await replay(browser, formFactor, url, runs[formFactor].nodes);
+      const { kept, left } = await replay(browser, formFactor, url, runs[formFactor].nodes, runs[formFactor].unprompted);
       explored[formFactor] = kept;
       dropped.push(...left.map((node) => ({ formFactor, ...node })));
     }
@@ -55,7 +57,11 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
       dropped,
       runs: Object.fromEntries(formFactors.map((formFactor) => {
         const { clicks, stable, leftInQueue, outOfTime } = runs[formFactor];
-        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime }];
+        // The clicks left out because the guards stopped something they did:
+        // what a person reading the result needs to know was not missed but
+        // refused, and why.
+        const guarded = clicks.filter((c) => c.outcome === 'guarded').map(({ role, name, stopped }) => ({ role, name, stopped }));
+        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime, guarded }];
       })),
     };
   } finally {
@@ -68,7 +74,13 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
 // Each state reached again, from a first visit, down its path. Resolves to the
 // states that came back, and the ones that did not — each with the reason, or
 // the state on its way that did not.
-async function replay(browser, formFactor, url, nodes) {
+//
+// In a guarded page, as the exploration was: a replay during which the guards
+// stopped something (./guards.js, `stoppedBy`, the page's own beacons left
+// aside) has not replayed. The exploration found no such thing on the same
+// clicks — but a page may write on the second visit what it did not on the
+// first, and an audit, which has no guard, would send it for real.
+async function replay(browser, formFactor, url, nodes, unprompted) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const pathOf = (node) => {
     const path = [];
@@ -87,8 +99,12 @@ async function replay(browser, formFactor, url, nodes) {
     const tab = await openPage(browser, formFactor);
     try {
       await load(tab, url);
+      const blockedBefore = tab.guard.blocked.length;
       const states = pathOf(node).map(({ id, click, waitFor }) => ({ name: `state${id}`, click, ...(waitFor ? { waitFor } : {}) }));
       await reach(tab.page, states, { waitMs: 5_000, log: NO_JOURNAL });
+      await settle(tab.page);
+      const stopped = stoppedBy(tab.guard.blocked.slice(blockedBefore), unprompted);
+      if (stopped.length > 0) throw new Error(`the guards stopped what it did (${stopped.map((b) => describeStopped(b, url)).join(', ')})`);
       kept.push(node);
     } catch (err) {
       lost.add(node.id);

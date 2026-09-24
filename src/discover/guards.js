@@ -123,3 +123,54 @@ export async function guardPage(page) {
     },
   };
 }
+
+// What the guards stopped that a click did, out of all they stopped while it
+// was being judged: every navigation, window and dialog, and every write the
+// page does not also make on its own. `unprompted` holds where the page
+// writes with nothing clicked (`writeKey`), which ./page.js `prepare` gathers
+// from its two first visits.
+//
+// A page's own beacons — an analytics POST, a `sendBeacon`, a heartbeat — go
+// on whatever is clicked, and are stopped during any click that lasts long
+// enough; counted, they would leave no click a state. They are told from the
+// click's writes by where they go — method, origin and path, the query left
+// out, since a beacon's query carries a timestamp or a counter and its path
+// does not. A write a click makes to an address the page also writes to
+// unprompted is lost among them: the price of keeping this simple, and a
+// small one, for what a button writes to is its own endpoint, not the
+// analytics one. A beacon slower than the two first visits goes unseen and
+// counts against the click it lands in, which is the side to err on: a
+// harmless state left unfound, rather than a write an audit replays. A
+// navigation, a window or a dialog is never a page's background noise.
+export function stoppedBy(blocked, unprompted = new Set()) {
+  return blocked.filter((b) => b.kind !== 'write' || !unprompted.has(writeKey(b)));
+}
+
+// Where a write goes, as `stoppedBy` compares it.
+export function writeKey({ method, url }) {
+  try {
+    const { origin, pathname } = new URL(url);
+    return `${method} ${origin}${pathname}`;
+  } catch {
+    return `${method} ${url}`;
+  }
+}
+
+// What was stopped, in a few words for a terminal: `POST /api/tip`,
+// `navigation to /next.html`, `a window`, `confirm`. An address on the page's
+// own origin by its path, another with its host.
+export function describeStopped(b, pageUrl) {
+  const where = (url) => {
+    try {
+      const to = new URL(url);
+      return pageUrl && to.origin === new URL(pageUrl).origin ? to.pathname : `${to.host}${to.pathname}`;
+    } catch {
+      return url ?? '';
+    }
+  };
+  if (b.kind === 'write') return `${b.method} ${where(b.url)}`;
+  if (b.kind === 'navigation') return `navigation to ${where(b.url)}`;
+  if (b.kind === 'window') return 'a window';
+  if (b.kind === 'dialog') return b.type;
+  return b.kind;
+}

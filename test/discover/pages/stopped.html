@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clicks that would do something for real</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; }
+  [role="alert"]:empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your basket</h1>
+  <ul id="items"><li>Anvil</li><li>Rope</li></ul>
+
+  <!-- A state: it only shows what the page holds. -->
+  <button type="button" id="shipping" aria-expanded="false" aria-controls="shipping-panel">Shipping costs</button>
+  <div id="shipping-panel" hidden><p>Free from 50 €.</p></div>
+
+  <!-- Named like a harmless button, so the rules let it through: only the net
+       stops it. What it shows once stopped is the error a failed payment
+       leaves, which an audit would reach by paying. -->
+  <button type="button" id="tip">Tip 2 €</button>
+  <p role="alert" id="tip-error"></p>
+
+  <!-- Asks first: dismissed, it changes nothing; answered, it empties the
+       basket. An audit has nobody to answer. -->
+  <button type="button" id="clear">Clear all</button>
+</main>
+<script>
+  // The page's own beacon, as an analytics script sends one: every 300 ms,
+  // whatever is clicked.
+  setInterval(() => navigator.sendBeacon(`/cdn-cgi/rum?t=${Date.now()}`, '{}'), 300);
+
+  document.getElementById('shipping').addEventListener('click', (e) => {
+    const panel = document.getElementById('shipping-panel');
+    panel.hidden = !panel.hidden;
+    e.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
+  });
+  document.getElementById('tip').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/payment/tip', { method: 'POST', body: '{"amount":2}' });
+      location.href = (await res.json()).checkout;
+    } catch {
+      document.getElementById('tip-error').textContent = 'The payment could not be started.';
+    }
+  });
+  document.getElementById('clear').addEventListener('click', () => {
+    if (confirm('Clear the basket?')) document.getElementById('items').replaceChildren();
+  });
+</script>
+</body>
+</html>
