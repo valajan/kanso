@@ -2,7 +2,6 @@ import { moduleConfig } from '../config/module-config.js';
 import { FORM_FACTORS } from '../core/audit.js';
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
 import { checkLabel, MODULES } from '../modules/index.js';
-import { inpProbed } from '../modules/performance/inp.js';
 import { METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, failThreshold } from '../modules/performance/status.js';
 
@@ -68,6 +67,7 @@ function renderModule(id, moduleResult, config, c) {
 
   if (moduleResult.scores) lines.push(...renderScores(moduleResult, config, c));
   if (moduleResult.findings !== undefined) lines.push(...renderFindings(moduleResult, c));
+  lines.push(...skipped(id, moduleResult, c));
 
   if (!moduleResult.scores && moduleResult.findings === undefined) {
     const rows = Object.entries(moduleResult.levels).map(([check, level]) => [
@@ -99,7 +99,6 @@ function renderScores(moduleResult, config, c) {
     lines.push(...unreachedInp(moduleResult.diagnostics?.[formFactor]?.current?.inp, c));
   }
 
-  if (!inpProbed(moduleResult)) lines.push('', '  ' + c('dim', 'INP not measured: no states declared in .kanso.yml, so nothing was clicked to time'));
   return lines;
 }
 
@@ -197,7 +196,9 @@ function renderFindings(moduleResult, c) {
   const { findings } = moduleResult;
   if (findings == null) return ['', '  ' + c('dim', 'no result')];
   if (findings.length === 0) {
-    return ['', '  ' + c('green', 'no findings'), '', '  ' + c('dim', summary(moduleResult)), ...unchecked(moduleResult, c)];
+    // Nothing found by probes some of which never ran is not a clean page.
+    const clean = (moduleResult.skipped ?? []).length === 0 ? 'green' : 'dim';
+    return ['', '  ' + c(clean, 'no findings'), '', '  ' + c('dim', summary(moduleResult)), ...unchecked(moduleResult, c)];
   }
 
   // The state column only exists when a baseline gave the findings one.
@@ -247,6 +248,15 @@ function unchecked({ probeFailures = [] }, c) {
   return probeFailures.map(({ probe, rules, side, formFactor, error, at }) => '  ' + c('yellow', at
     ? `! ${at} could not be reached on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rulesLabel(rules)} unchecked there`
     : `! ${probe} did not run on the ${formFactor} ${side === 'current' ? 'page' : 'baseline'} (${error}): ${rulesLabel(rules)} unchecked`));
+}
+
+// A probe left out for want of a declared state checked nothing either, but
+// nothing went wrong: the project has not said what to open. Said apart from
+// a probe that failed, and with the way to say it.
+function skipped(id, { skipped: probes = [] }, c) {
+  if (probes.length === 0) return [];
+  const rules = probes.flatMap((probe) => probe.rules.map((rule) => checkLabel(id, rule)));
+  return ['', '  ' + c('dim', `- ${probes.map(({ probe }) => probe).join(', ')} skipped: no states declared in .kanso.yml, so nothing was opened or clicked: ${rulesLabel(rules)} not checked (kanso discover --write finds them)`)];
 }
 
 // A handful of rules by name; axe's hundred by number.

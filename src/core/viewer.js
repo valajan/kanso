@@ -19,17 +19,19 @@
 // and run by the tests in Node as they are.
 
 // The data a page shows: the findings of the result, one list for every
-// module; the probes that failed; each load's journal; the frames by the path
-// the events name them with.
+// module; the probes that failed, and the ones left out for want of a state;
+// each load's journal; the frames by the path the events name them with.
 //
 //   { kind: 'record' | 'extract', url, baseline, conclusion,
 //     findings: [{ key, module, ...finding }], failures: [{ module, probe, at?, error }],
+//     skipped: [{ module, probe, rules, reason }],
 //     loads: [{ name, side, formFactor, run, events }], frames: { [file]: dataUri } }
 export function viewerData({ result, loads = [], frames = {} }) {
   const modules = Object.entries(result?.modules ?? {});
   const findings = modules.flatMap(([module, { findings }]) => (findings ?? []).map((finding) => ({ module, ...finding })))
     .map((finding, i) => ({ key: `f${i}`, ...finding }));
   const failures = modules.flatMap(([module, { probeFailures }]) => (probeFailures ?? []).map((failure) => ({ module, ...failure })));
+  const skipped = modules.flatMap(([module, { skipped }]) => (skipped ?? []).map((skip) => ({ module, ...skip })));
   return {
     kind: 'record',
     url: result?.url ?? null,
@@ -37,6 +39,7 @@ export function viewerData({ result, loads = [], frames = {} }) {
     conclusion: result?.conclusion ?? null,
     findings,
     failures,
+    skipped,
     loads,
     frames,
   };
@@ -98,7 +101,7 @@ export function extractOf(data, key) {
       if (event.frame && data.frames[event.frame.file]) frames[event.frame.file] = data.frames[event.frame.file];
     }
   }
-  return { ...data, kind: 'extract', findings: [finding], failures: [], loads, frames };
+  return { ...data, kind: 'extract', findings: [finding], failures: [], skipped: [], loads, frames };
 }
 
 // JSON that can sit inside a <script> element: no `<` in it, so neither a
@@ -313,8 +316,12 @@ function main(data) {
   }
   if (data.loads.length === 0) timeline.append(h('p', { class: 'muted' }, 'No journal was kept.'));
 
-  const failures = data.failures.length > 0
-    ? h('section', {}, h('h2', {}, 'Not checked'), h('ul', {}, data.failures.map((f) => h('li', {}, h('code', {}, `${f.module}/${f.probe}`), f.at ? ` @${f.at}` : '', ` — ${f.error}`))))
+  // A page recorded before `skipped` existed has none.
+  const skipped = data.skipped ?? [];
+  const failures = data.failures.length + skipped.length > 0
+    ? h('section', {}, h('h2', {}, 'Not checked'), h('ul', {},
+      data.failures.map((f) => h('li', {}, h('code', {}, `${f.module}/${f.probe}`), f.at ? ` @${f.at}` : '', ` — ${f.error}`)),
+      skipped.map((s) => h('li', {}, h('code', {}, `${s.module}/${s.probe}`), ' — skipped: no states declared'))))
     : null;
 
   root.replaceChildren(header,

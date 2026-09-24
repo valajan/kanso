@@ -1,5 +1,7 @@
 import { moduleConfig } from '../config/module-config.js';
+import { parseIgnore } from '../modules/findings.js';
 import { MODULES } from '../modules/index.js';
+import { skippedProbes } from '../probes/index.js';
 import { worstLevel } from './levels.js';
 import { clampRuns } from './runs.js';
 
@@ -40,7 +42,12 @@ export const SCREENSHOT = Symbol('screenshot');
 // once. A failed load only costs its own column: the audit is an error when
 // the page under audit failed on every form factor.
 //
-// Resolves to { ok: true, conclusion, modules: { [id]: { conclusion, levels, ... } }, failures }
+// Each module's result also says, as `skipped`, which of its probes did not
+// run because the project declares no state — { probe, rules, reason } — the
+// rules it would have checked less the ones `ignore:` leaves out. A rule
+// nobody checked is not a rule that passed, and a surface says so.
+//
+// Resolves to { ok: true, conclusion, modules: { [id]: { conclusion, levels, skipped, ... } }, failures }
 // or { ok: false, conclusion: 'error', error, failures }, where each failure is
 // { side: 'current' | 'baseline', formFactor, url, error } — plus, when asked
 // for and the audit ran, `screenshots: { [formFactor]: dataUri | null }`.
@@ -90,7 +97,7 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
       baseline: loaded[ff].baseline?.[mod.id] ?? null,
     }]));
     const evaluation = mod.evaluate({ formFactors, baselineAudited: baselineModules.includes(mod) }, configs.get(mod.id));
-    results[mod.id] = { ...evaluation, conclusion: worstLevel(Object.values(evaluation.levels)) };
+    results[mod.id] = { ...evaluation, conclusion: worstLevel(Object.values(evaluation.levels)), skipped: skipped(mod, config) };
   }
 
   return {
@@ -102,4 +109,14 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
       ? { screenshots: Object.fromEntries(FORM_FACTORS.map((ff) => [ff, loaded[ff].current?.[SCREENSHOT] ?? null])) }
       : {}),
   };
+}
+
+// The probes of a module left out for want of a state, and the rules each
+// would have checked — none that the module's `ignore:` names, which nobody
+// asked to be checked.
+function skipped(mod, config) {
+  const ignore = parseIgnore(moduleConfig(config, mod.id).ignore);
+  return skippedProbes(mod, config)
+    .map((skip) => ({ ...skip, rules: skip.rules.filter((rule) => !ignore.includes(rule)) }))
+    .filter((skip) => skip.rules.length > 0);
 }

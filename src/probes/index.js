@@ -66,7 +66,8 @@ const SETTLE_MS = 5_000;
 // other branches go on.
 //
 // A probe that says `onlyInStates: true` has nothing to read in a page nobody
-// clicked, and is not run at all when no state is declared.
+// clicked, and is not run at all when no state is declared — which the audit
+// reports as such (`skippedProbes`), never as a probe that found nothing.
 //
 // A probe that says `transitions: true` checks the way into and out of each
 // state rather than the state itself: what focus does when it opens, what is
@@ -95,7 +96,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
     .filter((probe) => !measuresOnly || probe.measures)
-    .filter((probe) => !(probe.onlyInStates || probe.transitions) || declared.length > 0)
+    .filter((probe) => !needsStates(probe) || declared.length > 0)
     .map((probe) => ({ mod, probe, config: moduleConfig(config, mod.id) })));
   if (wanted.length === 0) return {};
 
@@ -363,6 +364,27 @@ async function withTimeout(work, ms) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Whether a probe has nothing to do without a state: one that reads the page
+// only in its states, or checks the way into and out of them.
+function needsStates(probe) {
+  return Boolean(probe.onlyInStates || probe.transitions);
+}
+
+// The probes of `mod` this audit does not run for want of a state, each with
+// the rules it would have checked — { probe, rules, reason: 'no-states' }.
+// Only when the project declares none at all: states declared for one screen
+// only are its word that the other has none, and nothing is missing there.
+// Read from the configuration alone, the way the worker reads it to leave
+// them out, so that the core can say what was skipped without a load saying so.
+export function skippedProbes(mod, config = {}) {
+  if (parseStates(config.states).length > 0) return [];
+  return (mod.probes ?? []).filter(needsStates).map((probe) => ({
+    probe: probe.id,
+    rules: probeRules(probe, moduleConfig(config, mod.id)),
+    reason: 'no-states',
+  }));
 }
 
 // What a probe covers: a fixed list, or — when what it checks is configurable

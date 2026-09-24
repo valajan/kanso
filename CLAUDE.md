@@ -96,7 +96,15 @@ run where the code is.
   resolved `.kanso.yml` — the config travels with the load into the worker —
   so what it checks, and the rules it answers for, can be a matter of
   configuration. A probe that fails costs its own rules, reported as unchecked,
-  never as clean. A probe marked `states: true` (axe and INP, today) also goes
+  never as clean. One that needs a state — `onlyInStates` (INP) or a
+  transition probe — does not run when the project declares none at all,
+  which `skippedProbes` reads from the configuration alone: the core lists it
+  on its module's result as `skipped` (`{ probe, rules, reason: 'no-states' }`,
+  less the rules `ignore:` leaves out), and the terminal, the Markdown report,
+  the JSON and the record's page say so apart from a failure — not checked,
+  not clean, with `kanso discover --write` to find the states. States declared
+  for one screen only are states declared: the other has none to open, and
+  nothing is skipped there. A probe marked `states: true` (axe and INP, today) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
   reads them, `states.js` here reaches one: a click, then `wait_for`, then
   `settle.js` — the network quiet, then the page's finite animations
@@ -227,7 +235,7 @@ run where the code is.
   which Lighthouse cannot measure on a load, clocked on the clicks the
   declared states make, on a CPU slowed by Lighthouse's multiplier, on every
   load so that `runs:` gives it a median; with no state declared it does not
-  run and INP is `null`, reported as not measured. `diagnostics.js` keeps
+  run and INP is `null`, reported as not measured, the probe `skipped`. `diagnostics.js` keeps
   what Lighthouse says about why — the LCP element and breakdown, render-blocking requests,
   layout shifts — from the load behind each median. They explain and are never
   judged. The slowest interaction — its element, state and three parts —

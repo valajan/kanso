@@ -249,9 +249,26 @@ test('a state that could not be reached is said, with how many rules went unchec
 // INP is only measured on declared clicks: without any, its row has no value
 // and no icon, and a line under the tables says why — once.
 test('an INP nobody measured has no icon, and the report says why', () => {
-  const body = report(noReference);
+  const body = report(noReference, { modules: { performance: { skipped: [{ probe: 'inp', rules: ['inp'], reason: 'no-states' }] } } });
   assert.ok(body.includes('| INP | 500ms | — | — | — |  |'));
-  assert.equal(body.match(/INP not measured: no `states:` declared/g).length, 1);
+  assert.equal(body.match(/_⏭️ `inp` skipped: no `states:` declared in `\.kanso\.yml`, so nothing was opened or clicked: `INP` not checked\. `kanso discover --write` finds them\._/g).length, 1);
+});
+
+// Skipped is neither failed nor clean: said under the section, after what it
+// was judged against, apart from a probe that did not run.
+test('a probe skipped for want of a state is said under its section, with its rules', () => {
+  const skipped = [
+    { probe: 'residues', rules: ['page-locked', 'overlay-left'], reason: 'no-states' },
+    { probe: 'leaks', rules: ['dom-leak', 'listener-leak'], reason: 'no-states' },
+  ];
+  const body = report(noReference, {
+    modules: { interactions: { findings: [], fixed: [], comparedToBaseline: false, failOn: 'serious', ignore: [], probeFailures: [], skipped } },
+  });
+
+  assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up_\n'
+    + '_⏭️ `residues`, `leaks` skipped: no `states:` declared in `.kanso.yml`, so nothing was opened or clicked: '
+    + '`page-locked`, `overlay-left`, `dom-leak`, `listener-leak` not checked. `kanso discover --write` finds them._\n'));
+  assert.doesNotMatch(body, /⚠️/);
 });
 
 test('a state the INP could not reach is said under its table, apart from it', () => {

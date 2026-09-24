@@ -31,6 +31,7 @@ const RESULT = {
     },
     seo: { findings: [{ rule: 'meta-description', title: 'No meta description', impact: 'minor', count: 1, formFactors: ['mobile'], nodes: [], state: null, level: 'warn' }] },
     performance: { levels: {} },
+    interactions: { findings: [], skipped: [{ probe: 'residues', rules: ['page-locked'], reason: 'no-states' }] },
   },
 };
 
@@ -69,13 +70,14 @@ function dataIn(html) {
 }
 
 test('the findings of every module make one list, each with a key and its module', () => {
-  const { findings, failures, conclusion } = data();
+  const { findings, failures, skipped, conclusion } = data();
   assert.deepEqual(findings.map(({ key, module, rule, at }) => [key, module, rule, at ?? null]), [
     ['f0', 'accessibility', 'focus-not-moved', 'drawer'],
     ['f1', 'accessibility', 'image-alt', null],
     ['f2', 'seo', 'meta-description', null],
   ]);
   assert.deepEqual(failures.map(({ module, probe, at }) => [module, probe, at]), [['accessibility', 'keyboard', 'drawer']]);
+  assert.deepEqual(skipped.map(({ module, probe }) => [module, probe]), [['interactions', 'residues']]);
   assert.equal(conclusion, 'fail');
 });
 
@@ -102,6 +104,7 @@ test('an extract carries its finding, its moments and their frames, and nothing 
   assert.equal(extract.kind, 'extract');
   assert.deepEqual(extract.findings.map((f) => f.rule), ['focus-not-moved']);
   assert.deepEqual(extract.failures, []);
+  assert.deepEqual(extract.skipped, []);
   assert.deepEqual(extract.loads.map((l) => [l.name, l.events.map((e) => e.seq)]), [['current.mobile.1.jsonl', [7, 8, 9, 10, 11]]]);
   assert.deepEqual(Object.keys(extract.frames).sort(), ['frames/current.mobile.1/10.jpg', 'frames/current.mobile.1/7.jpg', 'frames/current.mobile.1/8.jpg']);
 });
