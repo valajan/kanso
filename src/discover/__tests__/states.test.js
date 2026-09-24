@@ -5,7 +5,7 @@ import { parseStates } from '../../config/states.js';
 import { renderStatesFile, slug, stateNames, statesFrom } from '../states.js';
 
 // What one screen's exploration hands back, the ids its own.
-const node = (id, parent, click, name, { role = 'button', waitFor = null } = {}) => ({ id, parent, click, waitFor, role, name });
+const node = (id, parent, click, name, { role = 'button', waitFor = null, ...more } = {}) => ({ id, parent, click, waitFor, role, name, ...more });
 
 const MENU = node(1, null, '#menu-toggle', 'Menu', { waitFor: '#menu-toggle[aria-expanded="true"]' });
 const SIGNUP = node(2, 1, '::-p-aria([name="Sign up"][role="link"])', 'Sign up', { role: 'link' });
@@ -98,6 +98,22 @@ test('what says a state opened is kept only when both screens saw the same', () 
   assert.equal(waitFor('#menu', '#nav'), undefined);
   assert.equal(waitFor('#menu', null), undefined);
   assert.equal(waitFor(null, '#menu'), undefined);
+});
+
+// A drawer's close button a phone alone shows would fail, clicked on a
+// desktop, every check that closes the drawer there.
+test('what closes a state is kept only when every screen that reached it found the same', () => {
+  const on = (close) => ({ ...MENU, ...(close ? { close } : {}) });
+  const close = (mobile, desktop) => statesFrom({ mobile: [on(mobile)], desktop: desktop === undefined ? null : [on(desktop)] })[0].close;
+  assert.equal(close('#menu-close', '#menu-close'), '#menu-close');
+  assert.equal(close('#menu-close', null), undefined);
+  assert.equal(close(null, '#menu-close'), undefined);
+  assert.equal(close('#menu-close', '#nav-close'), undefined);
+  // On one screen only, it is that screen's to say.
+  assert.equal(close('#menu-close', undefined), '#menu-close');
+  const [state] = statesFrom({ mobile: [on('#menu-close')], desktop: [on('#menu-close')] });
+  assert.deepEqual(Object.keys(state), ['name', 'click', 'wait_for', 'close']);
+  assert.match(renderStatesFile([state]), /    wait_for: '#menu-toggle\[aria-expanded="true"\]'\n    close: '#menu-close'\n/);
 });
 
 test('a found state takes no name already taken, in the tree or by the project', () => {
@@ -212,4 +228,15 @@ test('what was found, written as a file, loads as the states it found', () => {
   assert.deepEqual(flat(yaml.load(renderStatesFile(found)).states), [
     ['menu', null, 'mobile'], ['sign-up', 'menu', 'mobile'], ['settings', null, null],
   ]);
+});
+
+// One dialog two buttons open is one state: the other button is said beside
+// it, in a comment, which reads back as nothing.
+test('the other elements that open a state are named beside it, from either screen, as a comment', () => {
+  const dialog = (also) => node(4, null, '#account', 'Account', { alsoOpenedBy: also });
+  const states = statesFrom({ mobile: [dialog(['#signin'])], desktop: [dialog(['#signin', '#hero-signin'])] });
+  assert.deepEqual(states, [{ name: 'account', click: '#account', also_opened_by: ['#signin', '#hero-signin'] }]);
+  const text = renderStatesFile(states);
+  assert.match(text, /    click: '#account'\n    # also opened by '#signin'\n    # also opened by '#hero-signin'\n/);
+  assert.deepEqual(yaml.load(text), { states: [{ name: 'account', click: '#account' }] });
 });

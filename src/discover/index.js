@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer-core';
 
 import { launchedPid, stopOnExit } from '../process/children.js';
 import { NO_JOURNAL } from '../probes/journal.js';
-import { reach } from '../probes/states.js';
+import { applyState, reach } from '../probes/states.js';
 import { DEFAULTS, explore } from './explore.js';
 import { describeStopped, stoppedBy } from './guards.js';
 import { load, openPage, settle } from './page.js';
@@ -21,7 +21,8 @@ import { load, openPage, settle } from './page.js';
 // Resolves to { explored: { [formFactor]: nodes }, dropped, runs }: the states
 // kept on each screen, as ./explore.js lists them; the ones left out, with
 // why; and, per screen, what the exploration came to — `guarded` naming each
-// click not kept because the guards stopped something it did.
+// click not kept because the guards stopped something it did, `clicked`
+// every click as ./explore.js records it.
 export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onProgress = () => {} } = {}) {
   // Built by hand rather than through chromeLauncher.launch(), for the reason
   // src/lighthouse/runner.worker.js gives: a Chrome whose port never opened
@@ -61,7 +62,10 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
         // what a person reading the result needs to know was not missed but
         // refused, and why.
         const guarded = clicks.filter((c) => c.outcome === 'guarded').map(({ role, name, stopped }) => ({ role, name, stopped }));
-        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime, guarded }];
+        // And every click, with what it changed and what it came to: what
+        // explains, after the fact, a state nobody expected — or one that
+        // was expected and is not there.
+        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime, guarded, clicked: clicks }];
       })),
     };
   } finally {
@@ -71,9 +75,10 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
   }
 }
 
-// Each state reached again, from a first visit, down its path. Resolves to the
-// states that came back, and the ones that did not — each with the reason, or
-// the state on its way that did not.
+// Each state reached again, from a first visit, down its path — and closed,
+// when the exploration found what closes it. Resolves to the states that came
+// back, and the ones that did not — each with the reason, or the state on its
+// way that did not.
 //
 // In a guarded page, as the exploration was: a replay during which the guards
 // stopped something (./guards.js, `stoppedBy`, the page's own beacons left
@@ -105,7 +110,7 @@ async function replay(browser, formFactor, url, nodes, unprompted) {
       await settle(tab.page);
       const stopped = stoppedBy(tab.guard.blocked.slice(blockedBefore), unprompted);
       if (stopped.length > 0) throw new Error(`the guards stopped what it did (${stopped.map((b) => describeStopped(b, url)).join(', ')})`);
-      kept.push(node);
+      kept.push(node.close && !(await closesAgain(tab, node.close, unprompted)) ? withoutClose(node) : node);
     } catch (err) {
       lost.add(node.id);
       left.push({ ...node, reason: err.message.split('\n')[0] });
@@ -114,4 +119,24 @@ async function replay(browser, formFactor, url, nodes, unprompted) {
     }
   }
   return { kept, left };
+}
+
+// Whether what closed a state closes it again, in the page just brought to
+// it: there to be clicked, and clicked with nothing the guards must stop — an
+// audit clicks it with no guard. A close that does not is left out, and the
+// state kept: Escape and a click away from it are still tried
+// (src/probes/transition.js).
+async function closesAgain(tab, close, unprompted) {
+  const blockedBefore = tab.guard.blocked.length;
+  try {
+    await applyState(tab.page, { click: close }, { waitMs: 5_000, fromTop: false });
+    await settle(tab.page);
+  } catch {
+    return false;
+  }
+  return stoppedBy(tab.guard.blocked.slice(blockedBefore), unprompted).length === 0;
+}
+
+function withoutClose({ close, ...node }) {
+  return node;
 }

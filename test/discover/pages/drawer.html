@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Past orders — a drawer a phone closes with a button of its own</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  button { font: inherit; }
+  #drawer { border: 1px solid #999; padding: 1rem; }
+  #drawer[hidden] { display: none; }
+  /* A desktop closes the drawer with the button that opened it: the close
+     button in it is a phone's alone. */
+  @media (min-width: 768px) {
+    #drawer-close { display: none; }
+  }
+</style>
+</head>
+<body>
+<header><strong>Anvils by post</strong></header>
+<main>
+  <h1>Your account</h1>
+  <button id="orders" type="button" aria-expanded="false" aria-controls="drawer">Past orders</button>
+  <section id="drawer" aria-label="Past orders" hidden>
+    <button id="drawer-close" type="button">Close</button>
+    <p>One anvil, 12 March.</p>
+    <button id="older" type="button">Show older orders</button>
+    <p id="older-list" hidden>One rocket, 2 January.</p>
+  </section>
+</main>
+<footer><p>Anvils by post Ltd</p></footer>
+<script>
+  const drawer = document.getElementById('drawer');
+  const orders = document.getElementById('orders');
+  const show = (open) => {
+    drawer.hidden = !open;
+    orders.setAttribute('aria-expanded', String(open));
+  };
+  orders.addEventListener('click', () => show(drawer.hidden));
+  document.getElementById('drawer-close').addEventListener('click', () => show(false));
+  document.getElementById('older').addEventListener('click', () => { document.getElementById('older-list').hidden = false; });
+</script>
+</body>
+</html>

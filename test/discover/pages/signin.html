@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anvil club — one sign-in dialog, two ways to it</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  header { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; }
+  button { font: inherit; }
+  dialog { max-width: 22rem; border: 1px solid #999; border-radius: 8px; }
+  dialog::backdrop { background: rgb(0 0 0 / .5); }
+</style>
+</head>
+<body>
+<!-- The same native dialog, opened with showModal() from two places: the
+     account button in the header, which says it is expanded and is never
+     told otherwise, and a plain button in the page. What shows once it is
+     open is the same dialog, whichever opened it — over a page made inert
+     by showModal(), with no attribute to say so. -->
+<header>
+  <strong>Anvil club</strong>
+  <button id="account" type="button" aria-haspopup="dialog" aria-expanded="false">Account</button>
+</header>
+<main>
+  <h1>Members get the heavy ones first</h1>
+  <p>Sign in to see this week's anvils.</p>
+  <button id="signin" type="button">Sign in</button>
+  <button id="like" type="button" aria-pressed="false">Like</button>
+</main>
+<footer><p>Anvil club Ltd</p></footer>
+<dialog id="auth" aria-labelledby="auth-title">
+  <h2 id="auth-title">Sign in</h2>
+  <p>We will send you a link.</p>
+  <button id="forgot" type="button" aria-expanded="false" aria-controls="forgot-help">Forgot your email?</button>
+  <p id="forgot-help" hidden>Write to the club, and we will find it.</p>
+  <button type="button" aria-label="Close">×</button>
+</dialog>
+<script>
+  const auth = document.getElementById('auth');
+  const account = document.getElementById('account');
+  account.addEventListener('click', () => {
+    account.setAttribute('aria-expanded', 'true');
+    auth.showModal();
+  });
+  document.getElementById('signin').addEventListener('click', () => auth.showModal());
+  auth.querySelector('[aria-label="Close"]').addEventListener('click', () => auth.close());
+  const forgot = document.getElementById('forgot');
+  forgot.addEventListener('click', () => {
+    const help = document.getElementById('forgot-help');
+    help.hidden = !help.hidden;
+    forgot.setAttribute('aria-expanded', String(!help.hidden));
+  });
+  const like = document.getElementById('like');
+  like.addEventListener('click', () => like.setAttribute('aria-pressed', String(like.getAttribute('aria-pressed') !== 'true')));
+</script>
+</body>
+</html>
