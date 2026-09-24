@@ -154,17 +154,17 @@ test('the rules the probe answers for follow the tags the project asked for', as
 
 // --- the declared states of a page ------------------------------------------------
 
-// What only a click shows: a menu, a form behind it. The states are reached
-// one from the other, in the page axe already loaded — no load of their own —
-// and what is found in each says where.
+// What only a click shows: a menu, a form behind it. The form starts from the
+// menu, and is reached from it in the page axe already loaded — no load of its
+// own — and what is found in each says where.
 const MENU = { name: 'menu', click: '#open', wait_for: "#open[aria-expanded='true']" };
-const SIGNUP = { name: 'signup', click: '#signup', wait_for: '#form:not([hidden])' };
+const SIGNUP = { name: 'signup', from: 'menu', click: '#signup', wait_for: '#form:not([hidden])' };
 
 function where(result) {
   return broken(result).map(({ rule, at, count }) => [rule, at ?? null, count]);
 }
 
-test('axe reads the page again in each declared state, one reached from the other', async () => {
+test('axe reads the page again in each declared state, one reached from the other it starts from', async () => {
   const { accessibility: result } = await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU, SIGNUP] } });
 
   assert.deepEqual(result.failures, []);
@@ -174,12 +174,14 @@ test('axe reads the page again in each declared state, one reached from the othe
     // state reports what it adds.
     ['image-alt', null, 1],
     ['button-name', 'menu', 1],
-    // The menu is still open — the states are cumulative — but its button
-    // was reported where it appeared.
+    // The menu is still open — the form starts from it — but its button was
+    // reported where it appeared.
     ['label', 'signup', 1],
   ]);
 });
 
+// The second menu starts from the page, loaded again: what it shows was
+// reported in the first, and is not reported twice.
 test('a state that shows nothing new reports nothing', async () => {
   const { accessibility: result } = await probe('states-menu.html', {
     modules: only(axeProbe), config: { states: [MENU, { name: 'menu-again', click: '#open' }] },
@@ -195,17 +197,19 @@ test('a page read in no state is read as before', async () => {
 });
 
 // Nothing found in a state nobody reached is nothing checked: that state, and
-// every one after it — reached from it — are failures, never clean.
-test('a state that cannot be reached stops the way through, and says which part was missing', async () => {
+// every one reached through it, are failures, never clean. The other branches
+// go on.
+test('a state that cannot be reached costs the ones reached through it, and says which part was missing', async () => {
   const ghost = { name: 'ghost', click: '#nothing-here' };
+  const beyond = { name: 'beyond', from: 'ghost', click: '#signup' };
   const { accessibility: result } = await probe('states-menu.html', {
-    modules: only(axeProbe), config: { states: [MENU, ghost, SIGNUP] }, timeoutMs: 6_000,
+    modules: only(axeProbe), config: { states: [ghost, beyond, MENU, SIGNUP] }, timeoutMs: 6_000,
   });
 
-  assert.deepEqual(where(result), [['image-alt', null, 1], ['button-name', 'menu', 1]]);
+  assert.deepEqual(where(result), [['image-alt', null, 1], ['button-name', 'menu', 1], ['label', 'signup', 1]]);
   assert.deepEqual(result.failures.map(({ probe, at, error, rules }) => ({ probe, at, error, rules: rules.length })), [
     { probe: 'axe', at: 'ghost', error: 'nothing visible to click at #nothing-here', rules: 101 },
-    { probe: 'axe', at: 'signup', error: 'not reached: ghost could not be', rules: 101 },
+    { probe: 'axe', at: 'beyond', error: 'not reached: ghost could not be', rules: 101 },
   ]);
 });
 
@@ -222,10 +226,13 @@ test('the journal follows a probe through its states, and keeps what it found wh
   const ghost = { name: 'ghost', click: '#nothing-here' };
   await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU, ghost] }, timeoutMs: 6_000, journal });
 
+  // The ghost starts from the page, not from the menu: the page is loaded
+  // again for it.
   assert.deepEqual(journal.events.filter((e) => e.kind !== 'finding').map((e) => [e.kind, e.probe, e.at ?? null]), [
     ['probe-start', 'axe', null],
     ['loaded', 'axe', null],
     ['state-reached', 'axe', 'menu'],
+    ['loaded', 'axe', 'ghost'],
     ['state-unreached', 'axe', 'ghost'],
     ['probe-end', 'axe', null],
   ]);
@@ -304,7 +311,7 @@ test('reflow runs on the mobile load only', async () => {
 // such check has — open by key, else by click; where focus is; close — and
 // reports what they said.
 const MENU_T = { name: 'menu', click: '#menu-button', wait_for: "#menu-button[aria-expanded='true']" };
-const SETTINGS_T = { name: 'settings', click: '#settings-button', wait_for: 'dialog[open]' };
+const SETTINGS_T = { name: 'settings', from: 'menu', click: '#settings-button', wait_for: 'dialog[open]' };
 const MORE_T = { name: 'more', click: '#more', wait_for: '#panel:not([hidden])' };
 
 function transitionRecorder() {
@@ -338,7 +345,7 @@ function transitionRecorder() {
   return { recorder, seen };
 }
 
-test('a transition probe goes into and out of each state, in a page brought to the state before', async () => {
+test('a transition probe goes into and out of each state, in a page brought to the state it starts from', async () => {
   const { recorder, seen } = transitionRecorder();
   const journal = new Journal();
   const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
@@ -404,17 +411,20 @@ test('a state no key opens says so, and the click still opens it; one nothing cl
   ]);
 });
 
-test('a state a transition probe cannot check costs that state, and the ones beyond it', async () => {
+test('a state a transition probe cannot check costs that state, and the ones reached through it', async () => {
   const { recorder } = transitionRecorder();
   const ghost = { name: 'ghost', click: '#nothing-here' };
+  const beyond = { name: 'beyond', from: 'ghost', click: '#more' };
+  const further = { name: 'further', from: 'beyond', click: '#more' };
   const { accessibility: result } = await probe('transitions.html', {
-    modules: only(recorder), config: { states: [MENU_T, ghost, SETTINGS_T] }, timeoutMs: 6_000,
+    modules: only(recorder), config: { states: [MENU_T, ghost, beyond, further, SETTINGS_T] }, timeoutMs: 6_000,
   });
 
-  assert.deepEqual(result.findings.map(({ at }) => at), ['menu']);
+  assert.deepEqual(result.findings.map(({ at }) => at), ['menu', 'settings']);
   assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [
     { at: 'ghost', error: 'nothing visible to click at #nothing-here' },
-    { at: 'settings', error: 'not reached: ghost could not be (nothing visible to click at #nothing-here)' },
+    { at: 'beyond', error: 'not reached: ghost could not be (nothing visible to click at #nothing-here)' },
+    { at: 'further', error: 'not reached: ghost could not be (nothing visible to click at #nothing-here)' },
   ]);
 });
 
@@ -426,8 +436,8 @@ test('a transition probe needs a state, and does not run without one', async () 
 
 // --- focus, on the way into and out of each state ---------------------------------
 
-// Each state alone: the states are cumulative, and a modal dialog left open
-// would stand between the next state's click and its trigger.
+// Each state alone, in a page of its own: what one leaves behind is not the
+// next one's to answer for.
 async function focusIn(page, state) {
   const { accessibility: result } = await probe(page, { modules: only(focus), config: { states: [state] } });
   assert.deepEqual(result.failures, []);
@@ -705,17 +715,32 @@ test('with no state declared, INP is not timed at all', async () => {
   assert.deepEqual(await probe('inp-slow.html', { modules: [performance] }), {});
 });
 
-test('a click that cannot be made leaves its state, and the ones after it, untimed', async () => {
+test('a click that cannot be made leaves its state, and the ones reached through it, untimed', async () => {
   const ghost = { name: 'ghost', click: '#nothing-here' };
+  const beyond = { ...SLOW, name: 'beyond', from: 'ghost' };
   const { performance: result } = await probe('inp-slow.html', {
-    modules: [performance], config: { states: [QUICK, ghost, SLOW] }, timeoutMs: 6_000,
+    modules: [performance], config: { states: [QUICK, ghost, beyond, SLOW] }, timeoutMs: 6_000,
   });
 
-  assert.deepEqual(result.measures.map(({ at }) => at), ['quick']);
+  assert.deepEqual(result.measures.map(({ at }) => at), ['quick', 'slow']);
   assert.deepEqual(result.failures.map(({ probe, at, rules }) => ({ probe, at, rules })), [
     { probe: 'inp', at: 'ghost', rules: ['inp'] },
-    { probe: 'inp', at: 'slow', rules: ['inp'] },
+    { probe: 'inp', at: 'beyond', rules: ['inp'] },
   ]);
+});
+
+// A second branch from the quick click: the page is loaded again and the
+// quick click made again on the way — the page's first input, which Chrome
+// always reports. It was timed the first time down, and is not the new
+// state's: each state is timed once, on its own click.
+test('the clicks on the way back to a branch are not timed again', async () => {
+  const then = { ...SLOW, name: 'then', from: 'quick' };
+  const again = { ...SLOW, name: 'again', from: 'quick' };
+  const { performance: result } = await probe('inp-slow.html', { modules: [performance], config: { states: [QUICK, then, again] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.measures.map(({ at }) => at), ['quick', 'then', 'again']);
+  assert.equal(result.measures[2].target.selector, 'body > main > button#slow');
 });
 
 // The loads after the first run the probes that measure, and those alone:

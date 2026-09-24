@@ -8,7 +8,9 @@ import { inPage } from '../../probes/dom.js';
 //
 // Kanso clicks. The interactions are the states the project declares
 // (src/config/states.js) — the menu opened, the dialog shown — reached as axe
-// reaches them, one from the other, in a page of the probe's own. The CPU is
+// reaches them, down each branch, in a page of the probe's own; the clicks
+// made again to get back to where a branch starts are not timed twice. The
+// CPU is
 // slowed as Lighthouse slows it (src/probes/index.js): a click timed on the
 // machine running the audit would say nothing of a phone. With no state
 // declared there is nothing to time, and the probe does not run: INP is then
