@@ -9,6 +9,7 @@ const OPTIONS = {
   'fail-on': { type: 'string' },
   json: { type: 'boolean' },
   out: { type: 'string', short: 'o', multiple: true },
+  record: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 };
@@ -40,6 +41,9 @@ Options
       --json            print the whole result as JSON, and nothing else
   -o, --out <file>      also write the result to a file: the Markdown report
                         for a .md, the JSON for a .json. Repeatable
+      --record <dir>    keep a journal of what the probes did on each load —
+                        one JSON Lines file per load, beside the result as
+                        audit.json — to look at, share or analyse
   -h, --help            print this
   -v, --version         print the version
 
@@ -99,6 +103,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
       failOn: parseFailOn(values['fail-on'] ?? 'fail'),
       json: Boolean(values.json),
       out: values.out ?? [],
+      record: values.record ?? null,
       cwd,
       io,
       runLighthouse: lighthouse,

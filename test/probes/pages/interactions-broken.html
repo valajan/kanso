@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>States that leave something behind</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  .spacer { height: 1500px; }
+  .dialog { position: fixed; inset: 15% 10%; background: #fff; border: 1px solid #111; padding: 1rem; z-index: 2; }
+  .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); z-index: 1; }
+  /* Every dialog here locks the page behind it while it is open — but one:
+     each state below leaves one thing behind, and one only. */
+  html:has(.dialog:not(.loose)) { overflow: hidden; }
+</style>
+</head>
+<body>
+<main id="page">
+  <div class="spacer"></div>
+  <button id="locked-open" type="button">Locks the page, and forgets to unlock it</button>
+  <button id="scrim-open" type="button">Leaves its backdrop</button>
+  <button id="hidden-open" type="button">Hides the page, and leaves it hidden</button>
+  <button id="jump-open" type="button">Sends the page to the top as it closes</button>
+  <button id="stale-open" type="button" aria-expanded="false" aria-controls="stale">Leaves its button expanded</button>
+  <div id="stale" hidden><p>Some detail.</p></div>
+  <button id="hash-open" type="button">Changes the address, and leaves it changed</button>
+  <button id="throws-open" type="button">Throws as it closes</button>
+  <button id="loose-open" type="button">Lets the page scroll behind it</button>
+  <button id="leaky-open" type="button" aria-expanded="false" aria-controls="leaky">Keeps what it built, and its listeners</button>
+  <ul id="leaky" hidden></ul>
+  <div class="spacer"></div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // A modal dialog, and what closing it does besides.
+  function modal(trigger, { onOpen = () => {}, onClose = () => {}, scrim = true, loose = false } = {}) {
+    $(trigger).addEventListener('click', () => {
+      const backdrop = scrim ? document.createElement('div') : null;
+      if (backdrop) {
+        backdrop.className = 'scrim';
+        document.body.append(backdrop);
+      }
+      const dialog = document.createElement('div');
+      dialog.className = loose ? 'dialog loose' : 'dialog';
+      dialog.id = `${trigger}-dialog`;
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-label', 'A dialog');
+      dialog.innerHTML = '<button type="button">OK</button>';
+      document.body.append(dialog);
+      dialog.querySelector('button').focus();
+      onOpen();
+      const onKey = (event) => {
+        if (event.key !== 'Escape') return;
+        document.removeEventListener('keydown', onKey);
+        dialog.remove();
+        onClose({ backdrop });
+        $(trigger).focus();
+      };
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+  modal('locked-open', {
+    onOpen: () => { document.body.style.overflow = 'hidden'; },
+    onClose: ({ backdrop }) => backdrop.remove(),
+  });
+  modal('scrim-open', { onClose: () => {} });
+  modal('hidden-open', {
+    onOpen: () => $('page').setAttribute('aria-hidden', 'true'),
+    onClose: ({ backdrop }) => backdrop.remove(),
+  });
+  // After focus has gone back to its trigger — which would scroll the page to
+  // it again.
+  modal('jump-open', { onClose: ({ backdrop }) => { backdrop.remove(); setTimeout(() => window.scrollTo(0, 0)); } });
+  modal('hash-open', {
+    onOpen: () => history.pushState(null, '', '#newsletter'),
+    onClose: ({ backdrop }) => backdrop.remove(),
+  });
+  modal('throws-open', {
+    onClose: ({ backdrop }) => {
+      backdrop.remove();
+      throw new Error('cleanup failed');
+    },
+  });
+  modal('loose-open', { scrim: false, loose: true });
+
+  $('stale-open').addEventListener('click', () => {
+    $('stale').hidden = false;
+    $('stale-open').setAttribute('aria-expanded', 'true');
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') $('stale').hidden = true;
+  });
+
+  // Builds its items again on every opening, keeps the old ones in memory,
+  // and adds a listener to each.
+  const kept = [];
+  $('leaky-open').addEventListener('click', () => {
+    const list = $('leaky');
+    for (let i = 0; i < 50; i++) {
+      const li = document.createElement('li');
+      li.textContent = `Item ${i}`;
+      li.addEventListener('click', () => {});
+      list.append(li);
+      kept.push(li);
+    }
+    list.hidden = false;
+    $('leaky-open').setAttribute('aria-expanded', 'true');
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || $('leaky').hidden) return;
+    $('leaky').replaceChildren();
+    $('leaky').hidden = true;
+    $('leaky-open').setAttribute('aria-expanded', 'false');
+  });
+</script>
+</body>
+</html>

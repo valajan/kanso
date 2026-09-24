@@ -32,6 +32,9 @@ export const SCREENSHOT = Symbol('screenshot');
 // - screenshots:   also return what the page under audit looked like at the
 //                  end of its load, on each form factor — never the
 //                  baseline's. For a surface that can show an image.
+// - record:        a directory where each load keeps a journal of what its
+//                  probes did (src/probes/journal.js). Handed to the runner
+//                  as { dir, side }; the verdict does not depend on it.
 //
 // All loads start together; the runner caps how many Chrome instances run at
 // once. A failed load only costs its own column: the audit is an error when
@@ -41,7 +44,7 @@ export const SCREENSHOT = Symbol('screenshot');
 // or { ok: false, conclusion: 'error', error, failures }, where each failure is
 // { side: 'current' | 'baseline', formFactor, url, error } — plus, when asked
 // for and the audit ran, `screenshots: { [formFactor]: dataUri | null }`.
-export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false, screenshots = false }) {
+export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false, screenshots = false, record = null }) {
   const runs = clampRuns(config.runs);
   // Each module is judged by its own section of the config and never sees the
   // rest of the file — see src/config/module-config.js.
@@ -62,6 +65,7 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
     modules: load.modules,
     config,
     ...(screenshots && load.side === 'current' ? { screenshot: true } : {}),
+    ...(record ? { record: { dir: record, side: load.side } } : {}),
   })));
 
   const loaded = Object.fromEntries(FORM_FACTORS.map((ff) => [ff, { current: null, baseline: null }]));

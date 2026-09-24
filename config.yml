@@ -76,6 +76,15 @@ seo:
 best-practices:
   fail_on: serious
 
+# Interactions — what the states declared below leave behind when they close,
+# and what opening and closing them again and again keeps in memory. Findings
+# too, on the same scale (src/modules/interactions/rules.js): with `serious`,
+# what fails is a page left locked, covered, or silent to a screen reader; a
+# lost scroll position, a stale aria-expanded, an error on closing or a leak
+# warns. Nothing is checked without a declared state.
+interactions:
+  fail_on: serious
+
 # Number of Lighthouse runs per target, per form factor; the per-metric median
 # is reported. A single run swings by 20-30% on TBT, which is enough on its own
 # to fail a good change. 3 is the usual remedy; the cost is 3x the audit time.

@@ -18,9 +18,11 @@ const IDLE_MS = 500;
 // in a report when it cannot be: no element to click, or what should have
 // appeared never did. `waitMs` is how long each of the two is waited for —
 // well inside the time the whole step is allowed (src/probes/index.js), so
-// that a state that is not there says which part was missing.
-export async function applyState(page, { click, waitFor }, { waitMs }) {
-  await page.evaluate('window.scrollTo(0, 0)');
+// that a state that is not there says which part was missing. `fromTop: false`
+// leaves the page scrolled where it is, for a check of what the state does to
+// it.
+export async function applyState(page, { click, waitFor }, { waitMs, fromTop = true }) {
+  if (fromTop) await page.evaluate('window.scrollTo(0, 0)');
 
   const target = await page.waitForSelector(click, { visible: true, timeout: waitMs })
     .catch(ifTimeout(`nothing visible to click at ${click}`));
@@ -32,6 +34,23 @@ export async function applyState(page, { click, waitFor }, { waitMs }) {
       .catch(ifTimeout(`clicked ${click}, and ${waitFor} never appeared`));
   }
   await page.waitForNetworkIdle({ idleTime: IDLE_MS, timeout: SETTLE_MS }).catch(() => {});
+}
+
+// Brings `page` to the last of `states`, from the page as it loads, one state
+// after the other as `states:` is replayed — for a check that needs the page
+// in the state before the one it looks at, in a page of its own. Rejects with
+// the state that could not be reached, as `state`, beside the reason.
+export async function reach(page, states, { waitMs, log }) {
+  for (const state of states) {
+    const started = Date.now();
+    try {
+      await applyState(page, state, { waitMs });
+    } catch (err) {
+      err.state = state;
+      throw err;
+    }
+    log.with({ at: state.name }).log('state-reached', { click: state.click, ms: Date.now() - started });
+  }
 }
 
 // A wait that ran out says what was missing; anything else — a selector that

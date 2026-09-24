@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page with ways in and out of its states</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  #more { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <!-- A disclosure: Enter opens it, Escape closes it and gives focus back. -->
+  <button id="menu-button" type="button" aria-expanded="false" aria-controls="menu">Menu</button>
+  <nav id="menu" aria-label="Main" hidden>
+    <button id="settings-button" type="button">Settings</button>
+  </nav>
+
+  <!-- A modal dialog, the browser's own: focus goes in as it opens, Escape
+       closes it, focus comes back to what opened it. -->
+  <dialog id="settings" aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+    <button id="settings-close" type="button">Close</button>
+  </dialog>
+
+  <!-- Opens on a click alone: no key can reach it, and nothing closes it. -->
+  <div id="more" aria-expanded="false">More</div>
+  <section id="panel" hidden>
+    <p>More of the page.</p>
+  </section>
+</main>
+<script>
+  const button = document.getElementById('menu-button');
+  const menu = document.getElementById('menu');
+  const dialog = document.getElementById('settings');
+  const toggle = (open) => {
+    menu.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  button.addEventListener('click', () => toggle(button.getAttribute('aria-expanded') !== 'true'));
+  document.addEventListener('keydown', (event) => {
+    // The dialog closes itself on Escape; the menu behind it stays open.
+    if (event.key === 'Escape' && !menu.hidden && !dialog.open) {
+      toggle(false);
+      button.focus();
+    }
+  });
+  document.getElementById('settings-button').addEventListener('click', () => dialog.showModal());
+  document.getElementById('settings-close').addEventListener('click', () => dialog.close());
+
+  const more = document.getElementById('more');
+  more.addEventListener('click', () => {
+    document.getElementById('panel').hidden = false;
+    more.setAttribute('aria-expanded', 'true');
+  });
+</script>
+</body>
+</html>

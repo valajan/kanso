@@ -15,10 +15,10 @@ test('a project that declares no state has none', () => {
 test('the declared states are kept in order, with what reaches each and what says it was reached', () => {
   assert.deepEqual(parseStates([
     { name: 'menu', click: "[aria-label='Menu']", wait_for: "#menu[aria-expanded='true']" },
-    { name: 'signup', click: '#signup' },
+    { name: 'signup', click: '#signup', close: '#cancel' },
   ]), [
     { name: 'menu', click: "[aria-label='Menu']", waitFor: "#menu[aria-expanded='true']" },
-    { name: 'signup', click: '#signup' },
+    { name: 'signup', click: '#signup', close: '#cancel' },
   ]);
 });
 
@@ -41,6 +41,7 @@ test('a state the file got wrong fails the configuration, naming the state', () 
   refused([{ name: 'menu' }], /states\[0\] \(menu\) needs a click/);
   refused([{ name: 'menu', click: '  ' }], /needs a click/);
   refused([{ name: 'menu', click: '#open', wait_for: 3 }], /wait_for must be a selector/);
+  refused([{ name: 'menu', click: '#open', close: '' }], /close must be a selector/);
   refused([{ name: 'menu', click: '#a' }, { name: 'menu', click: '#b' }], /states\[1\]: the name menu is taken/);
 });
 

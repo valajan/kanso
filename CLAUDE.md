@@ -20,8 +20,10 @@ pages in `test/probes/pages/` each break one thing on purpose, or carry every
 pattern that looks like a failure and is not.
 
 `npm test` is hermetic and fast. `npm run test:acceptance` builds the real
-kanso-landing page, injects known regressions (TBT, CLS, LCP, and a
-block too wide for a phone) into the build, and asserts Kanso fails each one on
+kanso-landing page, injects known regressions (TBT, CLS, LCP, INP, a
+block too wide for a phone, a dialog that leaves focus behind it and one that
+leaves the page locked — every fixture carries the dialog, declared as a
+state) into the build, and asserts Kanso fails each one on
 the right metric or rule while the unchanged page passes. Every step is audited
 against the unchanged build as its reference, the way a change is judged against
 its base. Every fixture, the baseline included, also carries one violation of
@@ -35,7 +37,8 @@ in CI through `.github/workflows/acceptance.yml`, which checks out the public
 
 The GitHub Action at the repo root (`action.yml`) has its own self-test,
 `.github/workflows/action.yml`: it runs the action from the checkout on the
-page in `test/action/`, once passing and once under a budget no page meets.
+page in `test/action/`, once passing and once under a budget no page meets —
+the latter with `record: true`, checking the journal was kept though it failed.
 The passing case sets its own wide timing budgets (`test/action/.kanso.yml`) and
 accepts a `warn`: what it proves is the Action's plumbing, and the default
 budgets of `config.yml` made it a coin toss on a contended runner.
@@ -61,7 +64,9 @@ Three surfaces exist today:
   so nothing here calls one.
 - **the GitHub Action** (`action.yml`) — the CLI again, in a client's own
   runner, writing the Markdown report to the job summary and exiting on the
-  verdict.
+  verdict. With `record: true` it passes `--record` and uploads the journal as
+  a workflow artifact (`record-name`, by default `kanso-record-<job id>`),
+  failed audit or not — outputs `record` and `record-url`.
 
 Kanso hosts nothing and holds no credential. There is no server: the surfaces
 run where the code is.
@@ -91,11 +96,29 @@ run where the code is.
   there carries `at`, listing only what no earlier reading found (the INP
   probe, `measures: true`, keeps every reading as it is: two clicks are two
   measures). A state that
-  cannot be reached fails, with every state after it, under that same `at`. `dom.js` is what a probe runs inside the page with: the call
+  cannot be reached fails, with every state after it, under that same `at`.
+  A probe marked `transitions: true` checks the way into and out of each state
+  rather than the state: for each, a page of its own brought to the state
+  before (`reach`, `states.js`), and `transition(page, state, tools)` with what
+  `transition.js` hands it — open by click or by key, whether it is open (its
+  `wait_for`, else its trigger's `aria-expanded`, else `null`), close by
+  Escape or by its `close:`, where focus is — each move journaled. A state it
+  could not check costs that state; one beyond a state the way could not get
+  past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
   first successful load of a page only — except a probe that measures, which
-  runs on every load
+  runs on every load. `journal.js` keeps, when asked (`--record <dir>`), what
+  each probe went through — loaded, each state reached or not, each finding
+  with its rule, state and element paths, and what a probe logs of its own
+  through the `log` it is handed (the keyboard walk's every stop) — one JSON
+  Lines file per load, `<side>.<formFactor>.<run>.jsonl`, written from the
+  worker however the load ends; off, it is a no-op. A view's `shot(page,
+  kind, data)` logs an event with a frame — a JPEG of the viewport (quality
+  60, forty a load at most) and its size in CSS pixels — kept in memory, then
+  written under `frames/<journal>/`: the page loaded, each state reached, a
+  transition's open and close. Never for a probe that measures
+  (`withoutFrames()`), never with NO_JOURNAL
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -107,8 +130,16 @@ run where the code is.
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
   worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
-  what every surface accepts as a page to audit. The CLI and the MCP server are
-  its two callers — and the Action is the CLI.
+  what every surface accepts as a page to audit; `record.js` is what a record
+  directory holds, clears an earlier audit's files from it before a new one,
+  and writes the result and `index.html` into it once the audit is done —
+  `viewer.js`, one self-contained page (no request: it opens from file://,
+  journals, result and frames inlined) listing the findings and, for the one
+  selected, the moments that produced it — joined on form factor, probe,
+  state, rule and element — frames with the focus boxes drawn over them;
+  a finding exports from it as a page of its own, built in the browser by the
+  same functions. The CLI and the MCP server are its two callers — and the
+  Action is the CLI.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`) and the two shapes of detail every surface can render — `scores`
@@ -137,14 +168,20 @@ run where the code is.
   written into it where no config reaches, and throws away every result axe
   could not settle — which `axe.js` reports instead, marked `needsReview` and
   capped at `moderate`, so a contrast nobody can compute no longer reads as one
-  that passed. The other three probes check what one reading of one DOM cannot:
+  that passed. The other four probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
   `keyboard.js` presses Tab from the top until focus leaves the page —
   `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
   scrolls through it under `prefers-reduced-motion: reduce` —
-  `reduced-motion`. `rules.js` ranks those six rules on axe's scale; axe ranks
-  its own. `seo/` and
+  `reduced-motion`; `focus.js`, a transition probe, opens each declared state
+  from the keyboard and closes it with Escape — `keyboard-inoperable`,
+  `focus-lost`, `focus-not-moved`, `focus-escapes-modal`,
+  `escape-not-closing`, `focus-not-returned`, `revealed-unreachable` — reading
+  what opened from the page: a modal dialog (`dialog:modal`, `aria-modal`, or
+  the page behind it `aria-hidden` or inert, as component libraries make one),
+  a menu or listbox, what the trigger's `aria-controls` names. `rules.js` ranks
+  those thirteen rules on axe's scale; axe ranks its own. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out
@@ -162,7 +199,19 @@ run where the code is.
   canonical, and the Open Graph tags a link preview needs — `extract` gets
   Lighthouse's artifacts as well as its report, for that. Best practices also
   passes through, unjudged, what Lighthouse says of the security headers
-  without scoring them
+  without scoring them.
+  `interactions/` is the fifth, and the first about what the page does when
+  it is used: two transition probes, nothing from Lighthouse, nothing without
+  a declared state. `residues.js` opens each state where the page stands and
+  closes it however it closes (`closeAnyway`: Escape, its `close:`, a click
+  away), then compares the page with what it was — `page-locked`,
+  `overlay-left`, `page-hidden-left`, `scroll-position-lost`,
+  `expanded-left`, `url-left`, `close-error`, and `scroll-not-locked` while a
+  modal dialog is open; `leaks.js` opens and closes each eight times, reads
+  the DOM counters after a forced garbage collection, leaves the first cycles
+  out as warm-up and reports steady growth — `dom-leak`, `listener-leak`.
+  Findings, judged like the other three's, its `rules.js` placing each on the
+  scale
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
   `core/audit.js`, `render.js` prints the tables for a terminal and
@@ -171,7 +220,9 @@ run where the code is.
   is the verdict — 0 audited and clean,
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
-  result and nothing else
+  result and nothing else. `--record <dir>` keeps the probes' journals there,
+  their frames, the result beside them as `audit.json`, and `index.html` to
+  see it all
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv
@@ -182,7 +233,10 @@ run where the code is.
   progress, which is what keeps a host from abandoning it. With `screenshot:
   true`, the page under audit as its load ended follows as image blocks, one
   per form factor — `audit({ screenshots })` in the core, carried by the
-  runner under the `SCREENSHOT` symbol, never in the JSON
+  runner under the `SCREENSHOT` symbol, never in the JSON. With `record:
+  <dir>` (relative to the directory the server was started in), the journals
+  are kept there as with `--record`, the result beside them as `audit.json`,
+  and the result says where under `record`
 - `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
   in its own worker thread, collecting the union of the modules' Lighthouse
   categories and handing each module the report to `extract` from
@@ -220,7 +274,7 @@ directories to `action.yml`.
 deep-merged key by key (partial overrides allowed at any depth). **Each module
 reads the section carrying its id** (`accessibility: { fail_on: serious }`) and
 never sees the rest of the file, so two concerns cannot fight over a key name —
-`src/config/module-config.js`. The three findings sections take the same keys:
+`src/config/module-config.js`. The four findings sections take the same keys:
 `fail_on` (an impact) and `ignore` (rule ids left unjudged — the `noindex`
 preview hosts add is what it is for). Performance's `budgets:` predate the sections and
 still work at the root, which is where every `.kanso.yml` written so far keeps
@@ -234,7 +288,8 @@ an agent's audit is judged by them too. Config controls budgets, each module's
 own thresholds and `runs`.
 
 `states:`, at the root like `runs:`, lists the states of the page beyond the
-one it loads in — `name`, `click`, optional `wait_for` — which a check can go
+one it loads in — `name`, `click`, optional `wait_for`, optional `close` (what
+closes it when Escape is not meant to) — which a check can go
 through; a malformed one fails the config as it loads (`local-config.js`).
 
 `serve:` says how to serve the project when a local surface is given no page:

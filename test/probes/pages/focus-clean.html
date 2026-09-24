@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus handled on the way in and out</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  #custom { position: fixed; inset: 20% 10%; background: #fff; border: 1px solid #111; padding: 1rem; }
+  [role="menu"] { list-style: none; padding: 0; }
+</style>
+</head>
+<body>
+<main id="page">
+  <!-- The browser's own modal dialog: focus goes in, Escape closes, focus
+       comes back. -->
+  <button id="native-open" type="button">Preferences</button>
+  <dialog id="native" aria-labelledby="native-title">
+    <h2 id="native-title">Preferences</h2>
+    <button id="native-close" type="button">Done</button>
+  </dialog>
+
+  <!-- A modal dialog of its own: the page behind made inert, focus sent to
+       its title once its transition is over, back to its trigger on Escape. -->
+  <button id="custom-open" type="button" aria-haspopup="dialog">Share</button>
+
+  <!-- A disclosure: what it reveals is next in the order. Escape is not
+       asked of it. -->
+  <button id="faq" type="button" aria-expanded="false" aria-controls="faq-answer">How do refunds work?</button>
+  <div id="faq-answer" hidden>
+    <p>Within thirty days. <a href="#terms">Read the terms</a>.</p>
+  </div>
+
+  <!-- A menu button: focus on the first item, Escape closes and goes back. -->
+  <button id="actions" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="actions-menu">Actions</button>
+  <ul id="actions-menu" role="menu" aria-labelledby="actions" hidden>
+    <li role="menuitem" tabindex="-1">Rename</li>
+    <li role="menuitem" tabindex="-1">Duplicate</li>
+  </ul>
+
+  <!-- Load more: the button goes once it has loaded, focus goes to the first
+       new item — nothing to go back to. -->
+  <ul id="list">
+    <li><a href="#1">First item</a></li>
+  </ul>
+  <button id="load-more" type="button">Load more</button>
+
+  <!-- A popover that is not modal: focus may stay where it is. -->
+  <button id="tip-open" type="button" popovertarget="tip">What is this?</button>
+  <div id="tip" popover>A short explanation.</div>
+
+  <!-- A sheet made modal as component libraries make one: no aria-modal,
+       the page behind hidden from assistive technology instead. Focus goes
+       in, and back on Escape. -->
+  <button id="sheet-open" type="button">Filters</button>
+
+  <p id="terms"><a href="#top">Back to the top</a></p>
+</main>
+
+<div id="custom" role="dialog" aria-modal="true" aria-labelledby="custom-title" hidden>
+  <h2 id="custom-title" tabindex="-1">Share</h2>
+  <button id="custom-copy" type="button">Copy the link</button>
+</div>
+
+<div id="sheet" role="dialog" aria-labelledby="sheet-title" hidden>
+  <h2 id="sheet-title">Filters</h2>
+  <button id="sheet-apply" type="button">Apply</button>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  $('sheet-open').addEventListener('click', () => {
+    $('sheet').hidden = false;
+    $('page').setAttribute('aria-hidden', 'true');
+    $('sheet-apply').focus();
+  });
+  $('sheet').addEventListener('keydown', (event) => {
+    // Its only control keeps focus, as a library's focus trap would.
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      $('sheet-apply').focus();
+    }
+    if (event.key !== 'Escape') return;
+    $('sheet').hidden = true;
+    $('page').removeAttribute('aria-hidden');
+    $('sheet-open').focus();
+  });
+
+  $('native-open').addEventListener('click', () => $('native').showModal());
+  $('native-close').addEventListener('click', () => $('native').close());
+
+  const custom = $('custom');
+  const closeCustom = () => {
+    custom.hidden = true;
+    $('page').inert = false;
+    $('custom-open').focus();
+  };
+  $('custom-open').addEventListener('click', () => {
+    custom.hidden = false;
+    $('page').inert = true;
+    setTimeout(() => $('custom-title').focus(), 300);
+  });
+  custom.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeCustom();
+  });
+
+  $('faq').addEventListener('click', () => {
+    const open = $('faq').getAttribute('aria-expanded') !== 'true';
+    $('faq').setAttribute('aria-expanded', String(open));
+    $('faq-answer').hidden = !open;
+  });
+
+  const actions = $('actions');
+  const menu = $('actions-menu');
+  actions.addEventListener('click', () => {
+    menu.hidden = false;
+    actions.setAttribute('aria-expanded', 'true');
+    menu.querySelector('[role="menuitem"]').focus();
+  });
+  menu.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    menu.hidden = true;
+    actions.setAttribute('aria-expanded', 'false');
+    actions.focus();
+  });
+
+  $('load-more').addEventListener('click', () => {
+    const items = [2, 3, 4].map((n) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<a id="item-${n}" href="#${n}">Item ${n}</a>`;
+      $('list').append(li);
+      return li;
+    });
+    $('load-more').remove();
+    items[0].querySelector('a').focus();
+  });
+</script>
+</body>
+</html>

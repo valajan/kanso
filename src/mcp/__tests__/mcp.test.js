@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -255,6 +255,55 @@ test('a page that never loaded is reported as the tool failing', async () => {
   assert.match(message.result.content[0].text, /chrome not found/);
 });
 
+// A record is where each load's journal goes, as on the command line: the
+// runner is told where, and which page it is loading, and the result lands
+// beside the journals. What an earlier audit left there goes; nothing else
+// does. The result says where the record is.
+test('record hands each load the directory and writes the result beside the journals', async () => {
+  const cwd = emptyProject();
+  const dir = join(cwd, 'rec');
+  mkdirSync(dir);
+  writeFileSync(join(dir, 'current.mobile.3.jsonl'), '{}\n');
+  writeFileSync(join(dir, 'notes.txt'), 'mine');
+  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD }, 'https://example.com/': { performance: GOOD } });
+
+  const [message] = await session([
+    call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'https://example.com', record: 'rec' }),
+  ], { runLighthouse, cwd });
+
+  assert.equal(message.result.isError, false);
+  assert.deepEqual(
+    runLighthouse.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
+    [
+      `http://localhost:4173/ current ${dir}`, `http://localhost:4173/ current ${dir}`,
+      `https://example.com/ baseline ${dir}`, `https://example.com/ baseline ${dir}`,
+    ],
+  );
+  const payload = message.result.structuredContent;
+  assert.equal(payload.record, dir);
+  assert.equal(JSON.parse(message.result.content[0].text).record, dir);
+  const recorded = JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8'));
+  assert.equal(recorded.url, 'http://localhost:4173/');
+  assert.equal(recorded.conclusion, payload.conclusion);
+  assert.match(readFileSync(join(dir, 'index.html'), 'utf8'), /<title>Kanso record<\/title>/);
+  assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
+  assert.throws(() => readFileSync(join(dir, 'current.mobile.3.jsonl')));
+});
+
+test('without record, no load is asked to keep a journal; a call with a mistake leaves a record as it was', async () => {
+  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  assert.ok(runLighthouse.calls.every((c) => c.record === undefined));
+  assert.equal(plain.result.structuredContent.record, undefined);
+
+  const cwd = emptyProject();
+  mkdirSync(join(cwd, 'rec'));
+  writeFileSync(join(cwd, 'rec', 'audit.json'), '{}');
+  const [wrong] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'nope', record: 'rec' })], { cwd });
+  assert.equal(wrong.error.code, -32602);
+  assert.equal(readFileSync(join(cwd, 'rec', 'audit.json'), 'utf8'), '{}');
+});
+
 test('the project configuration is what list_modules reports', async () => {
   const cwd = emptyProject();
   writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\naccessibility:\n  fail_on: critical\nseo:\n  ignore: [is-crawlable]\n');
@@ -263,19 +312,23 @@ test('the project configuration is what list_modules reports', async () => {
 
   const payload = message.result.structuredContent;
   assert.match(payload.configSource, /\.kanso\.yml$/);
-  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices']);
+  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices', 'interactions']);
+  // Interactions goes into and out of each state, and reads nothing else.
+  assert.deepEqual(payload.modules[4].probes.map(({ id, transitions }) => [id, transitions]), [['residues', true], ['leaks', true]]);
   assert.equal(payload.modules[0].config.budgets.lcp, 1000);
   assert.equal(payload.modules[1].config.fail_on, 'critical');
   // Accessibility asks Lighthouse for nothing: it runs axe itself.
   assert.deepEqual(payload.modules[1].lighthouseCategories, []);
   assert.deepEqual(payload.modules[1].probes.map(({ id, rules }) => [id, rules.length]), [
-    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1],
+    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1], ['focus', 7],
   ]);
   assert.deepEqual(payload.modules[1].probes.slice(1).map(({ rules }) => rules), [
     ['reflow-scroll', 'reflow-clip'],
     ['focus-trap', 'focus-visible', 'focus-obscured'],
     ['reduced-motion'],
+    ['keyboard-inoperable', 'focus-lost', 'focus-not-moved', 'focus-escapes-modal', 'escape-not-closing', 'focus-not-returned', 'revealed-unreachable'],
   ]);
+  assert.deepEqual(payload.modules[1].probes.filter((probe) => probe.transitions).map(({ id }) => id), ['focus']);
   // Performance times INP itself, on the clicks the states make, and on
   // nothing else.
   assert.deepEqual(payload.modules[0].probes.map(({ id, rules, states }) => [id, rules, states]), [['inp', ['inp'], true]]);
@@ -290,10 +343,10 @@ test('the project configuration is what list_modules reports', async () => {
   assert.ok(!axe.rules.includes('region'));
 
   // The states the project declares, and which checks go through them: axe
-  // alone, for now.
+  // reads each, focus goes into and out of each.
   assert.deepEqual(payload.states, []);
-  assert.deepEqual(payload.modules[1].probes.map(({ id, states }) => [id, states]), [
-    ['axe', true], ['reflow', false], ['keyboard', false], ['motion', false],
+  assert.deepEqual(payload.modules[1].probes.map(({ id, states, transitions }) => [id, states, transitions]), [
+    ['axe', true, false], ['reflow', false, false], ['keyboard', false, false], ['motion', false, false], ['focus', false, true],
   ]);
   writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    wait_for: "#menu"\n');
   const [declared] = await session([call(1, 'list_modules', {})], { cwd });
@@ -379,6 +432,7 @@ test('a call Kanso cannot make is an invalid-params error naming what is wrong',
     [{ name: 'audit_page', args: { url: 'file:///etc/passwd' } }, /url must be http or https/],
     [{ name: 'audit_page', args: { url: 'http://a', baseline: 'nope' } }, /baseline is neither a URL nor a directory: nope/],
     [{ name: 'audit_page', args: { url: 'http://a', runs: 9 } }, /between 1 and 5/],
+    [{ name: 'audit_page', args: { url: 'http://a', record: 3 } }, /record must be a directory path/],
     [{ name: 'lighthouse', args: {} }, /unknown tool: lighthouse/],
   ];
 

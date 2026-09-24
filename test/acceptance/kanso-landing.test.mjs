@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
-import { FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs';
+import { DIALOG_STATE, FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs';
 
 // Acceptance suite: Kanso, end to end, against the real kanso-landing build.
 //
@@ -43,6 +43,8 @@ const STEPS = [
   { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'] },
   { fixture: 'inp', label: 'a click held 800 ms fails on INP', fails: ['inp'] },
   { fixture: 'reflow', label: 'a block wider than a phone fails on reflow', fails: [], findings: ['accessibility: reflow-scroll'] },
+  { fixture: 'focus', label: 'a dialog that leaves focus behind it fails on focus', fails: [], findings: ['accessibility: focus-not-moved'] },
+  { fixture: 'residue', label: 'a dialog that leaves the page locked fails on what it left', fails: [], findings: ['interactions: page-locked'] },
   { fixture: 'baseline', label: 'reverting the regressions passes again', fails: [] },
 ];
 
@@ -75,10 +77,11 @@ before(async () => {
 
   // The repo's own budgets, at the run count the suite asks for. The reference
   // is always the unchanged build beside it, never a deployment: the suite
-  // reaches out to nothing. The one state declared is the click on the button
-  // every fixture carries, which is what INP is timed on.
+  // reaches out to nothing. The states declared are the click on the button
+  // every fixture carries, which is what INP is timed on, and the dialog every
+  // fixture carries, which the probes go into and out of.
   const repoConfig = yaml.load(await readFile(join(LANDING_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
-  const testConfig = { ...repoConfig, runs: RUNS, states: [PRESS_STATE] };
+  const testConfig = { ...repoConfig, runs: RUNS, states: [PRESS_STATE, DIALOG_STATE] };
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
 

@@ -51,7 +51,10 @@ const semaphore = new Semaphore(MAX_CONCURRENT);
 // is as noisy as TBT's, so it is taken on every load and folded with the rest.
 // The screenshot, when asked for, comes from the first load too, under
 // SCREENSHOT in the result.
-export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES, config = {}, screenshot = false } = {}) {
+//
+// With `record` — { dir, side } — every load keeps a journal of what its
+// probes did, in that directory (src/probes/journal.js), numbered by run.
+export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modules = MODULES, config = {}, screenshot = false, record = null } = {}) {
   const count = clampRuns(runs);
   const samples = [];
   let shot = null;
@@ -60,7 +63,7 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
   for (let i = 0; i < count; i++) {
     const first = samples.length === 0;
     try {
-      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probes: first ? 'all' : 'measures', screenshot: first && screenshot });
+      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probes: first ? 'all' : 'measures', screenshot: first && screenshot, record: record && { ...record, run: i + 1 } });
       samples.push(load.samples);
       shot ??= load.screenshot;
     } catch (err) {
@@ -76,12 +79,12 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
 
 // One audit, in its own worker thread. The config travels as the plain data a
 // YAML file parsed to, which crosses the thread boundary without ceremony.
-async function runOnce(url, formFactor, moduleIds, { config, probes, screenshot }) {
+async function runOnce(url, formFactor, moduleIds, { config, probes, screenshot, record }) {
   await semaphore.acquire();
   try {
     return await new Promise((resolve, reject) => {
       const worker = new Worker(WORKER_URL, {
-        workerData: { url, formFactor, moduleIds, config, probes, screenshot },
+        workerData: { url, formFactor, moduleIds, config, probes, screenshot, record },
       });
 
       worker.once('message', (msg) => {

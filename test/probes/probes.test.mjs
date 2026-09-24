@@ -6,11 +6,15 @@ import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
 import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
+import { focus } from '../../src/modules/accessibility/focus.js';
+import { leaks } from '../../src/modules/interactions/leaks.js';
+import { residues } from '../../src/modules/interactions/residues.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
 import performance from '../../src/modules/performance/index.js';
 import { runProbes } from '../../src/probes/index.js';
+import { Journal } from '../../src/probes/journal.js';
 import { serveDirectory } from '../../src/serve/static.js';
 
 // Kanso's probes, against a real Chrome, on pages whose answers are known.
@@ -47,8 +51,8 @@ after(async () => {
   await site?.close();
 });
 
-function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs });
+function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs, journal } = {}) {
+  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs, journal });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -211,6 +215,25 @@ test('a state whose click opens nothing says what never appeared', async () => {
   assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [{ at: 'stuck', error: 'clicked #open, and #never never appeared' }]);
 });
 
+// The journal: what a probe went through, in order — for whoever wants to see
+// it done, not only its verdict.
+test('the journal follows a probe through its states, and keeps what it found where', async () => {
+  const journal = new Journal();
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU, ghost] }, timeoutMs: 6_000, journal });
+
+  assert.deepEqual(journal.events.filter((e) => e.kind !== 'finding').map((e) => [e.kind, e.probe, e.at ?? null]), [
+    ['probe-start', 'axe', null],
+    ['loaded', 'axe', null],
+    ['state-reached', 'axe', 'menu'],
+    ['state-unreached', 'axe', 'ghost'],
+    ['probe-end', 'axe', null],
+  ]);
+  const found = journal.events.filter((e) => e.kind === 'finding' && !e.needsReview).map((e) => [e.rule, e.at ?? null, e.nodes.length]);
+  assert.deepEqual(found, [['image-alt', null, 1], ['button-name', 'menu', 1]]);
+  assert.deepEqual(journal.events.at(-1).unreached, ['ghost']);
+});
+
 test('a page that never loads reached none of its states either', async () => {
   const { accessibility: result } = await runProbes({
     port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', settings: MOBILE,
@@ -274,6 +297,274 @@ test('reflow runs on the mobile load only', async () => {
   assert.deepEqual(await probe('reflow-scroll.html', { formFactor: 'desktop', modules: only(reflow) }), {});
 });
 
+// --- transitions ----------------------------------------------------------------------
+
+// The way into and out of each state, for a probe that checks it rather than
+// the state itself. A probe of the tests' own, which tries the tools every
+// such check has — open by key, else by click; where focus is; close — and
+// reports what they said.
+const MENU_T = { name: 'menu', click: '#menu-button', wait_for: "#menu-button[aria-expanded='true']" };
+const SETTINGS_T = { name: 'settings', click: '#settings-button', wait_for: 'dialog[open]' };
+const MORE_T = { name: 'more', click: '#more', wait_for: '#panel:not([hidden])' };
+
+function transitionRecorder() {
+  const seen = [];
+  const recorder = {
+    id: 'recorder',
+    rules: ['recorded'],
+    transitions: true,
+    async transition(page, state, tools) {
+      const trigger = await tools.trigger();
+      const { opened, key, focusable, kind } = await tools.open({ by: 'keyboard' });
+      const byKey = { opened, key, focusable };
+      if (!opened) await tools.open();
+      const inside = await tools.focused('opened');
+      const escaped = await tools.close();
+      const after = await tools.focused('closed');
+      const declared = await tools.close({ by: 'close' });
+      seen.push({
+        state: state.name,
+        trigger: trigger.selector,
+        byKey,
+        kind,
+        inside: inside?.selector ?? null,
+        escaped: escaped.closed,
+        after: after?.selector ?? null,
+        declared: declared.closed,
+      });
+      return [{ rule: 'recorded', title: 'Recorded', impact: 'minor', count: 1, nodes: [trigger] }];
+    },
+  };
+  return { recorder, seen };
+}
+
+test('a transition probe goes into and out of each state, in a page brought to the state before', async () => {
+  const { recorder, seen } = transitionRecorder();
+  const journal = new Journal();
+  const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(seen, [
+    {
+      // Enter opens the menu, focus stays on its button, Escape closes it.
+      state: 'menu', trigger: 'body > main > button#menu-button', byKey: { opened: true, key: 'Enter', focusable: true }, kind: 'disclosure',
+      inside: 'body > main > button#menu-button', escaped: true, after: 'body > main > button#menu-button', declared: null,
+    },
+    {
+      // Reached from the menu, in a page of its own: the dialog takes focus
+      // as it opens and gives it back as it closes.
+      state: 'settings', trigger: 'body > main > nav#menu > button#settings-button', byKey: { opened: true, key: 'Enter', focusable: true }, kind: 'modal',
+      inside: 'body > main > dialog#settings > button#settings-close', escaped: true, after: 'body > main > nav#menu > button#settings-button', declared: null,
+    },
+  ]);
+  assert.deepEqual(result.findings.map(({ rule, at }) => [rule, at]), [['recorded', 'menu'], ['recorded', 'settings']]);
+
+  // The journal shows each transition as it went: the settings' page loaded,
+  // the menu reached on the way, then in and out of the dialog.
+  const lastPage = journal.events.slice(journal.events.findLastIndex((e) => e.kind === 'loaded'));
+  assert.deepEqual(lastPage.map((e) => [e.kind === 'focus' ? `focus ${e.why}` : e.kind, e.at]), [
+    ['loaded', 'settings'], ['state-reached', 'menu'], ['open', 'settings'], ['focus opened', 'settings'],
+    ['close', 'settings'], ['focus closed', 'settings'], ['close', 'settings'], ['finding', 'menu'], ['finding', 'settings'], ['probe-end', undefined],
+  ]);
+});
+
+// Frames: what the page looked like at each moment that explains a finding —
+// the page loaded, the transition's way in and out — each a JPEG of the
+// viewport, with the size of the viewport the focus boxes are measured in.
+test('a recorded transition carries frames of the page loaded, opened and closed', async () => {
+  const { recorder } = transitionRecorder();
+  const journal = new Journal();
+  await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
+
+  assert.deepEqual(journal.events.filter((e) => e.frame).map((e) => [e.kind, e.at]), [
+    ['loaded', 'menu'], ['open', 'menu'], ['close', 'menu'],
+    ['loaded', 'settings'], ['open', 'settings'], ['close', 'settings'],
+  ]);
+  for (const { frame } of journal.events.filter((e) => e.frame)) {
+    assert.deepEqual({ width: frame.width, height: frame.height, scale: frame.scale }, { width: 412, height: 823, scale: 1.75 });
+    const jpeg = journal.frames.get(frame.file);
+    assert.deepEqual([...jpeg.subarray(0, 2)], [0xff, 0xd8]);
+    assert.ok(jpeg.length < 200_000, `a frame of ${jpeg.length} bytes`);
+  }
+
+  // The focus read after the dialog opened carries the box it is in, which a
+  // viewer draws over the frame before it.
+  const inside = journal.events.find((e) => e.kind === 'focus' && e.why === 'opened');
+  assert.equal(inside.frame, undefined);
+  assert.ok(inside.rect.width > 0 && inside.rect.height > 0);
+});
+
+test('a state no key opens says so, and the click still opens it; one nothing closes, says that', async () => {
+  const { recorder, seen } = transitionRecorder();
+  const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MORE_T] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(seen.map(({ byKey, escaped, declared }) => ({ byKey, escaped, declared })), [
+    { byKey: { opened: false, key: null, focusable: false }, escaped: false, declared: null },
+  ]);
+});
+
+test('a state a transition probe cannot check costs that state, and the ones beyond it', async () => {
+  const { recorder } = transitionRecorder();
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  const { accessibility: result } = await probe('transitions.html', {
+    modules: only(recorder), config: { states: [MENU_T, ghost, SETTINGS_T] }, timeoutMs: 6_000,
+  });
+
+  assert.deepEqual(result.findings.map(({ at }) => at), ['menu']);
+  assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [
+    { at: 'ghost', error: 'nothing visible to click at #nothing-here' },
+    { at: 'settings', error: 'not reached: ghost could not be (nothing visible to click at #nothing-here)' },
+  ]);
+});
+
+test('a transition probe needs a state, and does not run without one', async () => {
+  const { recorder, seen } = transitionRecorder();
+  assert.deepEqual(await probe('transitions.html', { modules: only(recorder) }), {});
+  assert.deepEqual(seen, []);
+});
+
+// --- focus, on the way into and out of each state ---------------------------------
+
+// Each state alone: the states are cumulative, and a modal dialog left open
+// would stand between the next state's click and its trigger.
+async function focusIn(page, state) {
+  const { accessibility: result } = await probe(page, { modules: only(focus), config: { states: [state] } });
+  assert.deepEqual(result.failures, []);
+  return result.findings.map((finding) => [finding.rule, finding.at, finding.nodes[0].selector, finding.nodes[0].explanation]);
+}
+
+test('focus handled on the way in and out reports nothing, however it is handled', async () => {
+  for (const state of [
+    // The browser's own modal dialog.
+    { name: 'native', click: '#native-open', wait_for: 'dialog#native[open]' },
+    // A dialog of its own, focus sent to its title after a 300 ms transition,
+    // the page behind made inert.
+    { name: 'custom', click: '#custom-open', wait_for: '#custom:not([hidden])' },
+    // A disclosure, whose content is next, and which Escape need not close.
+    { name: 'disclosure', click: '#faq', wait_for: "#faq[aria-expanded='true']" },
+    // A menu button: focus on the first item, back on Escape.
+    { name: 'menu', click: '#actions', wait_for: "#actions[aria-expanded='true']" },
+    // Load more: gone once it loaded, focus on the first new item.
+    { name: 'more', click: '#load-more', wait_for: '#item-4' },
+    // A popover that is not modal, and keeps focus where it was.
+    { name: 'popover', click: '#tip-open', wait_for: '#tip:popover-open' },
+    // Modal the way component libraries make it: the page behind hidden.
+    { name: 'sheet', click: '#sheet-open', wait_for: '#sheet:not([hidden])' },
+  ]) {
+    assert.deepEqual(await focusIn('focus-clean.html', state), [], state.name);
+  }
+});
+
+test('a modal dialog in name only: focus behind it, Tab under it, Escape ignored, focus lost as it closes', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'lazy', click: '#lazy-open', wait_for: '#lazy:not([hidden])', close: '#lazy-close' }), [
+    ['focus-not-moved', 'lazy', 'body > div#lazy', 'focus stayed on body > main#page > button#lazy-open'],
+    // Walked from inside the dialog: Tab gets out of it, to the top of the
+    // page.
+    ['focus-escapes-modal', 'lazy', 'body > a#skip', 'Tab reached it, behind the open body > div#lazy'],
+    ['escape-not-closing', 'lazy', 'body > div#lazy', 'still open after Escape'],
+    ['focus-lost', 'lazy', 'body > main#page > button#lazy-open', 'closing what it opened left focus nowhere'],
+  ]);
+});
+
+// The pattern of a real drawer: modal by the page behind it being hidden,
+// with focus left there.
+test('a dialog made modal by hiding the page behind it, which leaves focus behind', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'drawer', click: '#drawer-open', wait_for: '#drawer:not([hidden])' }), [
+    ['focus-not-moved', 'drawer', 'body > div#drawer', 'focus stayed on body > main#page > button#drawer-open'],
+  ]);
+});
+
+test('what a click opens and no key can, and what goes as it opens, taking focus with it', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'mouse', click: '#mouse', wait_for: '#mouse-panel:not([hidden])' }), [
+    ['keyboard-inoperable', 'mouse', 'body > main#page > div#mouse', 'takes no keyboard focus, and only a click opens what it opens'],
+  ]);
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'vanish', click: '#vanish', wait_for: '#vanished-panel:not([hidden])' }), [
+    ['focus-lost', 'vanish', 'body > main#page > button#vanish', 'opening what it opens left focus nowhere'],
+  ]);
+});
+
+test('a disclosure whose content is at the end of the page, and a dialog that sends focus elsewhere as it closes', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'portal', click: '#portal-open', wait_for: "#portal-open[aria-expanded='true']" }), [
+    ['revealed-unreachable', 'portal', 'body > main#page > button#portal-open', 'the next Tab goes to body > main#page > a, not into body > div#portal'],
+  ]);
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'noreturn', click: '#nr-open', wait_for: 'dialog#nr[open]' }), [
+    ['focus-not-returned', 'noreturn', 'body > main#page > button#nr-open', 'focus went to body > a#skip when what it opened closed'],
+  ]);
+});
+
+// --- what a state leaves behind, and keeps in memory -----------------------------
+
+// Each state alone, as for focus.
+async function leftBy(page, state, check = residues) {
+  const { accessibility: result } = await probe(page, { modules: only(check), config: { states: [state] } });
+  assert.deepEqual(result.failures, []);
+  return result.findings.map((finding) => [finding.rule, finding.nodes[0].selector, finding.nodes[0].explanation]);
+}
+
+test('states that give the page back as they found it leave nothing, and keep nothing', async () => {
+  for (const state of [
+    // The browser's modal dialog, the page locked behind it by CSS alone.
+    { name: 'native', click: '#native-open', wait_for: 'dialog#native[open]' },
+    // Locks, hides and covers the page while open; gives it all back.
+    { name: 'sheet', click: '#sheet-open', wait_for: '#sheet' },
+    // Closed by a click away from it, Escape doing nothing.
+    { name: 'menu', click: '#menu-open', wait_for: '#menu:not([hidden])' },
+    // Builds two hundred items the first time, and keeps them: a cache.
+    { name: 'cached', click: '#cached-open', wait_for: '#cached:not([hidden])' },
+  ]) {
+    assert.deepEqual(await leftBy('interactions-clean.html', state), [], `${state.name}, residues`);
+  }
+  for (const name of ['cached', 'sheet']) {
+    const state = name === 'cached'
+      ? { name, click: '#cached-open', wait_for: '#cached:not([hidden])' }
+      : { name, click: '#sheet-open', wait_for: '#sheet' };
+    assert.deepEqual(await leftBy('interactions-clean.html', state, leaks), [], `${name}, leaks`);
+  }
+});
+
+test('what a closed state leaves: a locked page, a backdrop, a hidden page, a lost place, a stale button', async () => {
+  const dialog = (name) => ({ name, click: `#${name}-open`, wait_for: `#${name}-open-dialog` });
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('locked')), [
+    ['page-locked', 'body', 'overflow: hidden on <body>, which it did not have before'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('scrim')), [
+    ['overlay-left', 'body > div.scrim', 'covers 100% of the screen and takes the clicks at its middle'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('hidden')), [
+    ['page-hidden-left', 'body > main#page', 'still aria-hidden once the state closed'],
+  ]);
+  const [[rule, , explanation]] = await leftBy('interactions-broken.html', dialog('jump'));
+  assert.equal(rule, 'scroll-position-lost');
+  assert.match(explanation, /^the page was scrolled to \d+ px, and is at 0 px once the state closed$/);
+  assert.deepEqual(await leftBy('interactions-broken.html', { name: 'stale', click: '#stale-open', wait_for: '#stale:not([hidden])' }), [
+    ['expanded-left', 'body > main#page > button#stale-open', 'aria-expanded is still true'],
+  ]);
+});
+
+test('an address left changed, an error on closing, a page that scrolls behind a modal dialog', async () => {
+  const dialog = (name) => ({ name, click: `#${name}-open`, wait_for: `#${name}-open-dialog` });
+  const [hash] = await leftBy('interactions-broken.html', dialog('hash'));
+  assert.equal(hash[0], 'url-left');
+  assert.match(hash[2], /to http:\/\/127\.0\.0\.1:\d+\/interactions-broken\.html#newsletter$/);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('throws')), [
+    ['close-error', 'body > main#page > button#throws-open', 'cleanup failed'],
+  ]);
+  assert.deepEqual(await leftBy('interactions-broken.html', dialog('loose')), [
+    ['scroll-not-locked', 'body > div#loose-open-dialog', 'the page behind it scrolled 400 px under the wheel'],
+  ]);
+});
+
+test('a state that keeps what it built on every opening, and a listener on each, leaks', async () => {
+  // Fifty items and their text on each opening, fifty listeners: the counts
+  // the page starts from are Chrome's business, what each opening adds is not.
+  const [dom, listeners] = await leftBy('interactions-broken.html', { name: 'leaky', click: '#leaky-open', wait_for: '#leaky:not([hidden])' }, leaks);
+  assert.equal(dom[0], 'dom-leak');
+  assert.match(dom[2], /^DOM nodes went from \d+ to \d+ over 6 more cycles — 100 kept per opening$/);
+  assert.equal(listeners[0], 'listener-leak');
+  assert.match(listeners[2], /^event listeners went from \d+ to \d+ over 6 more cycles — 50 added per opening$/);
+});
+
 // --- keyboard -------------------------------------------------------------------------
 
 test('a page whose every stop shows its focus reports nothing, however it shows it', async () => {
@@ -282,7 +573,14 @@ test('a page whose every stop shows its focus reports nothing, however it shows 
 });
 
 test('focus nobody can see is named, with why', async () => {
-  const { accessibility: result } = await probe('keyboard-unseen.html', { modules: only(keyboard) });
+  const journal = new Journal();
+  const { accessibility: result } = await probe('keyboard-unseen.html', { modules: only(keyboard), journal });
+
+  // Every stop of the walk is in the journal, the unseen ones as such.
+  const stops = journal.events.filter((e) => e.kind === 'tab-stop');
+  assert.equal(stops.filter((stop) => !stop.indicator || stop.hidden).length, 4);
+  assert.deepEqual(stops.map((stop) => stop.index), stops.map((_, i) => i));
+  assert.equal(journal.events.find((e) => e.kind === 'tab-end').stops, stops.length);
 
   assert.deepEqual(summary(result), [{
     rule: 'focus-visible',
@@ -422,6 +720,15 @@ test('a click that cannot be made leaves its state, and the ones after it, untim
 
 // The loads after the first run the probes that measure, and those alone:
 // a median needs a number from each load; a finding does not change.
+// A screenshot between two clicks would be timed with them.
+test('the probe that measures is journaled without a frame', async () => {
+  const journal = new Journal();
+  await probe('inp-slow.html', { modules: [performance], config: { states: [QUICK] }, journal });
+  assert.deepEqual(journal.events.filter((e) => e.probe === 'inp').map((e) => e.kind).slice(0, 3), ['probe-start', 'loaded', 'state-reached']);
+  assert.deepEqual(journal.events.filter((e) => e.frame), []);
+  assert.equal(journal.frames.size, 0);
+});
+
 test('on a repeated load, only the probe that measures runs', async () => {
   const result = await probe('inp-slow.html', {
     modules: [performance, only(axeProbe)[0]], config: { states: [SLOW] }, measuresOnly: true,
