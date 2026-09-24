@@ -21,7 +21,8 @@ import { load, openPage, settle } from './page.js';
 // Resolves to { explored: { [formFactor]: nodes }, dropped, runs }: the states
 // kept on each screen, as ./explore.js lists them; the ones left out, with
 // why; and, per screen, what the exploration came to — `guarded` naming each
-// click not kept because the guards stopped something it did.
+// click not kept because the guards stopped something it did, `clicked`
+// every click as ./explore.js records it.
 export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onProgress = () => {} } = {}) {
   // Built by hand rather than through chromeLauncher.launch(), for the reason
   // src/lighthouse/runner.worker.js gives: a Chrome whose port never opened
@@ -61,7 +62,10 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
         // what a person reading the result needs to know was not missed but
         // refused, and why.
         const guarded = clicks.filter((c) => c.outcome === 'guarded').map(({ role, name, stopped }) => ({ role, name, stopped }));
-        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime, guarded }];
+        // And every click, with what it changed and what it came to: what
+        // explains, after the fact, a state nobody expected — or one that
+        // was expected and is not there.
+        return [formFactor, { clicks: clicks.length, stable, leftInQueue, outOfTime, guarded, clicked: clicks }];
       })),
     };
   } finally {

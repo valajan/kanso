@@ -97,6 +97,11 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
       const fromParent = without(diff(parent.reading.print, after.print), volatile.parts);
       const newText = contentDiff(parent.reading.snap, after.snap, volatile.lines).appeared;
       const key = keyOf(after, rootReading, volatile);
+      // Kept, so that a state that surprises can be explained from the
+      // result, without clicking through the page again.
+      click.appeared = capped(fromParent.appeared);
+      click.disappeared = capped(fromParent.disappeared);
+      click.newText = capped(newText);
 
       if (stopped.length > 0) {
         click.outcome = 'guarded';
@@ -250,6 +255,14 @@ function shape({ cssPath, name }, loose = false) {
   const parts = cssPath.split(' > ');
   const strip = (part) => part.replace(/:nth-of-type\(\d+\)$/, '');
   return [...parts.slice(0, -1).map(strip), loose ? strip(parts.at(-1)) : parts.at(-1)].join(' > ');
+}
+
+// How many of the parts or lines a click changed are kept in its record: what
+// a menu or a dialog brings, and the start of what a page swapped whole.
+const KEPT = 20;
+
+function capped(list) {
+  return list.length > KEPT ? [...list.slice(0, KEPT), `… and ${list.length - KEPT} more`] : list;
 }
 
 function without({ appeared, disappeared }, ignored) {
