@@ -342,11 +342,11 @@ test('the project configuration is what list_modules reports', async () => {
   assert.ok(axe.rules.length < 101 && axe.rules.length > 0);
   assert.ok(!axe.rules.includes('region'));
 
-  // The states the project declares, and which checks go through them: axe
-  // reads each, focus goes into and out of each.
+  // The states the project declares, and which checks go through them: axe,
+  // reflow and the keyboard walk read each, focus goes into and out of each.
   assert.deepEqual(payload.states, []);
   assert.deepEqual(payload.modules[1].probes.map(({ id, states, transitions }) => [id, states, transitions]), [
-    ['axe', true, false], ['reflow', false, false], ['keyboard', false, false], ['motion', false, false], ['focus', false, true],
+    ['axe', true, false], ['reflow', true, false], ['keyboard', true, false], ['motion', false, false], ['focus', false, true],
   ]);
   writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    wait_for: "#menu"\n');
   const [declared] = await session([call(1, 'list_modules', {})], { cwd });

@@ -21,17 +21,37 @@ import { impactOf } from './rules.js';
 // ring, a border, a background, an underline. The browser's own focus ring
 // counts. Transitions are finished rather than waited for: what is compared is
 // where they end.
+//
+// It goes through the declared states too: the links of a menu, the buttons
+// of a dialog are stops nobody reaches as the page loads. In a state, the walk
+// starts where the click left focus — the trigger, or wherever the page sent
+// it — and goes on from there: what comes before was walked as the page
+// loaded, and what comes after is reported only where it adds to it
+// (src/probes/index.js). Where it starts is not a stop: focus came to it by a
+// mouse, or by a script after one, and the browser shows no ring for that —
+// the one Tab gives it is read when Tab comes round to it. With a modal dialog
+// open, the walk is the dialog's: what is behind it is no stop, and focus
+// leaving it ends the walk — focus.js's `focus-escapes-modal`, not reported
+// twice as focus hidden behind the backdrop. Pressing Tab moves the page — a
+// menu closes as focus leaves it — so each state is read in a page loaded for
+// it (`disturbs`).
+//
+// A walk goes no further than MAX_STOPS, in each state as on the page.
 const MAX_STOPS = 150;
 
 export const keyboard = {
   id: 'keyboard',
   rules: ['focus-trap', 'focus-visible', 'focus-obscured'],
+  states: true,
+  disturbs: true,
 
-  async run(page, { log }) {
-    // Focus the page placed itself — an autofocus, a dialog opening — is
-    // where a keyboard user starts, and the first stop.
-    const focused = await inPage(page, startWalk);
-    if (focused) await inPage(page, recordStop);
+  async run(page, { at, log }) {
+    const inState = at != null;
+    // Focus the page placed itself as it loaded — an autofocus, a dialog
+    // opening — is where a keyboard user starts, and the first stop. In a
+    // state, it is where the walk starts, and no stop.
+    const focused = await inPage(page, startWalk, inState);
+    if (focused && !inState) await inPage(page, recordStop);
     for (let i = 0; i < MAX_STOPS; i++) {
       await page.keyboard.press('Tab');
       if (await inPage(page, recordStop)) break;
@@ -113,11 +133,18 @@ export function keyboardFindings({ stops, trap }) {
 // script uses — with the two helpers every step needs, which only exist there
 // if a step defines them.
 
-// Starts at the top, from wherever the page put focus. Resolves to true when
-// that is somewhere.
-function startWalk() {
-  const walk = { stops: [], repeats: 0, end: null };
+// Starts at the top, from wherever the page put focus — in a state, where the
+// state stands, held to the modal dialog open there, if one is. Resolves to
+// true when focus is somewhere.
+function startWalk(dom, inState) {
+  const walk = { stops: [], repeats: 0, end: null, scope: null, entered: false };
   window[Symbol.for('kanso.keyboard')] = walk;
+
+  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
+  if (inState) {
+    walk.scope = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')]
+      .find((el) => shows(el) && dom.modal(el)) ?? null;
+  }
 
   // Transitions run to their end at once: what is compared is where they land.
   walk.settle = () => {
@@ -154,12 +181,13 @@ function startWalk() {
     });
   };
 
-  window.scrollTo(0, 0);
+  if (!inState) window.scrollTo(0, 0);
   return document.activeElement != null && document.activeElement !== document.body;
 }
 
 // Records where one Tab press left focus. Resolves to true when the walk is
-// over: focus left the page, came back round, or stopped moving.
+// over: focus left the page — or the dialog it is held to —, came back
+// round, or stopped moving.
 function recordStop() {
   const walk = window[Symbol.for('kanso.keyboard')];
 
@@ -168,6 +196,19 @@ function recordStop() {
   if (!element || element === document.body || element === document.documentElement) {
     walk.end = { kind: 'left' };
     return true;
+  }
+
+  // Behind the modal dialog of a state: no stop on the way in, the end of the
+  // walk on the way out.
+  if (walk.scope) {
+    let inside = false;
+    for (let node = element; node && !inside; node = node.parentNode ?? node.host) inside = node === walk.scope;
+    if (!inside) {
+      if (!walk.entered) return false;
+      walk.end = { kind: 'left-dialog' };
+      return true;
+    }
+    walk.entered = true;
   }
 
   const seen = walk.stops.findIndex((stop) => stop.element === element);
@@ -253,17 +294,19 @@ function endWalk(dom) {
     };
   });
 
+  // Holding focus is what an open modal dialog is for — round its elements,
+  // or on the one it has.
+  const held = (elements) => {
+    const modal = walk.scope ?? elements[0].closest('dialog:modal, [aria-modal="true"]');
+    return modal != null && elements.every((element) => modal.contains(element));
+  };
   let trap = null;
   const { end } = walk;
   if (end?.kind === 'stuck') {
-    trap = { kind: 'stuck', element: stops[end.index].element };
+    if (!held([walk.stops[end.index].element])) trap = { kind: 'stuck', element: stops[end.index].element };
   } else if (end?.kind === 'cycle') {
-    // Holding focus is what an open modal dialog is for.
     const loop = walk.stops.slice(end.index).map((stop) => stop.element);
-    const modal = loop[0].closest('dialog:modal, [aria-modal="true"]');
-    if (!modal || !loop.every((element) => modal.contains(element))) {
-      trap = { kind: 'cycle', size: loop.length, element: stops[end.index].element };
-    }
+    if (!held(loop)) trap = { kind: 'cycle', size: loop.length, element: stops[end.index].element };
   }
 
   return { stops, trap, end: end?.kind ?? 'limit' };

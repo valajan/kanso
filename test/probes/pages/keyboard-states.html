@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A page whose unseen focus only a click shows</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  a { color: #0b5cad; }
+  /* Rings drawn by :focus-visible alone, which a mouse click does not light:
+     the triggers clicked to reach a state are not stops there. */
+  button:focus { outline: none; }
+  button:focus-visible { outline: 3px solid #0b5cad; outline-offset: 2px; }
+  .plain:focus, .plain:focus-visible { outline: none; }
+  #dialog { position: fixed; inset: 0; background: rgb(0 0 0 / .6); display: flex; align-items: center; justify-content: center; }
+  #dialog[hidden] { display: none; }
+  #dialog .box { background: #fff; padding: 2rem; }
+</style>
+</head>
+<body>
+<header>
+  <!-- The one fault the page shows as it loads, and in every state after. -->
+  <button id="bare" type="button" class="plain">Bare</button>
+  <button id="open-menu" type="button" aria-expanded="false" aria-controls="menu">Menu</button>
+  <div id="menu" hidden>
+    <!-- Focus unseen, once the menu is open. -->
+    <a href="#" class="plain">Pricing</a>
+    <button id="more" type="button" aria-expanded="false" aria-controls="more-links">More</button>
+    <div id="more-links" hidden><a href="#">Docs</a></div>
+  </div>
+  <button id="open-dialog" type="button">Contact</button>
+</header>
+<!-- Modal in name, and holding nothing: Tab goes on to the page behind its
+     backdrop, which focus.js reports — not the keyboard walk, as focus
+     hidden behind it. -->
+<div id="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" hidden>
+  <div class="box">
+    <h2 id="dialog-title">Contact</h2>
+    <button id="dialog-close" type="button">Close</button>
+    <a href="#" class="plain">Email</a>
+  </div>
+</div>
+<main>
+  <h1>Keyboard focus, in a state</h1>
+  <p><a href="#">A link behind the dialog</a> and <a href="#">another</a>.</p>
+</main>
+<script>
+  const menu = document.getElementById('menu');
+  const openMenu = document.getElementById('open-menu');
+  openMenu.addEventListener('click', () => {
+    menu.hidden = false;
+    openMenu.setAttribute('aria-expanded', 'true');
+  });
+  // Closed as focus leaves it, as a dropdown is: whatever Tab went through in
+  // it, a state under it is reached in a page of its own.
+  menu.addEventListener('focusout', (event) => {
+    if (menu.contains(event.relatedTarget)) return;
+    menu.hidden = true;
+    openMenu.setAttribute('aria-expanded', 'false');
+  });
+  const more = document.getElementById('more');
+  more.addEventListener('click', () => {
+    document.getElementById('more-links').hidden = false;
+    more.setAttribute('aria-expanded', 'true');
+  });
+
+  const dialog = document.getElementById('dialog');
+  document.getElementById('open-dialog').addEventListener('click', () => {
+    dialog.hidden = false;
+    document.getElementById('dialog-close').focus();
+  });
+  document.getElementById('dialog-close').addEventListener('click', () => { dialog.hidden = true; });
+</script>
+</body>
+</html>

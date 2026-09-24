@@ -26,7 +26,8 @@ import { reflow } from './reflow.js';
 // same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide,
 // keyboard.js goes through it with the Tab key, motion.js watches it under
 // `prefers-reduced-motion: reduce`, and focus.js goes into and out of each
-// declared state from the keyboard.
+// declared state from the keyboard. Like axe, reflow and the keyboard walk
+// read the page again in each declared state.
 export default {
   id: 'accessibility',
   label: 'Accessibility',

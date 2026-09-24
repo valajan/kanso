@@ -65,6 +65,12 @@ const SETTLE_MS = 5_000;
 // there is unknown, and nothing found there would be nothing checked. The
 // other branches go on.
 //
+// A probe that says `disturbs: true` moves the page as it reads it — the
+// keyboard walk presses Tab, and a menu that closes as focus leaves it closes
+// — and leaves no page to go on from: each state it reads is reached in a page
+// loaded for it, the first and those reached through another included. A
+// state costs it one load more than a probe that only reads.
+//
 // A probe that says `onlyInStates: true` has nothing to read in a page nobody
 // clicked, and is not run at all when no state is declared — which the audit
 // reports as such (`skippedProbes`), never as a probe that found nothing.
@@ -181,8 +187,9 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
     const unchecked = [];
     const seen = probe.measures ? null : new Seen(found);
     // Where the page stands: the state it is in, null as it loaded, undefined
-    // once a state failed on it and nobody knows.
-    let here = null;
+    // once a state failed on it, or a reading that disturbs moved it, and
+    // nobody knows.
+    let here = probe.disturbs ? undefined : null;
     const missed = new Set();
 
     for (const state of walkOrder(states)) {
@@ -217,7 +224,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
           });
           return probe.run(page, { url, formFactor, config, at: state.name, log: at });
         });
-        here = state.name;
+        here = probe.disturbs ? undefined : state.name;
         findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
         here = undefined;

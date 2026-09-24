@@ -63,7 +63,7 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'none, does not run: each module lists it under skipped — { probe, rules, reason: "no-states" } — and its '
       + 'rules were not checked, not passed; kanso discover --write finds the states. '
       + 'When the project declares states — in its .kanso.yml, or in .kanso/states.yml, which kanso discover writes (list_modules shows them) — a menu opened, a dialog '
-      + 'shown, each reached by a click from the page as it loads or from the state it is listed under — axe reads the page again in each, and a finding '
+      + 'shown, each reached by a click from the page as it loads or from the state it is listed under — axe, the 320 px reflow and the Tab walk read the page again in each, and a finding '
       + 'made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that could '
       + 'not be reached is a probeFailure carrying `at`, and so is every state reached through it. '
       + 'Each state is also opened from the keyboard and closed with Escape, in a page of its own, and '

@@ -193,7 +193,11 @@ accessibility, on the same scale:
 **What only a click shows is checked too, if you say how to get there.** A menu
 that opens, a dialog, a form behind a button: declare them at the root of
 `.kanso.yml` and axe reads the page again in each — in the page it already
-loaded, so a state costs a reading, not a load:
+loaded, so a state costs a reading, not a load. The 320 px layout and the Tab
+walk go through them too: a panel of fixed width, a menu link with no focus
+ring are where they hide. The walk starts where the click left focus, and in
+a modal dialog stays in it; since Tab moves the page, it reads each state in
+a page loaded for it:
 
 ```yaml
 states:
@@ -385,7 +389,7 @@ runs: 3
 serve:
   dir: dist
 
-# The states of the page axe reads beyond the one it loads in — see section 3.
+# The states of the page axe, reflow and the Tab walk read beyond the one it loads in — see section 3.
 states:
   - name: menu
     click: "[aria-label='Menu']"

@@ -125,7 +125,9 @@ runs: 1
 # Web Vital Lighthouse cannot measure on a load nobody clicks during.
 #
 # axe reads the page again in each — in the same page down a branch, in the
-# page loaded again for the next — and reports what each state shows broken
+# page loaded again for the next — and so do the 320 px reflow check (the
+# mobile screen's states) and the Tab walk (a page loaded for each state, since
+# Tab moves it). Each reports what each state shows broken
 # that no reading before it did, as `button-name @ menu`. A state that cannot
 # be reached — its button renamed — is reported, with every state reached
 # through it, as unchecked there, never as clean;
