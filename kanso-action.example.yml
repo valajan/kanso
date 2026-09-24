@@ -79,3 +79,14 @@ jobs:
 #
 #   With `serve:` in .kanso.yml, `url` can be left out: Kanso serves the project
 #   as the file says, on this runner as on a developer's machine.
+#
+#   Keeping a journal of what the checks did on each load, uploaded as the
+#   workflow artifact kanso-record-audit — whatever the audit concluded, since
+#   a failure is when it is wanted:
+#
+#       - uses: valajan/kanso@main
+#         with:
+#           working-directory: head
+#           url: dist
+#           baseline: ../base/dist
+#           record: true

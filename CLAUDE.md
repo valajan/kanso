@@ -35,7 +35,8 @@ in CI through `.github/workflows/acceptance.yml`, which checks out the public
 
 The GitHub Action at the repo root (`action.yml`) has its own self-test,
 `.github/workflows/action.yml`: it runs the action from the checkout on the
-page in `test/action/`, once passing and once under a budget no page meets.
+page in `test/action/`, once passing and once under a budget no page meets —
+the latter with `record: true`, checking the journal was kept though it failed.
 The passing case sets its own wide timing budgets (`test/action/.kanso.yml`) and
 accepts a `warn`: what it proves is the Action's plumbing, and the default
 budgets of `config.yml` made it a coin toss on a contended runner.
@@ -61,7 +62,9 @@ Three surfaces exist today:
   so nothing here calls one.
 - **the GitHub Action** (`action.yml`) — the CLI again, in a client's own
   runner, writing the Markdown report to the job summary and exiting on the
-  verdict.
+  verdict. With `record: true` it passes `--record` and uploads the journal as
+  a workflow artifact (`record-name`, by default `kanso-record-<job id>`),
+  failed audit or not — outputs `record` and `record-url`.
 
 Kanso hosts nothing and holds no credential. There is no server: the surfaces
 run where the code is.
@@ -120,8 +123,10 @@ run where the code is.
   `audit.js` loads a page (and optionally a baseline) on mobile + desktop, runs
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
   worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
-  what every surface accepts as a page to audit. The CLI and the MCP server are
-  its two callers — and the Action is the CLI.
+  what every surface accepts as a page to audit; `record.js` is what a record
+  directory holds, and clears an earlier audit's files from it before a new
+  one. The CLI and the MCP server are its two callers — and the Action is the
+  CLI.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`) and the two shapes of detail every surface can render — `scores`
@@ -202,7 +207,10 @@ run where the code is.
   progress, which is what keeps a host from abandoning it. With `screenshot:
   true`, the page under audit as its load ended follows as image blocks, one
   per form factor — `audit({ screenshots })` in the core, carried by the
-  runner under the `SCREENSHOT` symbol, never in the JSON
+  runner under the `SCREENSHOT` symbol, never in the JSON. With `record:
+  <dir>` (relative to the directory the server was started in), the journals
+  are kept there as with `--record`, the result beside them as `audit.json`,
+  and the result says where under `record`
 - `lighthouse/runner.js` — runs the page loads; `runner.worker.js` is one load
   in its own worker thread, collecting the union of the modules' Lighthouse
   categories and handing each module the report to `extract` from

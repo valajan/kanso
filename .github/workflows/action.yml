@@ -4,7 +4,8 @@ name: Action
 # runs it, on a real runner: its install, the runner's Chrome, a build served
 # from a directory, the job summary and the outputs. Once on a page that
 # passes, served as test/action/.kanso.yml says; once under a budget no page
-# meets, which must fail the step.
+# meets, which must fail the step — and keep its journal all the same, since a
+# failed audit is when one is wanted.
 #
 # What it proves is the plumbing, not the runner's speed, so the passing case
 # is judged on what the page decides — see the budgets in test/action/.kanso.yml.
@@ -66,6 +67,8 @@ jobs:
           url: site
           baseline: site
           config: impossible.yml
+          record: true
+          record-name: kanso-record-failing
 
       - name: Check what the Action reported
         env:
@@ -75,6 +78,9 @@ jobs:
           FAILING_OUTCOME: ${{ steps.failing.outcome }}
           FAILING_REPORT: ${{ steps.failing.outputs.report }}
           FAILING_RESULT: ${{ steps.failing.outputs.result }}
+          FAILING_RECORD: ${{ steps.failing.outputs.record }}
+          FAILING_RECORD_URL: ${{ steps.failing.outputs.record-url }}
+          PASSING_RECORD: ${{ steps.passing.outputs.record }}
         run: |
           set -x
           # The page is clean, so its verdict cannot be a failure. It can be a
@@ -94,3 +100,12 @@ jobs:
           # The page matches its baseline; the budget beside it is why it fails.
           grep -qE '^\| Performance \| 101 \| [0-9]+ \| [0-9]+ \| [+-][0-9]+ \| ❌ \|$' "$FAILING_REPORT"
           node -e 'const r = require(process.argv[1]); if (r.modules.performance.levels.performance !== "fail") process.exit(1)' "$FAILING_RESULT"
+          # The failing audit kept its journal: one per load, both pages and
+          # both form factors, the result beside them — and uploaded it though
+          # the step failed. The passing one was not asked to.
+          for load in current.mobile current.desktop baseline.mobile baseline.desktop; do
+            test -s "$FAILING_RECORD/$load.1.jsonl"
+          done
+          node -e 'const r = require(process.argv[1]); if (r.conclusion !== "fail") process.exit(1)' "$FAILING_RECORD/audit.json"
+          test -n "$FAILING_RECORD_URL"
+          test -z "$PASSING_RECORD"

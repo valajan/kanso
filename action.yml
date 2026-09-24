@@ -40,6 +40,19 @@ inputs:
     description: 'The project directory: where .kanso.yml is read, and what relative paths are relative to.'
     required: false
     default: '.'
+  record:
+    description: >
+      true to keep a journal of what the checks did on each page load — one
+      JSON Lines file per load, and the result beside them as audit.json — and
+      upload it as a workflow artifact, a failed audit included: that is when
+      it is wanted.
+    required: false
+    default: 'false'
+  record-name:
+    description: >
+      The name of that artifact. Defaults to kanso-record-<job id>; a job that
+      audits twice, or a matrix, names each use so they do not collide.
+    required: false
 
 outputs:
   conclusion:
@@ -51,6 +64,12 @@ outputs:
   result:
     description: 'Path to the whole result as JSON, the one `kanso audit --json` prints.'
     value: ${{ steps.audit.outputs.result }}
+  record:
+    description: 'Path to the directory the journal was kept in, when record is true; empty otherwise.'
+    value: ${{ steps.audit.outputs.record }}
+  record-url:
+    description: 'Where the uploaded journal can be downloaded from, when record is true; empty otherwise.'
+    value: ${{ steps.upload.outputs.artifact-url }}
 
 runs:
   using: composite
@@ -81,17 +100,32 @@ runs:
         KANSO_RUNS: ${{ inputs.runs }}
         KANSO_FAIL_ON: ${{ inputs.fail-on }}
         KANSO_CONFIG: ${{ inputs.config }}
+        KANSO_RECORD: ${{ inputs.record }}
+        KANSO_RECORD_NAME: ${{ inputs.record-name }}
       run: |
         # One directory per use, so a job auditing two pages keeps both reports.
         out=$(mktemp -d "$RUNNER_TEMP/kanso-XXXXXX")
         echo "report=$out/report.md" >> "$GITHUB_OUTPUT"
         echo "result=$out/result.json" >> "$GITHUB_OUTPUT"
 
+        # The journal goes in the same directory, and its path out before the
+        # audit runs: the upload that follows is keyed on it, and must happen
+        # however the audit ends.
+        case "$KANSO_RECORD" in
+          true)
+            echo "record=$out/record" >> "$GITHUB_OUTPUT"
+            echo "record-name=${KANSO_RECORD_NAME:-kanso-record-$GITHUB_JOB}" >> "$GITHUB_OUTPUT"
+            ;;
+          false | '') ;;
+          *) echo "::error title=Kanso::record must be true or false, not $KANSO_RECORD."; exit 2 ;;
+        esac
+
         args=(audit)
         if [ -n "$KANSO_URL" ]; then args+=("$KANSO_URL"); fi
         if [ -n "$KANSO_BASELINE" ]; then args+=(--baseline "$KANSO_BASELINE"); fi
         if [ -n "$KANSO_RUNS" ]; then args+=(--runs "$KANSO_RUNS"); fi
         if [ -n "$KANSO_CONFIG" ]; then args+=(--config "$KANSO_CONFIG"); fi
+        if [ "$KANSO_RECORD" = true ]; then args+=(--record "$out/record"); fi
         args+=(--fail-on "$KANSO_FAIL_ON" --out "$out/report.md" --out "$out/result.json")
 
         code=0
@@ -112,3 +146,15 @@ runs:
           *) echo "::error title=Kanso::The audit could not run — the step log says why." ;;
         esac
         exit "$code"
+
+    # A failed audit fails the step above, and a failed job is what a journal
+    # is for — so this runs whatever it concluded, unless the run was
+    # cancelled.
+    - name: Upload the journal
+      id: upload
+      if: ${{ !cancelled() && steps.audit.outputs.record != '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.audit.outputs.record-name }}
+        path: ${{ steps.audit.outputs.record }}
+        if-no-files-found: warn
