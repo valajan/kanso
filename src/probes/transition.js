@@ -1,4 +1,5 @@
 import { inPage } from './dom.js';
+import { settle } from './settle.js';
 import { applyState } from './states.js';
 
 // What a probe that checks the way into and out of a state is handed — a probe
@@ -44,14 +45,11 @@ import { applyState } from './states.js';
 // How long a key press is given to open a state before the next is tried, and
 // a close to show. A keyboard user waits no longer.
 const KEY_WAIT_MS = 2_000;
-// After a state opens or closes: the requests it makes, the transition it
-// plays, the focus a script moves once it is done. At least IDLE_MS go by.
-const SETTLE_MS = 3_000;
-const IDLE_MS = 500;
 
+// After a state opens or closes, the page settles (./settle.js) before
+// anything reads it: the requests it makes, the animations it plays, the
+// focus a script moves once they are done.
 export function transitionTools(page, state, { waitMs, log }) {
-  const settle = () => page.waitForNetworkIdle({ idleTime: IDLE_MS, timeout: SETTLE_MS }).catch(() => {});
-
   const trigger = async () => page.waitForSelector(state.click, { visible: true, timeout: waitMs })
     .catch(() => {
       throw new Error(`nothing visible to click at ${state.click}`);
@@ -69,7 +67,7 @@ export function transitionTools(page, state, { waitMs, log }) {
     try {
       return await read();
     } catch {
-      await settle();
+      await settle(page);
       return read().catch(() => {
         const { origin, pathname } = new URL(page.url());
         return origin + pathname;
@@ -183,7 +181,7 @@ export function transitionTools(page, state, { waitMs, log }) {
           }
         }
       }
-      await settle();
+      await settle(page);
       const opened = await whatOpened(`pressing ${pressed}`);
       await log.shot(page, 'open', { by, ...result, what: opened.kind, ms: Date.now() - started });
       return { ...result, ...opened };
@@ -213,7 +211,7 @@ export function transitionTools(page, state, { waitMs, log }) {
       } else if (by === 'escape') await page.keyboard.press('Escape');
       else await page.click(state.close);
       const closed = await becomes(false, KEY_WAIT_MS);
-      await settle();
+      await settle(page);
       const gone = await leaving(`closing it (${by})`);
       if (gone) throw gone;
       await log.shot(page, 'close', { by, closed, ms: Date.now() - started });
