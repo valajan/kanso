@@ -14,6 +14,9 @@ import { isPlainObject } from './merge.js';
 //       close: "#signup-cancel"
 //     - name: settings
 //       click: "#settings"
+//     - name: drawer
+//       form_factor: mobile
+//       click: "[aria-label='Open the menu']"
 //
 // At the root, like `runs:`, and for the same reason: a state is a way through
 // the page, and what the page looks like there concerns every module, not one.
@@ -26,6 +29,10 @@ import { isPlainObject } from './merge.js';
 // stand in the way of the next, and a state that cannot be reached costs only
 // the ones reached through it. `from` names a state declared before it, which
 // is what keeps a state from being reached through itself.
+//
+// A state is on both screens Kanso audits unless it says `form_factor:` — a
+// drawer only a phone's layout has. A state reached through one that is on a
+// single screen is on that screen too, whether it says so or not.
 //
 // A state is its name, the element clicked to reach it, and, optionally, the
 // state it starts from, what says it has been reached, and what closes it when
@@ -41,29 +48,41 @@ const NAME = /^[A-Za-z0-9][\w-]*$/;
 
 export class InvalidStates extends Error {}
 
-// The declared states, as { name, click, from, waitFor, close } — each of the
-// last three only when declared — in order. Nothing declared
+const FORM_FACTORS = ['mobile', 'desktop'];
+
+// The declared states, as { name, click, from, formFactor, waitFor, close } —
+// each of the last four only when declared, or, for a form factor, inherited —
+// in order. Nothing declared
 // is no state. Anything the file got wrong throws, naming the state.
 export function parseStates(value) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw new InvalidStates('states: must be a list');
 
-  const names = new Set();
+  const formFactors = new Map();
   return value.map((state, i) => {
     const where = `states[${i}]`;
     if (!isPlainObject(state)) throw new InvalidStates(`${where} must be a mapping with a name and a click`);
     const { name, click } = state;
     const waitFor = state.wait_for ?? state.waitFor;
     const { close, from } = state;
+    const declaredFormFactor = state.form_factor ?? state.formFactor;
 
     if (typeof name !== 'string' || !NAME.test(name)) {
       throw new InvalidStates(`${where} needs a name — letters, digits, - and _`);
     }
-    if (names.has(name)) throw new InvalidStates(`${where}: the name ${name} is taken by an earlier state`);
-    if (from != null && (typeof from !== 'string' || !names.has(from))) {
+    if (formFactors.has(name)) throw new InvalidStates(`${where}: the name ${name} is taken by an earlier state`);
+    if (from != null && (typeof from !== 'string' || !formFactors.has(from))) {
       throw new InvalidStates(`${where} (${name}): from must name a state declared before it`);
     }
-    names.add(name);
+    if (declaredFormFactor != null && !FORM_FACTORS.includes(declaredFormFactor)) {
+      throw new InvalidStates(`${where} (${name}): form_factor must be ${FORM_FACTORS.join(' or ')}`);
+    }
+    const inherited = from == null ? null : formFactors.get(from);
+    if (declaredFormFactor != null && inherited != null && declaredFormFactor !== inherited) {
+      throw new InvalidStates(`${where} (${name}): starts from ${from}, which is only on ${inherited}`);
+    }
+    const formFactor = declaredFormFactor ?? inherited;
+    formFactors.set(name, formFactor);
     if (typeof click !== 'string' || click.trim() === '') {
       throw new InvalidStates(`${where} (${name}) needs a click: the selector of the element that opens it`);
     }
@@ -75,8 +94,14 @@ export function parseStates(value) {
       throw new InvalidStates(`${where} (${name}): close must be a selector`);
     }
 
-    return { name, click, ...(from != null ? { from } : {}), ...(waitFor != null ? { waitFor } : {}), ...(close != null ? { close } : {}) };
+    return { name, click, ...(from != null ? { from } : {}), ...(formFactor != null ? { formFactor } : {}), ...(waitFor != null ? { waitFor } : {}), ...(close != null ? { close } : {}) };
   });
+}
+
+// The states on `formFactor`'s screen. A state's way there is on it too, so
+// every state it starts from is still in the list.
+export function statesOn(states, formFactor) {
+  return states.filter((state) => state.formFactor == null || state.formFactor === formFactor);
 }
 
 // The states `state` is reached through, from the page as it loads: the one

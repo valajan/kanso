@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadLocalConfig } from '../local-config.js';
-import { InvalidStates, parseStates, pathTo, walkOrder } from '../states.js';
+import { InvalidStates, parseStates, pathTo, statesOn, walkOrder } from '../states.js';
 
 test('a project that declares no state has none', () => {
   assert.deepEqual(parseStates(undefined), []);
@@ -42,6 +42,19 @@ test('a state is reached through the ones it starts from, the first clicked firs
 
 // Depth first: a state is read while the page is still in the one it starts
 // from, and a chain declared as a chain is walked as declared.
+// A drawer only a phone's layout has: looked for on mobile only, and so is
+// every state reached through it.
+test('a state on one screen only takes the ones reached through it along', () => {
+  const states = parseStates([
+    { name: 'drawer', form_factor: 'mobile', click: '#burger' },
+    { name: 'account', from: 'drawer', click: '#account' },
+    { name: 'search', click: '#search' },
+  ]);
+  assert.deepEqual(states.map((s) => [s.name, s.formFactor ?? null]), [['drawer', 'mobile'], ['account', 'mobile'], ['search', null]]);
+  assert.deepEqual(statesOn(states, 'mobile').map((s) => s.name), ['drawer', 'account', 'search']);
+  assert.deepEqual(statesOn(states, 'desktop').map((s) => s.name), ['search']);
+});
+
 test('a walk takes each state before the ones that start from it, siblings as declared', () => {
   assert.deepEqual(walkOrder(TREE).map((s) => s.name), ['menu', 'signup', 'terms', 'search', 'settings']);
   const chain = parseStates([{ name: 'a', click: '#a' }, { name: 'b', from: 'a', click: '#b' }, { name: 'c', from: 'b', click: '#c' }]);
@@ -73,6 +86,8 @@ test('a state the file got wrong fails the configuration, naming the state', () 
   refused([{ name: 'signup', from: 'menu', click: '#signup' }, { name: 'menu', click: '#menu' }], /states\[0\] \(signup\): from must name a state declared before it/);
   refused([{ name: 'menu', from: 'menu', click: '#menu' }], /from must name a state declared before it/);
   refused([{ name: 'menu', from: 3, click: '#menu' }], /from must name a state/);
+  refused([{ name: 'menu', form_factor: 'tablet', click: '#menu' }], /form_factor must be mobile or desktop/);
+  refused([{ name: 'drawer', form_factor: 'mobile', click: '#a' }, { name: 'x', from: 'drawer', form_factor: 'desktop', click: '#b' }], /starts from drawer, which is only on mobile/);
 });
 
 test('a .kanso.yml whose states are wrong fails as it loads, before any page does', () => {

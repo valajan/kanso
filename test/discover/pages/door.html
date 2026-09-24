@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A door that opens only while the server says so</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  main { padding: 1rem; }
+  button { font: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The door</h1>
+  <!-- Opens only while the server answers `door` with a 200 — which the test
+       serving this page decides: yes while the page is explored, no once it
+       is replayed. A state found once and never again, and the one found
+       through it. -->
+  <button id="door" type="button">Open the door</button>
+  <div id="room"></div>
+  <!-- A state that replays every time. -->
+  <button id="about" type="button" aria-expanded="false" aria-controls="about-text">About the door</button>
+  <p id="about-text" hidden>It was here before the house.</p>
+</main>
+<script>
+  document.getElementById('door').addEventListener('click', async () => {
+    const response = await fetch('door');
+    if (!response.ok) return;
+    // Built as it opens, as a component library renders what it shows: what
+    // says the room is open was not in the page before.
+    document.getElementById('room').innerHTML = `
+      <button id="look" type="button" aria-expanded="false" aria-controls="inside">Look inside</button>
+      <p id="inside" hidden>An anvil.</p>`;
+    const look = document.getElementById('look');
+    look.addEventListener('click', () => {
+      document.getElementById('inside').hidden = false;
+      look.setAttribute('aria-expanded', 'true');
+    });
+  });
+  const about = document.getElementById('about');
+  about.addEventListener('click', () => {
+    const text = document.getElementById('about-text');
+    text.hidden = !text.hidden;
+    about.setAttribute('aria-expanded', String(!text.hidden));
+  });
+</script>
+</body>
+</html>

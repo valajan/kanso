@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { version } from '../version.js';
 import { runAuditCommand, parseRuns, parseFailOn, EXIT, UsageError } from './audit-command.js';
+import { runDiscoverCommand } from './discover-command.js';
 
 const OPTIONS = {
   baseline: { type: 'string', short: 'b' },
@@ -10,6 +11,10 @@ const OPTIONS = {
   json: { type: 'boolean' },
   out: { type: 'string', short: 'o', multiple: true },
   record: { type: 'string' },
+  write: { type: 'boolean', short: 'w' },
+  depth: { type: 'string' },
+  'max-clicks': { type: 'string' },
+  'form-factor': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 };
@@ -17,6 +22,7 @@ const OPTIONS = {
 const USAGE = `Kanso — frontend audits, on your machine
 
   kanso audit [url | dir] [options]
+  kanso discover [url | dir] [--write]
   kanso mcp
 
 Audits a page on mobile and desktop and judges it against your budgets, or
@@ -24,6 +30,12 @@ against a baseline page when you name one. The page is a URL, or a directory
 of built files that Kanso serves itself for the length of the audit. Name
 neither, and Kanso serves the project the way the serve: block of its
 .kanso.yml says. \`audit\` may be left out when the first argument is a URL.
+
+\`kanso discover\` finds the states of the page — a menu, a dialog, a tab — by
+clicking through it, two clicks deep, on mobile and desktop, without typing,
+sending or leaving it. It prints them as the states: of a .kanso.yml, or, with
+--write, adds them to the project's own; the states it already declares are
+kept. Each state found is reached a second time before it is kept.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the
@@ -44,6 +56,15 @@ Options
       --record <dir>    keep a journal of what the probes did on each load —
                         one JSON Lines file per load, beside the result as
                         audit.json — to look at, share or analyse
+
+Options for discover
+  -w, --write           add the states found to .kanso.yml (or --config)
+      --depth <n>       clicks deep, 1-3 (default: 2)
+      --max-clicks <n>  clicks per screen before stopping (default: 60)
+      --form-factor <mobile | desktop>
+                        explore one screen only (default: both)
+      --json            print what was found as JSON
+
   -h, --help            print this
   -v, --version         print the version
 
@@ -56,7 +77,7 @@ Exit codes
 // Parses the command line and runs the requested command, returning the
 // process exit code. Nothing here writes to the real stdio or reads the real
 // argv, so the CLI is exercised in the tests exactly as a user runs it.
-export async function main(argv, { io = process, cwd = process.cwd(), runLighthouse } = {}) {
+export async function main(argv, { io = process, cwd = process.cwd(), runLighthouse, discover } = {}) {
   try {
     const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true });
 
@@ -75,7 +96,27 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
 
     // `kanso audit <url>` and `kanso <url>` are the same command.
     const [head, ...rest] = positionals;
-    if (head !== 'audit' && head !== 'mcp' && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
+    if (!['audit', 'discover', 'mcp'].includes(head) && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
+
+    const discoverOnly = ['write', 'depth', 'max-clicks', 'form-factor'].filter((key) => key in values);
+    if (head === 'discover') {
+      const auditOnly = ['baseline', 'runs', 'fail-on', 'out', 'record'].filter((key) => key in values);
+      if (auditOnly.length > 0) throw new UsageError(`discover takes no --${auditOnly[0]}: that is an audit's`);
+      if (rest.length > 1) throw new UsageError(`discover takes one page, got ${rest.length}`);
+      return await runDiscoverCommand({
+        target: rest[0] ?? null,
+        configPath: values.config ?? null,
+        write: Boolean(values.write),
+        json: Boolean(values.json),
+        maxDepth: values.depth == null ? undefined : whole(values.depth, 'depth', 1, 3),
+        maxClicks: values['max-clicks'] == null ? undefined : whole(values['max-clicks'], 'max-clicks', 1, 500),
+        formFactors: values['form-factor'] == null ? undefined : [formFactor(values['form-factor'])],
+        cwd,
+        io,
+        discover,
+      });
+    }
+    if (discoverOnly.length > 0) throw new UsageError(`--${discoverOnly[0]} is discover's, not ${head === 'mcp' ? 'mcp' : 'an audit'}'s`);
 
     const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
 
@@ -113,4 +154,15 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     io.stderr.write(`kanso: ${err.message}\n${usage ? 'Try `kanso --help`.\n' : ''}`);
     return EXIT.error;
   }
+}
+
+function whole(value, name, min, max) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) throw new UsageError(`--${name} must be a whole number between ${min} and ${max}`);
+  return n;
+}
+
+function formFactor(value) {
+  if (!['mobile', 'desktop'].includes(value)) throw new UsageError('--form-factor must be mobile or desktop');
+  return value;
 }

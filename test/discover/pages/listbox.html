@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalogue — a sort menu slow to open</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  button { font: inherit; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  [role="listbox"] { border: 1px solid #ccc; max-width: 14rem; }
+  [role="option"] { padding: .25rem .5rem; }
+</style>
+</head>
+<body>
+<header><p>Acme Catalogue</p></header>
+<main>
+  <h1>All products</h1>
+  <!-- Opens a list of sort orders, after holding the main thread 400 ms:
+       the one slow interaction on the page, which only a click times. -->
+  <button id="sort" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="sort-options">Sort by: relevance</button>
+  <ul id="sort-options" role="listbox" aria-label="Sort by" hidden>
+    <li role="option" aria-selected="true">Relevance</li>
+    <li role="option" aria-selected="false">Price</li>
+    <li role="option" aria-selected="false">Weight</li>
+  </ul>
+  <!-- Decoy: a quick disclosure, and nothing slow or broken behind it. -->
+  <button id="about" type="button" aria-expanded="false" aria-controls="about-text">About this catalogue</button>
+  <p id="about-text" hidden>Updated every launch.</p>
+  <ul>
+    <li>Anvil, 50 kg</li>
+    <li>Rocket skates</li>
+    <li>Giant magnet</li>
+  </ul>
+</main>
+<footer><p>Acme Corporation</p></footer>
+<script>
+  const sort = document.getElementById('sort');
+  sort.addEventListener('click', () => {
+    const until = performance.now() + 400;
+    while (performance.now() < until) { /* sorting a catalogue nobody paginated */ }
+    const list = document.getElementById('sort-options');
+    list.hidden = !list.hidden;
+    sort.setAttribute('aria-expanded', String(!list.hidden));
+  });
+  const about = document.getElementById('about');
+  about.addEventListener('click', () => {
+    const text = document.getElementById('about-text');
+    text.hidden = !text.hidden;
+    about.setAttribute('aria-expanded', String(!text.hidden));
+  });
+</script>
+</body>
+</html>

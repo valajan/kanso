@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help centre — six questions, two of them broken</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  a { color: #0b5cad; }
+  summary { cursor: pointer; padding: .25rem 0; }
+</style>
+</head>
+<body>
+<header><p>Acme Help</p></header>
+<main>
+  <h1>Frequently asked questions</h1>
+  <!-- Six states of the same kind. Two hide something, four nothing: an
+       explorer that opens one and calls the kind covered misses both. -->
+  <details id="q1"><summary>How long does delivery take?</summary><p>Three to five days, by catapult.</p></details>
+  <details id="q2"><summary>Do you deliver to the desert?</summary><p>Mostly to the desert.</p></details>
+  <!-- A link whose text says nothing out of context: axe accepts it. -->
+  <details id="q3"><summary>How do I get a refund?</summary><p>To ask for a refund, <a href="#refunds">click here</a>.</p></details>
+  <details id="q4"><summary>Is the anvil guaranteed?</summary><p>For life. Its, not yours.</p></details>
+  <!-- An image with no alt, behind the fifth question. -->
+  <details id="q5"><summary>What does the order tracker look like?</summary><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="200" height="100"><p>Like this.</p></details>
+  <details id="q6"><summary>Can I cancel an order?</summary><p>Before it is launched, yes.</p></details>
+  <h2 id="refunds">Refunds</h2>
+  <p>Write to the address on your receipt.</p>
+</main>
+<footer><p>Acme Corporation</p></footer>
+</body>
+</html>

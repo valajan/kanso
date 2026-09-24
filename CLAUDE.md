@@ -7,10 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
+node bin/kanso.js discover dist [--write]  # Find the page's states, print them or add them to .kanso.yml
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:probes      # The probes against a real Chrome, on pages with known answers (~10 s)
+npm run test:discover    # The click-through behind `kanso discover`, against a real Chrome
 npm run test:acceptance  # End-to-end suite against ../kanso-landing (needs Chrome, ~5 min)
 ```
 
@@ -58,7 +60,8 @@ surface onto it.
 
 Three surfaces exist today:
 
-- **the CLI** (`bin/kanso.js`) — `kanso audit <url | dir>`, on a developer's
+- **the CLI** (`bin/kanso.js`) — `kanso audit <url | dir>` (and `kanso discover`,
+  which writes the states the audit goes through), on a developer's
   machine, against a local build. No server, no credentials, no network but the
   page. The **GitHub Action** (`action.yml`) is this CLI run in a client's own
   runner: it writes the Markdown report to the job summary and fails the job on
@@ -126,6 +129,28 @@ run where the code is.
   written under `frames/<journal>/`: the page loaded, each state reached, a
   transition's open and close. Never for a probe that measures
   (`withoutFrames()`), never with NO_JOURNAL
+- `discover/` — what finds the states of a page, so that nobody has to write
+  `states:` by hand: `kanso discover`. Outside the audit, and never called by
+  it. `explore.js` clicks every element the guards allow (`guards.js`:
+  read-only — no field typed in, no form sent, no other page, no button named
+  like `Delete`, and a net stopping every request that writes, every
+  navigation, window and dialog), each from a first visit in a context of its
+  own, then every element what opened brought, breadth first, two clicks deep,
+  under a click budget and a deadline. `snapshot.js` reads what a visitor can
+  click, in one call inside the page; `fingerprint.js` tells a new state from
+  one already seen by code — controls by role, name and ARIA state, dialogs,
+  new text — less what two first visits and a scroll disagree on
+  (`page.js`, `prepare`); `selectors.js` picks, for each element, the
+  steadiest selector that finds it alone (test id, stable id, `::-p-aria()`,
+  CSS path). A route changed by `pushState` has left the page, like a
+  navigation. `index.js` explores both screens side by side, then reaches each
+  state again from a first visit, as an audit will (`reach`), and leaves out
+  what did not come back, with what is reached through it. `states.js` makes
+  the `states:` of it — one state for a path found on both screens, the others
+  `form_factor:`, `from:` for the tree, names from what was clicked — merges
+  them after the states the project declares, and writes the block into
+  `.kanso.yml` leaving every other line as it was. No model: the POC
+  (`poc/jev-discovery`) showed a model adds little to finding states
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -221,7 +246,8 @@ run where the code is.
   scale
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
-  `core/audit.js`, `render.js` prints the tables for a terminal and
+  `core/audit.js`, `discover-command.js` runs `discover/` and prints or writes
+  what it found, `render.js` prints the tables for a terminal and
   `markdown.js` renders the report `--out report.md` writes, under a header
   naming what was audited — which is what a CI job summary shows. The exit code
   is the verdict — 0 audited and clean,
@@ -296,7 +322,9 @@ own thresholds and `runs`.
 
 `states:`, at the root like `runs:`, lists the states of the page beyond the
 one it loads in — `name`, `click`, optional `from` (the state declared before
-it that it starts from; without, the page as it loads), optional `wait_for`,
+it that it starts from; without, the page as it loads), optional
+`form_factor` (`mobile` or `desktop`: a state one screen only has; inherited
+through `from`), optional `wait_for`,
 optional `close` (what closes it when Escape is not meant to) — which a check
 can go through; a malformed one fails the config as it loads (`local-config.js`).
 
