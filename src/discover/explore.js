@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { applyState } from '../probes/states.js';
 import { contentDiff, diff, part as partOf } from './fingerprint.js';
+import { describeStopped, stoppedBy } from './guards.js';
 import { load, openPage, prepare, settle } from './page.js';
 import { selectorFor } from './selectors.js';
 
@@ -28,15 +29,18 @@ const CLICK_WAIT_MS = 5_000;
 
 export const DEFAULTS = { maxDepth: 2, maxClicks: 60, timeoutMs: 180_000 };
 
-// Resolves to { nodes, clicks, stable, leftInQueue, outOfTime }. `nodes` are
-// the states found, parents before children, each as
+// Resolves to { nodes, clicks, stable, unprompted, leftInQueue, outOfTime }.
+// `nodes` are the states found, parents before children, each as
 // { id, parent, click, waitFor, role, name, depth } — `parent` null for one
 // reached from the page as it loads; `clicks`, every click made and what it
-// came to. `onClick` hears of each as it lands.
+// came to: `new-state`, `repeat`, `no-change`, `left` (another address,
+// nothing loaded), `guarded` (the guards stopped something it did, named in
+// `stopped`) or `error`; `unprompted`, where the page writes with nothing
+// clicked (./guards.js, `stoppedBy`). `onClick` hears of each as it lands.
 export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onClick = () => {} } = {}) {
   const deadline = Date.now() + timeoutMs;
   const prep = await prepare(browser, formFactor, url);
-  const { volatile } = prep;
+  const { volatile, unprompted } = prep;
   const rootReading = prep.reading;
 
   const root = { id: 0, depth: 0, path: [], reading: rootReading };
@@ -68,21 +72,36 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
       const before = tab.page.url();
       await applyState(tab.page, { click: element.selector.selector }, { waitMs: CLICK_WAIT_MS });
       const after = await settle(tab.page);
+      // What the guards stopped from the click to the reading after it —
+      // which waits for the page to stop changing, so that a request the
+      // click fires late is still the click's. The replay of the path to the
+      // parent came before the mark, and is not.
       const blocked = tab.guard.blocked.slice(blockedBefore);
-      // A click the guards stopped from leaving the page reaches nothing a
-      // state could be made of — nor does one that took the page to another
-      // address without loading it, the way a single-page app changes route:
-      // what it shows is another page, which is not replayed from this one.
-      // Compared with where the page stood just before the click, not with
-      // the address it was loaded from: an app that sends `/` on to `/home`
-      // as it starts has not left anything when a menu opens on `/home`.
-      const left = blocked.some((b) => b.kind === 'navigation' || b.kind === 'window') || !samePage(after.snap.url, before);
+      // A click during which the guards had to stop anything — a write, a
+      // navigation, a window, a dialog — is never a state. What it shows is
+      // only what a stopped action left behind: the error a failed payment
+      // shows, the page a dismissed `confirm()` did not clear. And an audit
+      // replays states with no guard: the write would be sent for real, the
+      // navigation followed, the `confirm()` left for nobody to answer. Nor
+      // is it explored further: what it opened is only reached through it.
+      const stopped = stoppedBy(blocked, unprompted);
+      // Nor is a click that took the page to another address without loading
+      // it, the way a single-page app changes route: what it shows is another
+      // page, which is not replayed from this one. Nothing was stopped, and
+      // nothing would be done for real: its own outcome says so. Compared
+      // with where the page stood just before the click, not with the
+      // address it was loaded from: an app that sends `/` on to `/home` as it
+      // starts has not left anything when a menu opens on `/home`.
+      const left = !samePage(after.snap.url, before);
 
       const fromParent = without(diff(parent.reading.print, after.print), volatile.parts);
       const newText = contentDiff(parent.reading.snap, after.snap, volatile.lines).appeared;
       const key = keyOf(after, rootReading, volatile);
 
-      if (left) click.outcome = 'left';
+      if (stopped.length > 0) {
+        click.outcome = 'guarded';
+        click.stopped = stopped.map((b) => describeStopped(b, url));
+      } else if (left) click.outcome = 'left';
       else if (fromParent.appeared.length === 0 && fromParent.disappeared.length === 0 && newText.length === 0) click.outcome = 'no-change';
       else if (seen.has(key)) click.outcome = 'repeat';
       else {
@@ -116,6 +135,7 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
     }),
     clicks,
     stable: prep.stable,
+    unprompted,
     leftInQueue: queue.length,
     outOfTime: queue.length > 0 && clicks.length < maxClicks,
   };

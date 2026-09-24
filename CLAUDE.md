@@ -142,10 +142,15 @@ run where the code is.
   new text — less what two first visits and a scroll disagree on
   (`page.js`, `prepare`); `selectors.js` picks, for each element, the
   steadiest selector that finds it alone (test id, stable id, `::-p-aria()`,
-  CSS path). A route changed by `pushState` has left the page, like a
-  navigation. `index.js` explores both screens side by side, then reaches each
+  CSS path). A click during which the guards stopped anything — a write, a
+  navigation, a window, a dialog — is never a state (`guarded`): an audit
+  replays states with no guard, and would do it for real. The page's own
+  beacons are not held against a click: a write to where `prepare`'s two
+  first visits saw the page write with nothing clicked is noise
+  (`stoppedBy`). A route changed by `pushState` has left the page (`left`). `index.js` explores both screens side by side, then reaches each
   state again from a first visit, as an audit will (`reach`), and leaves out
-  what did not come back, with what is reached through it. `states.js` makes
+  what did not come back — or came back with the guards stopping something —
+  with what is reached through it. `states.js` makes
   the `states:` of it — one state for a path found on both screens, the others
   `form_factor:`, nested for the tree, names from what was clicked — and the
   whole of `.kanso/states.yml`, the file `--write` rewrites each time; the

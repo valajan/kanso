@@ -24,7 +24,8 @@ import { serveDirectory } from '../../src/serve/static.js';
 // button, tabs, six questions of one kind, a sort menu — and clean.html, every
 // one of those patterns with nothing wrong, whose states are exactly the ones
 // it has. guards.html carries everything the explorer may click and
-// everything it must not; spa.html a route change that is another page,
+// everything it must not; stopped.html clicks that would pay or clear a basket
+// beside a harmless one, under a beacon that never stops; spa.html a route change that is another page,
 // redirect.html an app that changes its address as it starts;
 // door.html a state that opens once and never again.
 //
@@ -303,6 +304,38 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     assert.deepEqual(tree(run), ['Filters']);
   });
 
+  // A state is replayed by an audit, which has no guard: a click the guards had
+  // to stop anything during would, there, pay, clear the basket, or hang on a
+  // `confirm()` nobody answers. What it shows here — the error a stopped
+  // payment leaves — is no state. The page's own beacon, stopped during every
+  // click, is not held against any.
+  test('a click during which the guards stopped a write or a dialog is not a state; the page\'s own beacon does not count', async () => {
+    const run = await explored('stopped.html', 'mobile');
+    assert.deepEqual(tree(run), ['Shipping costs']);
+    const outcome = (name) => {
+      const { outcome, stopped } = run.clicks.find((c) => c.name === name);
+      return [outcome, stopped];
+    };
+    assert.deepEqual(outcome('Tip 2 €'), ['guarded', ['POST /api/payment/tip']]);
+    assert.deepEqual(outcome('Clear all'), ['guarded', ['confirm']]);
+    assert.deepEqual(outcome('Shipping costs'), ['new-state', undefined]);
+    assert.ok([...run.unprompted].some((w) => w.endsWith('/cdn-cgi/rum')), [...run.unprompted].join(', '));
+  });
+
+  // Everything guards.html's net stops, clicked by the explorer: before, a
+  // stopped write was judged on what it showed — nothing here — and a stopped
+  // navigation or window was `left`, as a route change is. All four are now
+  // one outcome, and the route change a single-page app makes stays `left`.
+  test('a write, a navigation, a window and a dialog stopped are each a click not kept, named by what was stopped', async () => {
+    const run = await explored('guards.html', 'mobile', { maxDepth: 1 });
+    const byName = Object.fromEntries(run.clicks.map((c) => [c.name, [c.outcome, c.stopped]]));
+    assert.deepEqual(byName['Save preferences'], ['guarded', ['POST /preferences']]);
+    assert.deepEqual(byName.Continue, ['guarded', ['navigation to /next.html']]);
+    assert.deepEqual(byName.Help, ['guarded', ['a window']]);
+    assert.deepEqual(byName.Info, ['guarded', ['alert']]);
+    assert.equal(run.nodes.some((node) => ['Save preferences', 'Continue', 'Help', 'Info'].includes(node.name)), false);
+  });
+
   // The route is judged from where the page stood before the click, not from
   // the address it was loaded from: an app that moves its root on to its
   // first screen as it starts would otherwise have every click leave it.
@@ -359,6 +392,53 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
         ['desktop', 'Open the door', 'never appeared'],
         ['desktop', 'Look inside', 'reached through a state that did not replay'],
       ]);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  test('discover names the clicks it did not keep, and keeps the state the beacon ran beside', async () => {
+    const result = await discover(urlOf('stopped.html'), { formFactors: ['mobile'] });
+    assert.deepEqual(tree({ nodes: result.explored.mobile }), ['Shipping costs']);
+    assert.deepEqual(result.dropped, []);
+    assert.deepEqual(result.runs.mobile.guarded, [
+      { role: 'button', name: 'Tip 2 €', stopped: ['POST /api/payment/tip'] },
+      { role: 'button', name: 'Clear all', stopped: ['confirm'] },
+    ]);
+  });
+
+  // A state whose click wrote nothing while it was explored, and writes when
+  // it is reached again — the server below turns the write on once the
+  // exploration's one click has landed. Kept, it would be replayed by an
+  // audit, which would send the write for real.
+  test('a state during whose replay the guards stop a write is dropped', async () => {
+    let writes = false;
+    const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Late write</title></head><body><main>
+      <button type="button" id="details" aria-expanded="false">Details</button><div id="panel" hidden><p>Made of iron.</p></div>
+      <script>
+        document.getElementById('details').addEventListener('click', async (e) => {
+          document.getElementById('panel').hidden = false;
+          e.currentTarget.setAttribute('aria-expanded', 'true');
+          if ((await (await fetch('/mode')).text()) === 'write') fetch('/log', { method: 'POST', body: '{}' }).catch(() => {});
+        });
+      </script></main></body></html>`;
+    const server = createServer((req, res) => {
+      const { pathname } = new URL(req.url, 'http://kanso');
+      if (pathname === '/mode') return res.writeHead(200, { 'content-type': 'text/plain' }).end(writes ? 'write' : 'quiet');
+      if (pathname === '/') return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(page);
+      res.writeHead(404).end();
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const result = await discover(`http://127.0.0.1:${server.address().port}/`, {
+        formFactors: ['desktop'],
+        onProgress: () => {
+          writes = true;
+        },
+      });
+      assert.equal(result.runs.desktop.clicks, 1);
+      assert.deepEqual(result.explored.desktop, []);
+      assert.deepEqual(result.dropped.map(({ name, reason }) => [name, reason]), [['Details', 'the guards stopped what it did (POST /log)']]);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

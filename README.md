@@ -235,7 +235,9 @@ found under it is reached from yours.
 
 It only looks: nothing is typed, no form is sent, no other page is opened, a
 button named like `Delete` or `Buy` is left alone, and any request that would
-write is stopped before it leaves. Each state it finds is reached a second time,
+write is stopped before it leaves. A click that would have written, left the
+page or raised a dialog is never kept as a state — an audit, which stops
+nothing, would do it for real — and the summary says how many were left out. Each state it finds is reached a second time,
 from a fresh visit, before it is kept — a state that comes back one time in two
 would make every other audit unchecked. Read what it found before you commit
 it: it names each state after what was clicked, and every state costs the

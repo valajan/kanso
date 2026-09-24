@@ -1,5 +1,5 @@
 import { diff, fingerprint, volatileLines } from './fingerprint.js';
-import { guardPage, verdict } from './guards.js';
+import { guardPage, verdict, writeKey } from './guards.js';
 import { emulate } from './screens.js';
 import { selectorFor } from './selectors.js';
 import { snapshot } from './snapshot.js';
@@ -111,7 +111,10 @@ export async function scrollThrough(page) {
 // Everything an exploration starts from: the page as a first visit reads it,
 // a selector for each element it may click, and what a click is not to be
 // judged on — what two first visits disagree on (`drift`, `onTheirOwn`), and
-// what scrolling alone renders (`byScrolling`), folded into `volatile`.
+// what scrolling alone renders (`byScrolling`), folded into `volatile` — and
+// where the page writes on its own, with nothing clicked (`unprompted`): the
+// beacons the guards stop during any click, which are not the click's doing
+// (./guards.js, `stoppedBy`).
 export async function prepare(browser, formFactor, url) {
   const tab = await openPage(browser, formFactor);
   let reading;
@@ -123,6 +126,7 @@ export async function prepare(browser, formFactor, url) {
   } finally {
     await tab.close();
   }
+  const writes = tab.guard.blocked.filter((b) => b.kind === 'write');
 
   // The same page visited again, from a context of its own: a fingerprint
   // that moves with nothing clicked would make every click look like a new
@@ -140,6 +144,7 @@ export async function prepare(browser, formFactor, url) {
   } finally {
     await other.close();
   }
+  writes.push(...other.guard.blocked.filter((b) => b.kind === 'write'));
   const drift = diff(reading.print, again.print);
   const onTheirOwn = volatileLines(reading.snap, again.snap);
   const atLoad = new Set(reading.snap.lines);
@@ -153,6 +158,7 @@ export async function prepare(browser, formFactor, url) {
     stable: drift.appeared.length === 0 && drift.disappeared.length === 0,
     onTheirOwn,
     byScrolling,
+    unprompted: new Set(writes.map(writeKey)),
     volatile: {
       lines: new Set([...onTheirOwn, ...byScrolling]),
       parts: new Set([...drift.appeared, ...drift.disappeared, ...scrollDrift.appeared, ...scrollDrift.disappeared]),
