@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triggers whose aria-expanded says nothing</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  #plain { cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<main id="page">
+  <!-- An account button whose aria-expanded is for a popover it opens once
+       signed in: signed out, it opens a dialog with showModal() and leaves
+       aria-expanded="false" as it was. Every key opens it, Escape closes it,
+       focus comes back. -->
+  <button id="account" type="button" aria-expanded="false">Account</button>
+  <dialog id="account-dialog" aria-labelledby="account-title">
+    <h2 id="account-title">Sign in</h2>
+    <button id="account-close" type="button">Close</button>
+  </dialog>
+
+  <!-- The same, for a pointer alone: the click a key makes, which carries no
+       count of presses, is turned away. No key opens it. -->
+  <button id="pointer-only" type="button" aria-expanded="false">Basket</button>
+  <dialog id="pointer-dialog" aria-labelledby="pointer-title">
+    <h2 id="pointer-title">Basket</h2>
+    <button id="pointer-close" type="button">Close</button>
+  </dialog>
+
+  <!-- Takes focus, opens on a click alone, and what it opens is nothing
+       Kanso can name; aria-expanded never moves. -->
+  <div id="plain" tabindex="0" aria-expanded="false">Show more</div>
+  <p id="plain-panel" hidden>More.</p>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  $('account').addEventListener('click', () => $('account-dialog').showModal());
+  $('account-close').addEventListener('click', () => $('account-dialog').close());
+  $('pointer-only').addEventListener('click', (event) => {
+    if (event.detail > 0) $('pointer-dialog').showModal();
+  });
+  $('pointer-close').addEventListener('click', () => $('pointer-dialog').close());
+  $('plain').addEventListener('click', () => { $('plain-panel').hidden = false; });
+</script>
+</body>
+</html>

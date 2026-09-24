@@ -10,10 +10,27 @@ import { applyState } from './states.js';
 // checks. Each is logged, so a journal shows the transition as it went — the
 // opening and the closing with a frame of the page as they left it.
 //
-// Whether a state is open is read from what the configuration says of it, and
-// nothing else: its `wait_for` when it has one, else its trigger's
-// `aria-expanded`. A state with neither cannot be told open from closed, and
-// says so — `null` — rather than guess.
+// Whether a state is open is read from its `wait_for` when it has one. Without
+// one, from what opened, once it is known: a modal dialog or a menu is open
+// while it is in the page and shows — a <dialog> while it is `open` —, and
+// closed once it is not. Before it is known, as a key press is waited on, a
+// modal dialog or a menu that was not showing before and now is says the
+// state opened. Only when nothing of the kind opened is the trigger's
+// `aria-expanded` read — the sign of a disclosure, which is what it is for.
+// It is not the first thing read because nothing makes a page move it: a
+// button can open a dialog and leave `aria-expanded="false"` as it was, for a
+// popover it opens on another page, and a sign that never moves would say a
+// key opened nothing, or that Escape closed what is still open. A state that
+// nothing tells open from closed says so — `null` — rather than guess.
+//
+// A click, a key, may also leave the page: a payment button that sends the
+// visitor to the payment provider's. That is no state to check, and it says
+// so — `the click left the page, for <where>` — rather than fail on a page
+// that is not the one it was opened in. The page is known to have been left
+// when the store `open` kept in it is gone: a store lives on the window, and a
+// new document has a new window, whatever its address — the same one, even,
+// reloaded — where a script changing the address with `history.pushState`
+// keeps the document, and the store, and does not leave.
 //
 // What opened is read from the page, never guessed either: a modal dialog
 // that was not showing before — `dialog:modal`, `aria-modal="true"`, or a
@@ -40,11 +57,59 @@ export function transitionTools(page, state, { waitMs, log }) {
       throw new Error(`nothing visible to click at ${state.click}`);
     });
 
-  // true, false, or null when nothing says.
+  // Whether an opening has been made with these tools, and so a store left in
+  // the page whose absence says it was left.
+  let opening = false;
+
+  // Where the page went — its origin and path — when the document the state
+  // was opened in is gone, else null. A read that fails is a document going
+  // as it is read: it is read again once the new one has come.
+  const left = async () => {
+    const read = () => page.evaluate("window[Symbol.for('kanso.transition')] ? null : location.origin + location.pathname");
+    try {
+      return await read();
+    } catch {
+      await settle();
+      return read().catch(() => {
+        const { origin, pathname } = new URL(page.url());
+        return origin + pathname;
+      });
+    }
+  };
+  const leaving = async (how) => {
+    const where = opening ? await left() : null;
+    return where ? new Error(`${how} left the page, for ${where}`) : null;
+  };
+
+  // What opened — { kind, container } — or the page left, thrown.
+  const whatOpened = async (how) => {
+    const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null, true).catch(async (err) => {
+      throw (await leaving(how)) ?? err;
+    });
+    if (opened) return opened;
+    throw (await leaving(how)) ?? new Error(`${how}: nothing was kept of what the page had open`);
+  };
+
+  // Whether a modal dialog or a menu shows now that did not before the
+  // opening began.
+  const freshPopup = async () => {
+    const seen = await inPage(page, whatOpenedInPage, state.click, null, false).catch(() => null);
+    return seen?.kind === 'modal' || seen?.kind === 'menu';
+  };
+
+  // true, false, or null when nothing says. A page going as it is read says
+  // nothing.
   const isOpen = async () => {
-    if (state.waitFor) return (await page.$(state.waitFor)) != null;
-    const expanded = await page.$eval(state.click, (el) => el.getAttribute('aria-expanded')).catch(() => null);
-    return expanded == null ? null : expanded === 'true';
+    try {
+      if (state.waitFor) return (await page.$(state.waitFor)) != null;
+      const read = await inPage(page, openInPage, state.click);
+      if (read.popup != null) return read.popup;
+      if (await freshPopup()) return true;
+      if (read.expanded != null) return read.expanded === 'true';
+      return read.other;
+    } catch {
+      return null;
+    }
   };
 
   // Resolves to true once the state shows as `open` (or closed), false when it
@@ -73,12 +138,20 @@ export function transitionTools(page, state, { waitMs, log }) {
     // container described as findings describe an element, or null. The page
     // is scrolled back to the top first, as a visitor who just arrived would
     // find it, unless `fromTop: false`.
+    //
+    // A click or a key that leaves the page throws: there is nothing left to
+    // check of the state.
     async open({ by = 'click', fromTop = true } = {}) {
       const started = Date.now();
       await inPage(page, beforeOpenInPage);
+      opening = true;
       if (by === 'click') {
-        await applyState(page, state, { waitMs, fromTop });
-        const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
+        // What a click that left the page was waiting for never appears, on
+        // a page that is not this one: the page left is the reason.
+        await applyState(page, state, { waitMs, fromTop }).catch(async (err) => {
+          throw (await leaving('the click')) ?? err;
+        });
+        const opened = await whatOpened('the click');
         await log.shot(page, 'open', { by, opened: true, what: opened.kind, ms: Date.now() - started });
         return { opened: true, ...opened };
       }
@@ -93,10 +166,17 @@ export function transitionTools(page, state, { waitMs, log }) {
       });
       await target.dispose();
       let result = { opened: false, key: null, focusable };
+      let pressed = 'a key';
       if (focusable) {
         for (const key of ['Enter', 'Space']) {
+          pressed = key;
           await page.keyboard.press(key);
-          const opened = await becomes(true, KEY_WAIT_MS);
+          let opened = await becomes(true, KEY_WAIT_MS);
+          // A modal dialog or a menu that shows now and did not before the
+          // key: the key opened the state, whatever `wait_for` or the
+          // trigger say. The next key would be pressed on what opened — a
+          // Space on the dialog's first button.
+          if (opened !== true && (await freshPopup())) opened = true;
           if (opened !== false) {
             result = { opened, key, focusable };
             break;
@@ -104,7 +184,7 @@ export function transitionTools(page, state, { waitMs, log }) {
         }
       }
       await settle();
-      const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
+      const opened = await whatOpened(`pressing ${pressed}`);
       await log.shot(page, 'open', { by, ...result, what: opened.kind, ms: Date.now() - started });
       return { ...result, ...opened };
     },
@@ -134,6 +214,8 @@ export function transitionTools(page, state, { waitMs, log }) {
       else await page.click(state.close);
       const closed = await becomes(false, KEY_WAIT_MS);
       await settle();
+      const gone = await leaving(`closing it (${by})`);
+      if (gone) throw gone;
       await log.shot(page, 'close', { by, closed, ms: Date.now() - started });
       return { closed };
     },
@@ -182,10 +264,12 @@ function beforeOpenInPage() {
 }
 
 // What the state opened: { kind, container }, kept in the page with the
-// trigger. Past the three kinds, what `wait_for` names — when it is not the
-// trigger itself — is what opened, for a click away from it.
-function whatOpenedInPage(dom, triggerSelector, waitFor) {
+// trigger when `keep` says so. Past the three kinds, what `wait_for` names —
+// when it is not the trigger itself — is what opened, for a click away from
+// it. Null when there is no store: the page it was kept in is gone.
+function whatOpenedInPage(dom, triggerSelector, waitFor, keep) {
   const store = window[Symbol.for('kanso.transition')];
+  if (!store) return null;
   const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
   const fresh = (el) => !store.before.includes(el) && shows(el);
   const trigger = document.querySelector(triggerSelector);
@@ -214,9 +298,27 @@ function whatOpenedInPage(dom, triggerSelector, waitFor) {
       container = named && named !== trigger && !named.contains(trigger) && shows(named) ? named : null;
     }
   }
-  store.trigger = trigger;
-  store.container = container ?? null;
+  if (keep) {
+    store.trigger = trigger;
+    store.kind = kind;
+    store.container = container ?? null;
+  }
   return { kind, container: container ? dom.describe(container) : null };
+}
+
+// What the page says of whether the state is open: `popup`, when a modal
+// dialog or a menu opened — whether it is still in the page and shows, a
+// <dialog> whether it is `open`; `expanded`, the trigger's `aria-expanded`;
+// `other`, whether anything else that opened still shows. Null for what does
+// not apply.
+function openInPage(dom, triggerSelector) {
+  const { kind, container } = window[Symbol.for('kanso.transition')] ?? {};
+  const shows = (el) => el.isConnected && (el.localName === 'dialog' ? el.open : (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0));
+  return {
+    popup: container && (kind === 'modal' || kind === 'menu') ? shows(container) : null,
+    expanded: document.querySelector(triggerSelector)?.getAttribute('aria-expanded') ?? null,
+    other: container ? shows(container) : null,
+  };
 }
 
 // A point of the viewport outside what opened and its trigger, where a click

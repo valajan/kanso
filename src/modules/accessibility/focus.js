@@ -60,8 +60,14 @@ export const focus = {
     // As a keyboard user would; a click when no key can, for the rest.
     const byKey = await tools.open({ by: 'keyboard' });
     if (!byKey.focusable) report('keyboard-inoperable', trigger, 'takes no keyboard focus, and only a click opens what it opens');
-    else if (byKey.opened === false) report('keyboard-inoperable', trigger, 'neither Enter nor Space opens what a click opens');
     const opened = byKey.opened === false ? await tools.open() : byKey;
+    // No key opened it, by what the page says — but the click must be seen to
+    // open it by the same signs. A sign that does not move says nothing: an
+    // `aria-expanded` the click leaves as the keys left it would call a
+    // trigger that works a trigger no key works.
+    if (byKey.focusable && byKey.opened === false && (await tools.isOpen()) === true) {
+      report('keyboard-inoperable', trigger, 'neither Enter nor Space opens what a click opens');
+    }
     const hadFocus = byKey.focusable;
 
     const popup = opened.kind === 'modal' || opened.kind === 'menu';
