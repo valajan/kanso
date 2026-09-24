@@ -11,6 +11,7 @@ import puppeteer from 'puppeteer-core';
 import { discover } from '../../src/discover/index.js';
 import { explore } from '../../src/discover/explore.js';
 import { diff } from '../../src/discover/fingerprint.js';
+import { renderStatesFile, stateNames, statesFrom } from '../../src/discover/states.js';
 import { load, observe, openPage, selectors, settle } from '../../src/discover/page.js';
 import { axeProbe } from '../../src/modules/accessibility/axe.js';
 import { runProbes } from '../../src/probes/index.js';
@@ -28,7 +29,8 @@ import { serveDirectory } from '../../src/serve/static.js';
 // beside a harmless one, under a beacon that never stops; spa.html a route change that is another page,
 // redirect.html an app that changes its address as it starts;
 // door.html a state that opens once and never again; signin.html one native
-// dialog two buttons open.
+// dialog two buttons open, and a close button that leaves a trace;
+// drawer.html a close button only a phone's layout shows.
 //
 // What is tested is the product's side: what may be clicked, how it is found
 // again, which clicks are states, that a state found is one Kanso's probes
@@ -247,9 +249,11 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
   test('a dialog drawn after its click is a state, and what it opens one click deeper is one too', async () => {
     const run = await explored('modal.html', 'desktop');
     assert.deepEqual(tree(run), ['Get the newsletter', 'Applaud', 'What will you send me? < Get the newsletter']);
-    // Closing the dialog brings back the page as it loaded: a state already
-    // seen, not a new one.
-    assert.equal(run.clicks.find((c) => c.name === 'btn').outcome, 'repeat');
+    // Closing the dialog brings back the page as it loaded: no state, but
+    // how the dialog closes.
+    const dialog = run.nodes.find((node) => node.name === 'Get the newsletter');
+    assert.deepEqual(run.clicks.filter((c) => c.name === 'btn').map((c) => [c.outcome, c.closes]), [['close', dialog.id]]);
+    assert.equal(dialog.close, '#close');
   });
 
   // What is behind a modal dialog is out of reach, and says nothing of the
@@ -271,6 +275,26 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     assert.ok(signIn.disappeared.includes('button|Account|expanded=false'));
     assert.deepEqual(run.clicks.filter((c) => c.from === account.id).map((c) => c.name).sort(), ['Close', 'Forgot your email?']);
     assert.equal(run.clicks.some((c) => c.from !== 0 && c.name === 'Like'), false);
+  });
+
+  // The dialog's close button brings back the page it was opened on — with
+  // the header's button still saying it is expanded, which nothing sets
+  // back: a trace, not another state.
+  test('a close button that brings back the page, give or take the trigger\'s aria-expanded, is how its state closes', async () => {
+    const run = await explored('signin.html', 'desktop');
+    const account = run.nodes.find((node) => node.name === 'Account');
+    const close = run.clicks.find((c) => c.from === account.id && c.name === 'Close');
+    assert.equal(close.outcome, 'close');
+    assert.equal(close.closes, account.id);
+    assert.ok(close.appeared.includes('button|Account|expanded=true'));
+    assert.equal(account.close, 'button[aria-label="Close"]');
+    assert.deepEqual(tree(run), ['Account', 'Like', 'Forgot your email? < Account']);
+  });
+
+  test('a tab chosen again, from the tab a state chose, is a tab and not a close', async () => {
+    const run = await explored('tabs.html', 'mobile');
+    assert.ok(run.clicks.every((c) => c.outcome !== 'close'));
+    assert.ok(run.nodes.every((node) => node.close === undefined));
   });
 
   test('each tab not already chosen is a state, and the one already chosen changes nothing', async () => {
@@ -379,6 +403,26 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
       assert.equal(result.runs[formFactor].stable, true);
       assert.equal(result.runs[formFactor].clicks, heard.filter((e) => e.formFactor === formFactor).length);
     }
+  });
+
+  test('discover writes what closes a dialog on both screens, and a drawer\'s close button a phone alone shows on neither', async () => {
+    const [signIn, drawer] = await Promise.all([discover(urlOf('signin.html')), discover(urlOf('drawer.html'))]);
+    assert.deepEqual(statesFrom(signIn.explored).map(({ name, click, close }) => ({ name, click, close })), [
+      { name: 'account', click: '#account', close: 'button[aria-label="Close"]' },
+      { name: 'like', click: '#like', close: undefined },
+    ]);
+    assert.match(renderStatesFile(statesFrom(signIn.explored)), /click: '#account'\n    # also opened by '#signin'\n/);
+
+    // Found on the phone, where the drawer has a close button; not on the
+    // desktop, where it has none — and so not written.
+    assert.equal(drawer.explored.mobile.find((node) => node.name === 'Past orders').close, '#drawer-close');
+    assert.equal(drawer.explored.desktop.find((node) => node.name === 'Past orders').close, undefined);
+    assert.deepEqual(drawer.runs.mobile.clicked.filter((c) => c.outcome === 'close').map((c) => c.name), ['Close']);
+    const [orders] = statesFrom(drawer.explored);
+    assert.equal(orders.name, 'past-orders');
+    assert.equal(orders.close, undefined);
+    assert.equal(orders.form_factor, undefined);
+    assert.deepEqual(stateNames([orders]), ['past-orders', 'show-older-orders']);
   });
 
   // A state that opens once and never again: door.html asks the server whether

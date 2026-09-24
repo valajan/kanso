@@ -24,6 +24,16 @@ import { selectorFor } from './selectors.js';
 // ARIA state, the dialogs open, and the text that appeared — less what
 // changes on its own, which two first visits and a scroll through the page
 // show (./page.js, `prepare`).
+//
+// A click inside a state that brings the page back to where the state was
+// opened from is no state either: it is how the state closes — its `close:`
+// (src/config/states.js), not a state of its own under it. A dialog's close
+// button, clicked, shows the page the dialog was opened on, give or take a
+// trace — the trigger still saying it is expanded, focus somewhere — and was,
+// as the page with a trace, a state that every audit went through for
+// nothing. Only an element the state brought can close it that way: a tab
+// that was there before and is chosen again, from the tab the state chose,
+// goes back to the page too, and is a tab, not a close.
 
 const CLICK_WAIT_MS = 5_000;
 
@@ -31,12 +41,13 @@ export const DEFAULTS = { maxDepth: 2, maxClicks: 60, timeoutMs: 180_000 };
 
 // Resolves to { nodes, clicks, stable, unprompted, leftInQueue, outOfTime }.
 // `nodes` are the states found, parents before children, each as
-// { id, parent, click, waitFor, role, name, depth, alsoOpenedBy? } — `parent`
-// null for one reached from the page as it loads, `alsoOpenedBy` the other
-// elements that opened it from the same place; `clicks`, every click made —
-// from the node `from`, 0 the page as it loads — what it changed there
-// (`appeared`, `disappeared`, `newText`) and what it came to: `new-state`
-// (`node`), `repeat` (of the node `repeats`), `no-change`, `left` (another
+// { id, parent, click, waitFor, role, name, depth, close?, alsoOpenedBy? } —
+// `parent` null for one reached from the page as it loads, `close` what
+// closes it, `alsoOpenedBy` the other elements that opened it from the same
+// place; `clicks`, every click made — from the node `from`, 0 the page as it
+// loads — what it changed there (`appeared`, `disappeared`, `newText`) and
+// what it came to: `new-state` (`node`), `repeat` (of the node `repeats`),
+// `close` (of the node `closes`), `no-change`, `left` (another
 // address, nothing loaded), `guarded` (the guards stopped something it did,
 // named in `stopped`) or `error`; `unprompted`, where the page writes with
 // nothing clicked (./guards.js, `stoppedBy`). `onClick` hears of each as it
@@ -114,7 +125,12 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
         click.stopped = stopped.map((b) => describeStopped(b, url));
       } else if (left) click.outcome = 'left';
       else if (fromParent.appeared.length === 0 && fromParent.disappeared.length === 0 && newText.length === 0) click.outcome = 'no-change';
-      else if (seen.has(key)) {
+      else if (parent !== root && closes(element, parent, nodes[parent.parent].reading, after, volatile)) {
+        click.outcome = 'close';
+        click.closes = parent.id;
+        // The first found, in page order: a dialog's × before its Cancel.
+        parent.close ??= element.selector.selector;
+      } else if (seen.has(key)) {
         click.outcome = 'repeat';
         const same = seen.get(key);
         click.repeats = same.id;
@@ -147,9 +163,13 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
   }
 
   return {
-    nodes: nodes.slice(1).map(({ id, parent, depth, path, waitFor, alsoOpenedBy }) => {
+    nodes: nodes.slice(1).map(({ id, parent, depth, path, waitFor, close, alsoOpenedBy }) => {
       const { role, name, selector } = path.at(-1);
-      return { id, parent: parent === 0 ? null : parent, click: selector.selector, waitFor, role, name, depth, ...(alsoOpenedBy ? { alsoOpenedBy } : {}) };
+      return {
+        id, parent: parent === 0 ? null : parent, click: selector.selector, waitFor, role, name, depth,
+        ...(close ? { close } : {}),
+        ...(alsoOpenedBy ? { alsoOpenedBy } : {}),
+      };
     }),
     clicks,
     stable: prep.stable,
@@ -268,6 +288,33 @@ function shape({ cssPath, name }, loose = false) {
   const parts = cssPath.split(' > ');
   const strip = (part) => part.replace(/:nth-of-type\(\d+\)$/, '');
   return [...parts.slice(0, -1).map(strip), loose ? strip(parts.at(-1)) : parts.at(-1)].join(' > ');
+}
+
+// Whether clicking `element` in `state` closed it: the element is one the
+// state brought — nothing of its role and name was there where the state was
+// opened from — and the page after it is that page again, give or take a
+// trace. The same controls and dialogs, by role and name, whatever their ARIA
+// state says: a trigger left saying it is expanded is still the page it was
+// opened on. And none of the text the state brought is still there.
+function closes(element, state, from, after, volatile) {
+  const known = identities(from, volatile);
+  if (known.includes(identity(element))) return false;
+  const now = identities(after, volatile);
+  if (now.length !== known.length || now.some((id, i) => id !== known[i])) return false;
+  const brought = contentDiff(from.snap, state.reading.snap, volatile.lines).appeared;
+  const left = new Set(contentDiff(from.snap, after.snap, volatile.lines).appeared);
+  return !brought.some((line) => left.has(line));
+}
+
+const identity = ({ role, name }) => `${role}|${name}`;
+
+// The controls and dialogs of a reading by role and name alone, sorted — less
+// what changes on its own.
+function identities(reading, volatile) {
+  return [
+    ...reading.snap.elements.filter((e) => !volatile.parts.has(partOf(e))).map(identity),
+    ...reading.snap.dialogs.filter((name) => !volatile.parts.has(`dialog|${name}`)).map((name) => `dialog|${name}`),
+  ].sort();
 }
 
 // How many of the parts or lines a click changed are kept in its record: what

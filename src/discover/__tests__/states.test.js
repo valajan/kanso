@@ -100,6 +100,22 @@ test('what says a state opened is kept only when both screens saw the same', () 
   assert.equal(waitFor(null, '#menu'), undefined);
 });
 
+// A drawer's close button a phone alone shows would fail, clicked on a
+// desktop, every check that closes the drawer there.
+test('what closes a state is kept only when every screen that reached it found the same', () => {
+  const on = (close) => ({ ...MENU, ...(close ? { close } : {}) });
+  const close = (mobile, desktop) => statesFrom({ mobile: [on(mobile)], desktop: desktop === undefined ? null : [on(desktop)] })[0].close;
+  assert.equal(close('#menu-close', '#menu-close'), '#menu-close');
+  assert.equal(close('#menu-close', null), undefined);
+  assert.equal(close(null, '#menu-close'), undefined);
+  assert.equal(close('#menu-close', '#nav-close'), undefined);
+  // On one screen only, it is that screen's to say.
+  assert.equal(close('#menu-close', undefined), '#menu-close');
+  const [state] = statesFrom({ mobile: [on('#menu-close')], desktop: [on('#menu-close')] });
+  assert.deepEqual(Object.keys(state), ['name', 'click', 'wait_for', 'close']);
+  assert.match(renderStatesFile([state]), /    wait_for: '#menu-toggle\[aria-expanded="true"\]'\n    close: '#menu-close'\n/);
+});
+
 test('a found state takes no name already taken, in the tree or by the project', () => {
   const states = statesFrom(
     { mobile: [node(1, null, '#a', 'Menu'), node(2, null, '#b', 'Menu'), node(3, null, '#c', ''), node(4, 1, '#d', 'Menu')], desktop: null },

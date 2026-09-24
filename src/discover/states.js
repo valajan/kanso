@@ -11,7 +11,7 @@ import yaml from 'js-yaml';
 // every state it reached: the element clicked, the state it was clicked from,
 // what says it opened, and what the element is called.
 //
-//   { mobile: [{ id, parent, click, waitFor, role, name, alsoOpenedBy? }, …] | null,
+//   { mobile: [{ id, parent, click, waitFor, role, name, close?, alsoOpenedBy? }, …] | null,
 //     desktop: … }
 //
 // A state is known by its way there: the elements clicked, from the page as it
@@ -99,6 +99,11 @@ function unique(base, taken) {
 // `wait_for` that holds on one screen only would fail the state on the other,
 // which is worse than waiting a little longer on both.
 //
+// What closes a state, `close:`, is kept the same way: a drawer's close button
+// a phone's layout alone shows would fail, clicked on a desktop, every check
+// that closes the drawer there. Left out, the state is closed as it is when
+// nothing is declared — Escape, then a click away from it — on both.
+//
 // Names are unique across the whole tree — a finding's `at` names a state
 // alone, not its way there — and `taken` is the names already in use, the
 // project's own states, which a state found here does not take. They are
@@ -113,11 +118,12 @@ export function statesFrom(explored, { taken = [] } = {}) {
     for (const [key, node] of found) {
       const state = merged.get(key);
       if (!state) {
-        merged.set(key, { node, on: [formFactor], waitFor: node.waitFor ?? null, also: new Set(node.alsoOpenedBy) });
+        merged.set(key, { node, on: [formFactor], waitFor: node.waitFor ?? null, close: node.close ?? null, also: new Set(node.alsoOpenedBy) });
         continue;
       }
       state.on.push(formFactor);
       if (state.waitFor !== (node.waitFor ?? null)) state.waitFor = null;
+      if (state.close !== (node.close ?? null)) state.close = null;
       for (const selector of node.alsoOpenedBy ?? []) state.also.add(selector);
     }
   }
@@ -125,7 +131,7 @@ export function statesFrom(explored, { taken = [] } = {}) {
   const names = new Set(taken);
   const roots = [];
   const built = new Map();
-  for (const { node, on, waitFor, also } of merged.values()) {
+  for (const { node, on, waitFor, close, also } of merged.values()) {
     const single = on.length === 1 ? on[0] : null;
     const parent = node.parentKey == null ? null : built.get(node.parentKey);
     const implied = parent?.on ?? null;
@@ -134,6 +140,7 @@ export function statesFrom(explored, { taken = [] } = {}) {
       ...(single != null && single !== implied ? { form_factor: single } : {}),
       click: node.click,
       ...(waitFor != null ? { wait_for: waitFor } : {}),
+      ...(close != null ? { close } : {}),
       ...(also.size > 0 ? { also_opened_by: [...also] } : {}),
     };
     built.set(node.key, { state, on: single });
