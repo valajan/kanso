@@ -27,7 +27,10 @@ import { DIALOG_STATE, FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs
 // Environment:
 //   KANSO_LANDING_DIR            path to kanso-landing  (default ../kanso-landing)
 //   KANSO_ACCEPTANCE_SKIP_BUILD  1 to reuse an existing dist/ instead of building
-//   KANSO_ACCEPTANCE_RUNS        Lighthouse runs per audit, median kept (default 3)
+//   KANSO_ACCEPTANCE_RUNS        Lighthouse runs, median kept, for the steps that
+//                                judge a load metric (default 3); the others run once
+//   KANSO_ACCEPTANCE_STEPS       fixtures to audit, comma-separated (default all) —
+//                                what lets CI give each step a job of its own
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const KANSO = join(REPO_ROOT, 'bin/kanso.js');
 const LANDING_DIR = resolve(REPO_ROOT, process.env.KANSO_LANDING_DIR ?? '../kanso-landing');
@@ -36,17 +39,23 @@ const RUNS = Number(process.env.KANSO_ACCEPTANCE_RUNS ?? 3);
 // One step per change. `fails` lists the metrics that must come out as `fail`,
 // `findings` the findings, as `module: rule`, that must be held against the
 // change; empty lists mean nothing may fail — the false-positive check.
+//
+// `load` marks the steps that judge LCP, TBT or CLS: a single load swings too
+// much for them, so they take the median of RUNS. The others are settled by
+// one load — a rule is broken or it is not, and an 800 ms click is 800 ms on
+// any run — and they are also the steps that make the suite long.
 const STEPS = [
-  { fixture: 'baseline', label: 'the landing page as shipped passes', fails: [] },
-  { fixture: 'tbt', label: 'a main-thread busy loop fails on TBT', fails: ['tbt'] },
-  { fixture: 'cls', label: 'a late-inserted block fails on CLS', fails: ['cls'] },
-  { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'] },
+  { fixture: 'baseline', label: 'the landing page as shipped passes', fails: [], load: true },
+  { fixture: 'tbt', label: 'a main-thread busy loop fails on TBT', fails: ['tbt'], load: true },
+  { fixture: 'cls', label: 'a late-inserted block fails on CLS', fails: ['cls'], load: true },
+  { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'], load: true },
   { fixture: 'inp', label: 'a click held 800 ms fails on INP', fails: ['inp'] },
   { fixture: 'reflow', label: 'a block wider than a phone fails on reflow', fails: [], findings: ['accessibility: reflow-scroll'] },
   { fixture: 'focus', label: 'a dialog that leaves focus behind it fails on focus', fails: [], findings: ['accessibility: focus-not-moved'] },
   { fixture: 'residue', label: 'a dialog that leaves the page locked fails on what it left', fails: [], findings: ['interactions: page-locked'] },
-  { fixture: 'baseline', label: 'reverting the regressions passes again', fails: [] },
 ];
+
+const SELECTED = selectSteps(process.env.KANSO_ACCEPTANCE_STEPS);
 
 const AUDIT_TIMEOUT_MS = 15 * 60_000;
 
@@ -87,7 +96,7 @@ before(async () => {
 
   // Each fixture is a directory of built files, which the CLI serves itself —
   // there is no preview host to stand in for.
-  for (const id of new Set(STEPS.map((s) => s.fixture))) {
+  for (const id of new Set(['baseline', ...SELECTED.map((s) => s.fixture)])) {
     await materialize(id, distDir, join(workDir, id));
   }
 }, { timeout: 10 * 60_000 });
@@ -99,12 +108,14 @@ after(async () => {
 // --- known-answer audits -------------------------------------------------------
 
 for (const [index, step] of STEPS.entries()) {
+  if (!SELECTED.includes(step)) continue;
   test(`${index + 1}. ${step.label}`, { timeout: AUDIT_TIMEOUT_MS }, async (t) => {
     const outDir = `out/${index}-${step.fixture}`;
     const res = await run(process.execPath, [
       KANSO, 'audit', step.fixture,
       '--baseline', 'baseline',
       '--config', configPath,
+      '--runs', String(step.load ? RUNS : 1),
       '--fail-on', 'fail',
       '--out', `${outDir}/report.md`,
       '--out', `${outDir}/result.json`,
@@ -178,7 +189,7 @@ for (const [index, step] of STEPS.entries()) {
 // `--out report.md` is what the GitHub Action pipes into the job summary, so the
 // Markdown is checked against a real audit rather than a synthetic one: the TBT
 // step above, read a second time.
-test('the regressed step wrote a report naming both sides and the failing metric', async () => {
+test('the regressed step wrote a report naming both sides and the failing metric', { skip: !SELECTED.includes(STEPS[REPORT_STEP]) && 'the TBT step was not selected' }, async () => {
   const step = STEPS[REPORT_STEP];
   const report = await readFile(join(workDir, `out/${REPORT_STEP}-${step.fixture}`, 'report.md'), 'utf8');
 
@@ -192,6 +203,17 @@ test('the regressed step wrote a report naming both sides and the failing metric
 });
 
 // --- helpers --------------------------------------------------------------------
+
+// The steps KANSO_ACCEPTANCE_STEPS names, by fixture, or every step. A name
+// that matches none throws: a typo in a CI matrix would otherwise run nothing
+// and pass.
+function selectSteps(list) {
+  if (!list?.trim()) return STEPS;
+  const ids = list.split(',').map((id) => id.trim()).filter(Boolean);
+  const unknown = ids.filter((id) => !STEPS.some((step) => step.fixture === id));
+  if (unknown.length) throw new Error(`KANSO_ACCEPTANCE_STEPS names no step: ${unknown.join(', ')}`);
+  return STEPS.filter((step) => ids.includes(step.fixture));
+}
 
 function run(command, args, { cwd, env = process.env }) {
   return new Promise((resolvePromise) => {

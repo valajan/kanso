@@ -34,6 +34,10 @@ builds itself, the way the GitHub Action does — nothing is stood in. It runs
 in CI through `.github/workflows/acceptance.yml`, which checks out the public
 `valajan/kanso-landing` repository — no token, no secret. Set
 `KANSO_ACCEPTANCE_SKIP_BUILD=1` to reuse an existing `dist/` while iterating.
+`KANSO_ACCEPTANCE_STEPS=focus,residue` audits only those fixtures; CI builds
+the landing page once and gives each step a job of its own. Only the steps that
+judge LCP, TBT or CLS take the median of `KANSO_ACCEPTANCE_RUNS` (3); the others
+settle on one load.
 
 The GitHub Action at the repo root (`action.yml`) has its own self-test,
 `.github/workflows/action.yml`: it runs the action from the checkout on the
