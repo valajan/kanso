@@ -61,6 +61,13 @@ async function run(argv, { cwd = project(), discover = fakeDiscover() } = {}) {
   return { code, cwd, ...io };
 }
 
+const stateNamesIn = (text) => {
+  const names = [];
+  const walk = (states) => states?.forEach((state) => { names.push(state.name); walk(state.states); });
+  walk(yaml.load(text).states);
+  return names;
+};
+
 const generated = (cwd) => join(cwd, '.kanso', 'states.yml');
 
 test('discover prints the file it would write, and writes nothing', async () => {
@@ -77,6 +84,7 @@ test('discover prints the file it would write, and writes nothing', async () => 
   assert.match(err, /mobile: 3 states from 12 clicks/);
   assert.match(err, /left out on desktop: button "Flaky" — it did not replay/);
   assert.match(err, /3 states found/);
+  assert.match(err, /^an audit through these states takes about a minute, roughly — twice that against a baseline$/m);
   assert.match(err, /--write to write them to \.kanso\/states\.yml/);
   assert.equal(existsSync(join(cwd, '.kanso')), false);
   assert.equal(existsSync(join(cwd, '.kanso.yml')), false);
@@ -189,6 +197,50 @@ test('the depth, the clicks and the screen are handed to the click-through', asy
   ]);
 });
 
+// Many top-level states, and one reached from the first: breadth first, the
+// child is the first to go.
+function many(count) {
+  const mobile = Array.from({ length: count }, (_, i) => ({ id: i + 1, parent: null, click: `#s${i + 1}`, waitFor: null, role: 'button', name: `State number ${i + 1}`, depth: 1 }));
+  mobile.push({ id: 100, parent: 1, click: '#deep', waitFor: null, role: 'link', name: 'Deep link', depth: 2 });
+  return { ...FOUND, explored: { mobile, desktop: mobile }, dropped: [] };
+}
+
+test('at most twenty states are written unless told otherwise, and the summary names the first left out', async () => {
+  const { out, err } = await run(['discover', 'http://localhost:3000'], { discover: fakeDiscover(many(24)) });
+  const names = stateNamesIn(out);
+  assert.equal(names.length, 20);
+  assert.equal(names.at(-1), 'state-number-20');
+  assert.match(err, /^25 states found, 20 kept: 5 over --max-states 20 left out, the last found \(button "State number 21", button "State number 22", button "State number 23", button "State number 24", …\)$/m);
+  assert.match(err, /takes about 5 min, roughly/);
+});
+
+test('--max-states sets the cap, and an audit through fewer states is said to take less', async () => {
+  const { out, err } = await run(['discover', 'http://localhost:3000', '--max-states', '8'], { discover: fakeDiscover(many(24)) });
+  assert.equal(stateNamesIn(out).length, 8);
+  assert.match(err, /25 states found, 8 kept: 17 over --max-states 8 left out/);
+  assert.match(err, /takes about 2 min, roughly/);
+
+  const all = await run(['discover', 'http://localhost:3000', '--max-states', '30'], { discover: fakeDiscover(many(24)) });
+  assert.equal(stateNamesIn(all.out).length, 25);
+  assert.match(all.err, /^25 states found$/m);
+  assert.match(all.err, /takes about 7 min, roughly/);
+});
+
+test('the estimate counts the states the project wrote by hand as well', async () => {
+  const cwd = project('states:\n  - name: nav\n    click: "#nav"\n  - name: help\n    click: "#help"\n');
+  const { err } = await run(['discover', 'http://localhost:3000'], { cwd });
+  // Three found on mobile and two of the project's: 15 s + 5 × 15 s.
+  assert.match(err, /^an audit through these states and the 2 of \.kanso\.yml takes about 2 min, roughly/m);
+});
+
+test('--json says how many states it keeps at most, which it left out, and about how long an audit takes', async () => {
+  const { out } = await run(['discover', 'http://localhost:3000', '--json', '--max-states', '23'], { discover: fakeDiscover(many(24)) });
+  const result = JSON.parse(out);
+  assert.equal(result.maxStates, 23);
+  assert.deepEqual(result.leftOut.map(({ name, depth }) => [name, depth]), [['State number 24', 1], ['Deep link', 2]]);
+  assert.equal(result.auditSeconds, 15 + 15 * 23);
+});
+
 test('--json prints what was found, the tree and where it goes, and nothing else', async () => {
   const cwd = project();
   const { out, err } = await run(['discover', 'http://localhost:3000', '--json'], { cwd });
@@ -215,6 +267,8 @@ test('an audit option on discover, or a discover option on an audit, is a mistak
     ['audit', 'http://localhost:3000', '--write'],
     ['discover', 'http://localhost:3000', '--depth', '9'],
     ['discover', 'http://localhost:3000', '--form-factor', 'tablet'],
+    ['discover', 'http://localhost:3000', '--max-states', '0'],
+    ['audit', 'http://localhost:3000', '--max-states', '5'],
     ['discover', 'a', 'b'],
   ]) {
     const { code, err } = await run(argv);

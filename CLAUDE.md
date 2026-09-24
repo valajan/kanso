@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
-node bin/kanso.js discover dist [--write]  # Find the page's states, print them or write .kanso/states.yml
+node bin/kanso.js discover dist [--write] [--max-states 20]  # Find the page's states (20 at most by default), print them or write .kanso/states.yml
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
@@ -170,7 +170,18 @@ run where the code is.
   `form_factor:`, nested for the tree, `wait_for` and `close:` only when every
   screen that reached it agrees, names from what was clicked — and the
   whole of `.kanso/states.yml`, the file `--write` rewrites each time; the
-  project's `.kanso.yml` is never touched. No model: the POC
+  project's `.kanso.yml` is never touched. Names say what the element is
+  called, symbols with a value as words (`2 €` is `2-eur`); a name that says
+  little — one short word, no letter — or that another state would take is
+  prefixed with its parent's (`sign-in-all`), at the top replaced by an
+  id of two words or more (`#moreOptions`, `more-options`), and numbered only
+  when that is not enough. At most `--max-states` states are kept (20 by
+  default, `MAX_STATES`), counted as the file holds them, breadth first — a
+  child never without its parent — and the summary (and `--json`, `leftOut`)
+  says which were left out. An audit costs about 15 s plus 15 s per state on
+  the screen with more (`auditSeconds`, calibrated on a real 30-state audit),
+  which the summary prints as an order of magnitude, `--json` as
+  `auditSeconds`. No model: the POC
   (`poc/jev-discovery`) showed a model adds little to finding states
 - `process/` — `children.js`: the processes Kanso starts and must not leave
   behind — the servers `serve/command.js` starts, the Chromes an audit's
