@@ -207,8 +207,13 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
         }
         const found = await step(async () => {
           const started = Date.now();
-          await applyState(page, state, { waitMs: timeoutMs / 3 });
-          await at.shot(page, 'state-reached', { click: state.click, ...(state.waitFor ? { waitFor: state.waitFor } : {}), ms: Date.now() - started });
+          const animationsMs = await applyState(page, state, { waitMs: timeoutMs / 3 });
+          await at.shot(page, 'state-reached', {
+            click: state.click,
+            ...(state.waitFor ? { waitFor: state.waitFor } : {}),
+            ms: Date.now() - started,
+            ...(animationsMs ? { animationsMs } : {}),
+          });
           return probe.run(page, { url, formFactor, config, at: state.name, log: at });
         });
         here = state.name;

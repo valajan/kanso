@@ -1,22 +1,18 @@
+import { settle } from './settle.js';
+
 // Takes a page from one state to the next — src/config/states.js — the way a
 // visitor would: back to the top, a click on what opens it, and a wait for
-// what says it opened.
+// what says it opened, then for the page to settle (./settle.js): the requests
+// the state makes, the animations it opens with.
 //
 // The page is scrolled back to the top first. A check may have scrolled it —
 // axe does, to read what is under a sticky header — and the next state must
 // start from where a visitor who just arrived would be, not from wherever the
 // last reading left it.
 
-// How long a page is given to go quiet after the click — the request a menu
-// makes for its items, the transition it opens with — when nothing says what
-// to wait for, and after what was named has appeared. At least `idleTime` goes
-// by, which is what lets a 300 ms transition finish before anything reads it.
-const SETTLE_MS = 3_000;
-const IDLE_MS = 500;
-
-// Resolves once `state` is reached, and rejects with a message worth reading
-// in a report when it cannot be: no element to click, or what should have
-// appeared never did. `waitMs` is how long each of the two is waited for —
+// Resolves once `state` is reached — to how long its animations were waited
+// on, in ms — and rejects with a message worth reading in a report when it
+// cannot be: no element to click, or what should have appeared never did. `waitMs` is how long each of the two is waited for —
 // well inside the time the whole step is allowed (src/probes/index.js), so
 // that a state that is not there says which part was missing. `fromTop: false`
 // leaves the page scrolled where it is, for a check of what the state does to
@@ -33,7 +29,7 @@ export async function applyState(page, { click, waitFor }, { waitMs, fromTop = t
     await page.waitForSelector(waitFor, { timeout: waitMs })
       .catch(ifTimeout(`clicked ${click}, and ${waitFor} never appeared`));
   }
-  await page.waitForNetworkIdle({ idleTime: IDLE_MS, timeout: SETTLE_MS }).catch(() => {});
+  return settle(page);
 }
 
 // Brings `page` to the last of `states`, from the page as it loads, one state
@@ -44,13 +40,14 @@ export async function applyState(page, { click, waitFor }, { waitMs, fromTop = t
 export async function reach(page, states, { waitMs, log }) {
   for (const state of states) {
     const started = Date.now();
+    let animationsMs;
     try {
-      await applyState(page, state, { waitMs });
+      animationsMs = await applyState(page, state, { waitMs });
     } catch (err) {
       err.state = state;
       throw err;
     }
-    log.with({ at: state.name }).log('state-reached', { click: state.click, ms: Date.now() - started });
+    log.with({ at: state.name }).log('state-reached', { click: state.click, ms: Date.now() - started, ...(animationsMs ? { animationsMs } : {}) });
   }
 }
 

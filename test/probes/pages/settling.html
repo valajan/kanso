@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A panel that takes its time to appear</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  /* Grey on white: 7:1 once opaque, well over 4.5:1. Half transparent, it is
+     drawn nearer #acacac, and fails. */
+  #panel { color: #595959; background: #fff; opacity: 0; pointer-events: none; transition: opacity 1.5s linear; }
+  #panel.open { opacity: 1; pointer-events: auto; }
+  /* A spinner that never stops: an animation nobody can wait out, and that
+     must not hold the reading of the state. */
+  .spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid #111; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>A panel that takes its time to appear</h1>
+  <p><span class="spinner" role="img" aria-label="Loading"></span> Always loading something.</p>
+  <button id="open" type="button" aria-expanded="false" aria-controls="panel">Details</button>
+  <!-- In the page, and quiet on the network, from the click on — and read
+       then, half transparent, its text fails a contrast nobody ever sees. -->
+  <section id="panel" aria-label="Details">
+    <p>The details a visitor reads once the panel has finished appearing.</p>
+  </section>
+</main>
+<script>
+  const open = document.getElementById('open');
+  open.addEventListener('click', () => {
+    document.getElementById('panel').classList.add('open');
+    open.setAttribute('aria-expanded', 'true');
+  });
+</script>
+</body>
+</html>

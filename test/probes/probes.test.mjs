@@ -249,6 +249,25 @@ test('a page that never loads reached none of its states either', async () => {
   assert.deepEqual(result.failures.map(({ at }) => at ?? null), [null, 'menu', 'signup']);
 });
 
+// A state is read once it has finished appearing: a panel fading in over a
+// second and a half, read half transparent, fails a contrast its text passes
+// once opaque. A spinner turning forever on the same page is not waited on —
+// what the panel is given stays under the cap, which the spinner alone would
+// use up.
+test('a state is read once its animations have finished, and one that never ends is not waited on', async () => {
+  const journal = new Journal();
+  const details = { name: 'details', click: '#open', wait_for: "#open[aria-expanded='true']" };
+  const { accessibility: result } = await probe('settling.html', { modules: only(axeProbe), config: { states: [details] }, journal });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.findings.filter(({ at }) => at === 'details').map(({ rule }) => rule), []);
+
+  const [reached] = journal.events.filter((e) => e.kind === 'state-reached');
+  assert.ok(reached.animationsMs > 0, 'the fade was waited on');
+  assert.ok(reached.animationsMs < 1_800, `the spinner held the state for ${reached.animationsMs} ms`);
+  assert.ok(reached.ms < 3_000, `reaching the state took ${reached.ms} ms`);
+});
+
 // Only a check that says so goes through the states: the others cost a load
 // of their own, and that cost does not move.
 test('a check that does not ask for the states runs on the page as it loads alone', async () => {

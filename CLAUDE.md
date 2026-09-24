@@ -98,7 +98,10 @@ run where the code is.
   configuration. A probe that fails costs its own rules, reported as unchecked,
   never as clean. A probe marked `states: true` (axe and INP, today) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
-  reads them, `states.js` here reaches one: a click, then `wait_for`), in the
+  reads them, `states.js` here reaches one: a click, then `wait_for`, then
+  `settle.js` — the network quiet, then the page's finite animations
+  finished, a spinner that never ends left playing, under 2 s — so that a
+  panel fading in is not read half transparent), in the
   page it loaded — a tree (a state's `states:`), walked depth first: down a branch in the
   same page, each branch after the first in the page loaded again and brought
   to where it starts — and each finding made
@@ -113,8 +116,8 @@ run where the code is.
   `transition.js` hands it — open by click or by key, whether it is open (its
   `wait_for`, else the modal dialog or menu that opened, else its trigger's
   `aria-expanded`, else `null`), close by Escape or by its `close:`, where
-  focus is — each move journaled; a click or key that leaves the page fails
-  the state (`the click left the page, for <where>`). A state it
+  focus is — each move journaled, and followed by the same `settle.js`; a
+  click or key that leaves the page fails the state (`the click left the page, for <where>`). A state it
   could not check costs that state; one beyond a state the way could not get
   past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
