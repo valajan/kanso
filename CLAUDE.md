@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
-node bin/kanso.js discover dist [--write]  # Find the page's states, print them or add them to .kanso.yml
+node bin/kanso.js discover dist [--write]  # Find the page's states, print them or write .kanso/states.yml
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
@@ -99,7 +99,7 @@ run where the code is.
   never as clean. A probe marked `states: true` (axe and INP, today) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
   reads them, `states.js` here reaches one: a click, then `wait_for`), in the
-  page it loaded — a tree (`from:`), walked depth first: down a branch in the
+  page it loaded — a tree (a state's `states:`), walked depth first: down a branch in the
   same page, each branch after the first in the page loaded again and brought
   to where it starts — and each finding made
   there carries `at`, listing only what no earlier reading found (the INP
@@ -147,9 +147,9 @@ run where the code is.
   state again from a first visit, as an audit will (`reach`), and leaves out
   what did not come back, with what is reached through it. `states.js` makes
   the `states:` of it — one state for a path found on both screens, the others
-  `form_factor:`, `from:` for the tree, names from what was clicked — merges
-  them after the states the project declares, and writes the block into
-  `.kanso.yml` leaving every other line as it was. No model: the POC
+  `form_factor:`, nested for the tree, names from what was clicked — and the
+  whole of `.kanso/states.yml`, the file `--write` rewrites each time; the
+  project's `.kanso.yml` is never touched. No model: the POC
   (`poc/jev-discovery`) showed a model adds little to finding states
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
@@ -321,12 +321,18 @@ an agent's audit is judged by them too. Config controls budgets, each module's
 own thresholds and `runs`.
 
 `states:`, at the root like `runs:`, lists the states of the page beyond the
-one it loads in — `name`, `click`, optional `from` (the state declared before
-it that it starts from; without, the page as it loads), optional
-`form_factor` (`mobile` or `desktop`: a state one screen only has; inherited
-through `from`), optional `wait_for`,
-optional `close` (what closes it when Escape is not meant to) — which a check
-can go through; a malformed one fails the config as it loads (`local-config.js`).
+one it loads in — `name`, `click`, optional `form_factor` (`mobile` or
+`desktop`: a state one screen only has), optional `wait_for`, optional `close`
+(what closes it when Escape is not meant to), and optional `states:`, the
+states reached from it, which inherit its form factor — which a check can go
+through; a malformed one fails the config as it loads (`local-config.js`).
+They come from two files: `.kanso/states.yml`, which `kanso discover --write`
+rewrites whole, and the project's own `.kanso.yml`, for what a click-through
+cannot find. `loadLocalConfig` reads both (`statesFile` says where the first
+is: beside the configuration), and `combineStates` makes one flat list of them
+— `from` for the nesting, each found state marked `generated` — the project's
+entry winning where both reach a state by the same clicks, and what was found
+under it reached from the project's.
 
 `serve:` says how to serve the project when a local surface is given no page:
 `dir:` (a build directory, served by Kanso) or `command:` + `url:` (what serves

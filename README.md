@@ -200,32 +200,38 @@ states:
   - name: menu
     click: "[aria-label='Menu']"             # what to click to get there
     wait_for: "#menu[aria-expanded='true']"  # what says you are there (optional)
-  - name: signup
-    from: menu                               # reached from the menu, still open
-    click: "#signup"
+    states:
+      - name: signup                         # reached from the menu, still open
+        click: "#signup"
   - name: settings
     click: "#settings"                       # reached from the page as it loads
 ```
 
-Each state is reached from the page as it loads, or from the state it names in
-`from:`, as a visitor would, and reports what it shows broken that no reading
+Each state is reached from the page as it loads, or from the state it is listed
+under, as a visitor would, and reports what it shows broken that no reading
 before it did: `button-name @ menu`.
 Each click is also timed, and the slowest is the page's INP — so a state is
 worth declaring for the interaction it measures as much as for what it shows.
 Against a baseline, a state is compared with the same state there. A state that
 cannot be reached — the button renamed, the menu that never opens — is reported
-as unchecked, with every state reached through it, and never reads as a clean
+as unchecked, with every state listed under it, and never reads as a clean
 one. A state only one screen has — the drawer behind a phone's menu button —
 says `form_factor: mobile`, and is not looked for on desktop.
 
 **Or let Kanso find them.** `kanso discover` clicks through the page, two clicks
-deep, on mobile and desktop, and prints what it found as a `states:` block;
-`--write` adds it to your `.kanso.yml`, keeping the states you declared:
+deep, on mobile and desktop, and prints what it found; `--write` writes it to
+`.kanso/states.yml`, a file of its own beside your `.kanso.yml`, rewritten whole
+each time the page changes — commit it, like a lock file:
 
 ```bash
 kanso discover dist            # print the states found
-kanso discover dist --write    # add them to .kanso.yml
+kanso discover dist --write    # write them to .kanso/states.yml
 ```
+
+An audit reads both files. Keep in `.kanso.yml` only the states no
+click-through can find — one behind a form to fill in, say — or one you want to
+tell how to close: where both reach the same state, yours wins, and what was
+found under it is reached from yours.
 
 It only looks: nothing is typed, no form is sent, no other page is opened, a
 button named like `Delete` or `Buy` is left alone, and any request that would
@@ -596,7 +602,7 @@ kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
 kanso audit <url> --config other.yml     # another configuration file
-kanso discover dist --write              # find the states, add them to .kanso.yml
+kanso discover dist --write              # find the states, write .kanso/states.yml
 kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```

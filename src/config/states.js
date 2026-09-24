@@ -1,46 +1,45 @@
 import { isPlainObject } from './merge.js';
 
-// The states of a page a project declares, beyond the one it loads in: a menu
-// opened, a dialog shown — what only a click shows, and what a load alone
-// never measures.
+// The states of a page, beyond the one it loads in: a menu opened, a dialog
+// shown — what only a click shows, and what a load alone never measures.
 //
 //   states:
 //     - name: menu
+//       form_factor: mobile
 //       click: "[aria-label='Menu']"
 //       wait_for: "#menu[aria-expanded='true']"
-//     - name: signup
-//       from: menu
-//       click: "#signup"
-//       close: "#signup-cancel"
+//       states:
+//         - name: signup
+//           click: "#signup"
+//           close: "#signup-cancel"
 //     - name: settings
 //       click: "#settings"
-//     - name: drawer
-//       form_factor: mobile
-//       click: "[aria-label='Open the menu']"
 //
 // At the root, like `runs:`, and for the same reason: a state is a way through
 // the page, and what the page looks like there concerns every module, not one.
 // A check says whether it goes through them (src/probes/index.js).
 //
-// A state is reached from the page as it loads, unless it says it starts
-// `from` another — the signup form above is the one a visitor finds with the
-// menu open; the settings, the one they find on arriving. The states form a
-// tree, then, rather than a chain: a dialog left open by one state does not
-// stand in the way of the next, and a state that cannot be reached costs only
-// the ones reached through it. `from` names a state declared before it, which
-// is what keeps a state from being reached through itself.
+// Two files say them: the ones `kanso discover` found, in the file it writes
+// whole (.kanso/states.yml), and the ones a project writes by hand, in its
+// .kanso.yml — what no click-through finds. `combineStates` makes one list of
+// them.
+//
+// The states form a tree. A state is reached from the page as it loads, and
+// the states listed under it from it — the signup form above is the one a
+// visitor finds with the menu open; the settings, the one they find on
+// arriving. A dialog left open by one state does not stand in the way of the
+// next, and a state that cannot be reached costs only the ones under it.
 //
 // A state is on both screens Kanso audits unless it says `form_factor:` — a
-// drawer only a phone's layout has. A state reached through one that is on a
-// single screen is on that screen too, whether it says so or not.
+// drawer only a phone's layout has — and the states under it are on that
+// screen too.
 //
-// A state is its name, the element clicked to reach it, and, optionally, the
-// state it starts from, what says it has been reached, and what closes it when
-// Escape is not meant to — for a check that goes in and out of it
-// (src/probes/transition.js). The last three are CSS selectors. A state
-// missing either of the first two is a mistake in the file, and fails the
-// configuration rather than being skipped: a state quietly left out is a part
-// of the page quietly left unchecked.
+// A state is its name, the element clicked to reach it, and, optionally, what
+// says it has been reached, and what closes it when Escape is not meant to —
+// for a check that goes in and out of it (src/probes/transition.js). All three
+// are CSS selectors. A state missing its name or its click is a mistake in the
+// file, and fails the configuration rather than being skipped: a state quietly
+// left out is a part of the page quietly left unchecked.
 
 // A name is what a finding reached there carries (`at`), and what its level
 // is keyed by: `color-contrast@menu`. Kept to what reads well in both.
@@ -50,52 +49,129 @@ export class InvalidStates extends Error {}
 
 const FORM_FACTORS = ['mobile', 'desktop'];
 
-// The declared states, as { name, click, from, formFactor, waitFor, close } —
-// each of the last four only when declared, or, for a form factor, inherited —
-// in order. Nothing declared
-// is no state. Anything the file got wrong throws, naming the state.
+// The states, as a flat list of { name, click, from, formFactor, waitFor,
+// close, generated } — each of the last five only when it says something, a
+// form factor inherited from the state above — parents before the states
+// under them. Nothing declared is no state. Anything the file got wrong
+// throws, naming the state.
+//
+// What it returns it reads back the same: the list crosses into the audit's
+// worker as plain data and is read there again, `from` in place of the
+// nesting.
 export function parseStates(value) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw new InvalidStates('states: must be a list');
 
   const formFactors = new Map();
-  return value.map((state, i) => {
-    const where = `states[${i}]`;
-    if (!isPlainObject(state)) throw new InvalidStates(`${where} must be a mapping with a name and a click`);
-    const { name, click } = state;
+  const out = [];
+  const read = (list, where, parent) => list.forEach((state, i) => {
+    const at = `${where}[${i}]`;
+    if (!isPlainObject(state)) throw new InvalidStates(`${at} must be a mapping with a name and a click`);
+    const { name, click, close, states: under } = state;
     const waitFor = state.wait_for ?? state.waitFor;
-    const { close, from } = state;
     const declaredFormFactor = state.form_factor ?? state.formFactor;
+    const from = parent ?? state.from;
 
     if (typeof name !== 'string' || !NAME.test(name)) {
-      throw new InvalidStates(`${where} needs a name — letters, digits, - and _`);
+      throw new InvalidStates(`${at} needs a name — letters, digits, - and _`);
     }
-    if (formFactors.has(name)) throw new InvalidStates(`${where}: the name ${name} is taken by an earlier state`);
+    if (formFactors.has(name)) throw new InvalidStates(`${at}: the name ${name} is taken by an earlier state`);
+    if (parent != null && state.from != null) throw new InvalidStates(`${at} (${name}): a state listed under another starts from it, and says no from`);
     if (from != null && (typeof from !== 'string' || !formFactors.has(from))) {
-      throw new InvalidStates(`${where} (${name}): from must name a state declared before it`);
+      throw new InvalidStates(`${at} (${name}): from must name a state declared before it`);
     }
     if (declaredFormFactor != null && !FORM_FACTORS.includes(declaredFormFactor)) {
-      throw new InvalidStates(`${where} (${name}): form_factor must be ${FORM_FACTORS.join(' or ')}`);
+      throw new InvalidStates(`${at} (${name}): form_factor must be ${FORM_FACTORS.join(' or ')}`);
     }
     const inherited = from == null ? null : formFactors.get(from);
     if (declaredFormFactor != null && inherited != null && declaredFormFactor !== inherited) {
-      throw new InvalidStates(`${where} (${name}): starts from ${from}, which is only on ${inherited}`);
+      throw new InvalidStates(`${at} (${name}): reached from ${from}, which is only on ${inherited}`);
     }
     const formFactor = declaredFormFactor ?? inherited;
     formFactors.set(name, formFactor);
     if (typeof click !== 'string' || click.trim() === '') {
-      throw new InvalidStates(`${where} (${name}) needs a click: the selector of the element that opens it`);
+      throw new InvalidStates(`${at} (${name}) needs a click: the selector of the element that opens it`);
     }
     if (waitFor != null && (typeof waitFor !== 'string' || waitFor.trim() === '')) {
-      throw new InvalidStates(`${where} (${name}): wait_for must be a selector`);
+      throw new InvalidStates(`${at} (${name}): wait_for must be a selector`);
     }
-
     if (close != null && (typeof close !== 'string' || close.trim() === '')) {
-      throw new InvalidStates(`${where} (${name}): close must be a selector`);
+      throw new InvalidStates(`${at} (${name}): close must be a selector`);
     }
+    if (under != null && !Array.isArray(under)) throw new InvalidStates(`${at} (${name}): states must be a list`);
 
-    return { name, click, ...(from != null ? { from } : {}), ...(formFactor != null ? { formFactor } : {}), ...(waitFor != null ? { waitFor } : {}), ...(close != null ? { close } : {}) };
+    out.push({
+      name,
+      click,
+      ...(from != null ? { from } : {}),
+      ...(formFactor != null ? { formFactor } : {}),
+      ...(waitFor != null ? { waitFor } : {}),
+      ...(close != null ? { close } : {}),
+      ...(state.generated === true ? { generated: true } : {}),
+    });
+    if (under) read(under, `${at}.states`, name);
   });
+  read(value, 'states', null);
+  return out;
+}
+
+// The states a project wrote by hand and the ones `kanso discover` found, as
+// one list: the project's first, then the ones found, each marked
+// `generated`.
+//
+// A state found that the project already declares — the same clicks, from
+// the page as it loads — is the project's: it is left out, and the states
+// found under it are reached from the project's. A state found under one
+// that the project keeps to the other screen cannot be reached, and is left
+// out with the states under it. A name found that the project took since the
+// click-through is a file to generate again, and says so.
+export function combineStates(declared, generated) {
+  if (generated.length === 0) return declared;
+  const byPath = new Map();
+  const wayOf = (states) => (state) => [...pathTo(states, state), state].map((s) => s.click).join('\n');
+  const declaredWay = wayOf(declared);
+  for (const state of declared) byPath.set(declaredWay(state), state);
+  const taken = new Map(declared.map((s) => [s.name, s]));
+
+  const generatedWay = wayOf(generated);
+  const renamed = new Map();
+  const dropped = new Set();
+  const kept = [];
+  for (const state of generated) {
+    if (state.from != null && dropped.has(state.from)) {
+      dropped.add(state.name);
+      continue;
+    }
+    const same = byPath.get(generatedWay(state));
+    if (same) {
+      renamed.set(state.name, same.name);
+      continue;
+    }
+    if (taken.has(state.name)) {
+      throw new InvalidStates(`the state ${state.name} found by kanso discover is also a name in .kanso.yml — run kanso discover --write again`);
+    }
+    const from = state.from == null ? undefined : renamed.get(state.from) ?? state.from;
+    const above = from == null ? null : taken.get(from);
+    const formFactor = state.formFactor ?? above?.formFactor;
+    if (above?.formFactor != null && state.formFactor != null && above.formFactor !== state.formFactor) {
+      dropped.add(state.name);
+      continue;
+    }
+    const entry = {
+      name: state.name,
+      click: state.click,
+      ...(from != null ? { from } : {}),
+      ...(formFactor != null ? { formFactor } : {}),
+      ...(state.waitFor != null ? { waitFor: state.waitFor } : {}),
+      ...(state.close != null ? { close: state.close } : {}),
+      generated: true,
+    };
+    taken.set(entry.name, entry);
+    kept.push(entry);
+  }
+  // Parents before the states under them, which a walk needs: a state found
+  // under one of the project's comes after it, since the project's are first.
+  return [...declared, ...kept];
 }
 
 // The states on `formFactor`'s screen. A state's way there is on it too, so

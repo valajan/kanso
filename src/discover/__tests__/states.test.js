@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import yaml from 'js-yaml';
 import { parseStates } from '../../config/states.js';
-import { mergeStates, renderStates, slug, statesFrom, writeStates } from '../states.js';
+import { renderStatesFile, slug, stateNames, statesFrom } from '../states.js';
 
 // What one screen's exploration hands back, the ids its own.
 const node = (id, parent, click, name, { role = 'button', waitFor = null } = {}) => ({ id, parent, click, waitFor, role, name });
@@ -23,14 +23,26 @@ test('an element\'s accessible name makes a short, plain name, and its role one 
   assert.equal(slug('— Search —', 'button'), 'search');
 });
 
-test('a state both screens reached the same way is one state, on both', () => {
+// The flat form the configuration reads a nested tree into: what an audit
+// goes through.
+const flat = (states) => parseStates(states).map((s) => [s.name, s.from ?? null, s.formFactor ?? null]);
+
+test('a state both screens reached the same way is one state, on both, holding what is reached from it', () => {
   const states = statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [SETTINGS, MENU, { ...SIGNUP }] });
   assert.deepEqual(states, [
-    { name: 'menu', click: '#menu-toggle', wait_for: '#menu-toggle[aria-expanded="true"]' },
-    { name: 'sign-up', from: 'menu', click: '::-p-aria([name="Sign up"][role="link"])' },
+    {
+      name: 'menu', click: '#menu-toggle', wait_for: '#menu-toggle[aria-expanded="true"]',
+      states: [{ name: 'sign-up', click: '::-p-aria([name="Sign up"][role="link"])' }],
+    },
     { name: 'settings', click: '[data-testid="settings"]', wait_for: '::-p-aria([name="Settings"][role="dialog"])' },
   ]);
-  assert.doesNotThrow(() => parseStates(states));
+  assert.deepEqual(flat(states), [['menu', null, null], ['sign-up', 'menu', null], ['settings', null, null]]);
+});
+
+test('a state\'s keys come in the order the file writes them, and only those that say something', () => {
+  const states = statesFrom({ mobile: [MENU, SIGNUP], desktop: null });
+  assert.deepEqual(Object.keys(states[0]), ['name', 'form_factor', 'click', 'wait_for', 'states']);
+  assert.deepEqual(Object.keys(states[0].states[0]), ['name', 'click']);
 });
 
 // Ids mean nothing outside the exploration that gave them: the way there is
@@ -38,17 +50,18 @@ test('a state both screens reached the same way is one state, on both', () => {
 test('the same way on both screens is the same state, whatever ids each exploration gave it', () => {
   const desktop = [node(7, null, '#menu-toggle', 'Menu'), node(9, 7, SIGNUP.click, 'Sign up', { role: 'link' })];
   const states = statesFrom({ mobile: [MENU, SIGNUP], desktop });
-  assert.deepEqual(states.map((s) => s.name), ['menu', 'sign-up']);
-  assert.equal(states.some((s) => 'form_factor' in s), false);
+  assert.deepEqual(stateNames(states), ['menu', 'sign-up']);
+  assert.equal(JSON.stringify(states).includes('form_factor'), false);
 });
 
-test('the same click from another state is another state', () => {
+test('the same click from another state is another state, and names are unique across the tree', () => {
   const close = (id, parent) => node(id, parent, '#close', 'Close');
   const states = statesFrom({ mobile: [MENU, SETTINGS, close(4, 1), close(5, 3)], desktop: null });
-  assert.deepEqual(states.map((s) => [s.name, s.from ?? null]), [['menu', null], ['settings', null], ['close', 'menu'], ['close-2', 'settings']]);
+  assert.deepEqual(states.map((s) => [s.name, s.states.map((c) => c.name)]), [['menu', ['close']], ['settings', ['close-2']]]);
+  assert.deepEqual(flat(states), [['menu', null, 'mobile'], ['close', 'menu', 'mobile'], ['settings', null, 'mobile'], ['close-2', 'settings', 'mobile']]);
 });
 
-test('a state one screen reached alone says which, and what is reached through it does not repeat it', () => {
+test('a state one screen reached alone says which, and a child never repeats its parent\'s', () => {
   const drawer = node(1, null, '#burger', 'Open the menu');
   const account = node(2, 1, '#account', 'Account');
   const hover = node(4, 3, '#more', 'More');
@@ -57,15 +70,16 @@ test('a state one screen reached alone says which, and what is reached through i
     desktop: [node(1, null, '#search', 'Search'), node(2, null, '#mega', 'Products'), { ...hover, parent: 1 }],
   });
   assert.deepEqual(states, [
-    { name: 'open-the-menu', form_factor: 'mobile', click: '#burger' },
-    { name: 'account', from: 'open-the-menu', click: '#account' },
-    { name: 'search', click: '#search' },
-    { name: 'products', form_factor: 'desktop', click: '#mega' },
+    { name: 'open-the-menu', form_factor: 'mobile', click: '#burger', states: [{ name: 'account', click: '#account' }] },
     // Its parent is on both screens: nothing says this one is on the desktop alone but itself.
-    { name: 'more', from: 'search', form_factor: 'desktop', click: '#more' },
+    { name: 'search', click: '#search', states: [{ name: 'more', form_factor: 'desktop', click: '#more' }] },
+    { name: 'products', form_factor: 'desktop', click: '#mega' },
   ]);
-  const parsed = parseStates(states);
-  assert.deepEqual(parsed.map((s) => s.formFactor ?? null), ['mobile', 'mobile', null, 'desktop', 'desktop']);
+  assert.deepEqual(flat(states), [
+    ['open-the-menu', null, 'mobile'], ['account', 'open-the-menu', 'mobile'],
+    ['search', null, null], ['more', 'search', 'desktop'],
+    ['products', null, 'desktop'],
+  ]);
 });
 
 test('a screen not explored finds nothing, and a state only the other found is on that screen', () => {
@@ -86,232 +100,116 @@ test('what says a state opened is kept only when both screens saw the same', () 
   assert.equal(waitFor(null, '#menu'), undefined);
 });
 
-test('a found state takes no name already taken, in the list or in the project', () => {
+test('a found state takes no name already taken, in the tree or by the project', () => {
   const states = statesFrom(
-    { mobile: [node(1, null, '#a', 'Menu'), node(2, null, '#b', 'Menu'), node(3, null, '#c', '')], desktop: null },
+    { mobile: [node(1, null, '#a', 'Menu'), node(2, null, '#b', 'Menu'), node(3, null, '#c', ''), node(4, 1, '#d', 'Menu')], desktop: null },
     { taken: ['menu', 'button'] },
   );
-  assert.deepEqual(states.map((s) => s.name), ['menu-2', 'menu-3', 'button-2']);
+  assert.deepEqual(stateNames(states), ['menu-2', 'menu-4', 'menu-3', 'button-2']);
   assert.doesNotThrow(() => parseStates(states));
 });
 
 test('a node whose parent the exploration does not list is left out, with what is below it', () => {
   const states = statesFrom({ mobile: [MENU, node(5, 42, '#x', 'Orphan'), node(6, 5, '#y', 'Below')], desktop: null });
-  assert.deepEqual(states.map((s) => s.name), ['menu']);
+  assert.deepEqual(stateNames(states), ['menu']);
 });
 
-test('what an exploration found always reads as a valid states: block, every from naming an earlier state', () => {
+test('what an exploration found always reads as a valid states: tree', () => {
   const mobile = [MENU, SIGNUP, SETTINGS, node(4, 2, '#terms', 'Terms'), node(5, 3, '#tab', 'Privacy')];
   const desktop = [SETTINGS, node(8, 3, '#tab', 'Privacy'), node(9, 3, '#other', 'Other'), node(10, 9, '#deeper', 'Deeper')];
   const states = statesFrom({ mobile, desktop });
-  const parsed = parseStates(states);
-  const seen = new Set();
-  for (const state of parsed) {
-    if (state.from) assert.ok(seen.has(state.from), `${state.name} starts from ${state.from}, declared before it`);
-    seen.add(state.name);
-  }
-  assert.deepEqual(parsed.map((s) => [s.name, s.formFactor ?? null]), [
-    ['menu', 'mobile'], ['sign-up', 'mobile'], ['settings', null], ['terms', 'mobile'], ['privacy', null], ['other', 'desktop'], ['deeper', 'desktop'],
+  assert.deepEqual(flat(states), [
+    ['menu', null, 'mobile'], ['sign-up', 'menu', 'mobile'], ['terms', 'sign-up', 'mobile'],
+    ['settings', null, null], ['privacy', 'settings', null], ['other', 'settings', 'desktop'], ['deeper', 'other', 'desktop'],
   ]);
 });
 
-// ── merging with what the project declared ──
-
-const DECLARED = [
-  { name: 'nav', click: '#menu-toggle', close: '#menu-close' },
-  { name: 'profile', form_factor: 'desktop', click: '#avatar' },
-];
-
-test('what the project declared comes first, as it wrote it, and a state it declared is not added again', () => {
-  const found = statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [MENU, SIGNUP, SETTINGS] });
-  const { states, added, kept } = mergeStates(DECLARED, found);
-  assert.deepEqual(states, [
-    ...DECLARED,
-    { name: 'sign-up', from: 'nav', click: SIGNUP.click },
-    { name: 'settings', click: SETTINGS.click, wait_for: SETTINGS.waitFor },
-  ]);
-  assert.equal(states[0], DECLARED[0]);
-  assert.deepEqual(added, ['sign-up', 'settings']);
-  assert.deepEqual(kept, ['nav', 'profile']);
-  assert.doesNotThrow(() => parseStates(states));
-});
-
-test('a state the project declared through from is recognized by its way, not its name', () => {
-  const declared = [{ name: 'nav', click: '#menu-toggle' }, { name: 'join', from: 'nav', click: SIGNUP.click }];
-  const found = statesFrom({ mobile: [MENU, SIGNUP, node(4, 2, '#terms', 'Terms')], desktop: [MENU, SIGNUP, node(4, 2, '#terms', 'Terms')] });
-  const { states, added } = mergeStates(declared, found);
-  assert.deepEqual(states.slice(2), [{ name: 'terms', from: 'join', click: '#terms' }]);
-  assert.deepEqual(added, ['terms']);
-});
-
-test('a found name the project uses for another state is renamed, and every from naming it follows', () => {
-  const declared = [{ name: 'settings', click: '#prefs' }];
-  const found = [
-    { name: 'settings', click: '#settings' },
-    { name: 'privacy', from: 'settings', click: '#privacy' },
-  ];
-  const { states, added } = mergeStates(declared, found);
-  assert.deepEqual(states, [
-    { name: 'settings', click: '#prefs' },
-    { name: 'settings-2', click: '#settings' },
-    { name: 'privacy', from: 'settings-2', click: '#privacy' },
-  ]);
-  assert.deepEqual(added, ['settings-2', 'privacy']);
-});
-
-test('on which screen a state is, the project\'s word is taken over the exploration\'s', () => {
-  const declared = [{ name: 'drawer', form_factor: 'mobile', click: '#burger' }, { name: 'nav', click: '#nav' }];
-  const found = [
-    // Found on both screens: the project says mobile, and so the menu.
-    { name: 'burger', click: '#burger' },
-    { name: 'links', from: 'burger', click: '#links' },
-    // Found on the desktop alone, through a state the project keeps to mobile: unreachable, dropped with its own.
-    { name: 'wide', from: 'burger', form_factor: 'desktop', click: '#wide' },
-    { name: 'wider', from: 'wide', click: '#wider' },
-    // Found on mobile alone, through a mobile state: the form_factor repeats what from says.
-    { name: 'account', from: 'burger', form_factor: 'mobile', click: '#account' },
-    // Found under a state the exploration had on mobile alone, which the project declared on both.
-    { name: 'nav-found', form_factor: 'mobile', click: '#nav' },
-    { name: 'sub', from: 'nav-found', click: '#sub' },
-  ];
-  const { states, added } = mergeStates(declared, found);
-  assert.deepEqual(states.slice(2), [
-    { name: 'links', from: 'drawer', click: '#links' },
-    { name: 'account', from: 'drawer', click: '#account' },
-    { name: 'sub', from: 'nav', form_factor: 'mobile', click: '#sub' },
-  ]);
-  assert.deepEqual(added, ['links', 'account', 'sub']);
-  assert.deepEqual(parseStates(states).map((s) => s.formFactor ?? null), ['mobile', null, 'mobile', 'mobile', 'mobile']);
-});
-
-test('a project with no state takes every one found, and one with nothing found keeps its own', () => {
-  const found = statesFrom({ mobile: [MENU], desktop: [MENU] });
-  assert.deepEqual(mergeStates(undefined, found), { states: found, added: ['menu'], kept: [] });
-  assert.deepEqual(mergeStates([], found).states, found);
-  assert.deepEqual(mergeStates(DECLARED, []), { states: DECLARED, added: [], kept: ['nav', 'profile'] });
+test('every name in a tree, parents before their children, and none in what is not one', () => {
+  assert.deepEqual(stateNames([{ name: 'a', states: [{ name: 'b', states: [{ name: 'c' }] }] }, { name: 'd' }]), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(stateNames(undefined), []);
+  assert.deepEqual(stateNames('states'), []);
+  assert.deepEqual(stateNames([null, { click: '#x' }]), []);
 });
 
 // ── writing them ──
 
 const NASTY = [
-  { name: 'dont', click: '::-p-aria([name="Don\'t"][role="button"])', wait_for: '#a\\:b', close: "[data-x='1']" },
-  { name: 'child', from: 'dont', form_factor: 'mobile', click: '#x # not a comment: really', wait_for: "a[href^='http']" },
-  { name: 'true', click: '- [ ] {x}' },
+  {
+    name: 'dont', click: '::-p-aria([name="Don\'t"][role="button"])', wait_for: '#a\\:b', close: "[data-x='1']",
+    states: [{ name: 'child', click: '#x # not a comment: really', wait_for: "a[href^='http']", states: [{ name: 'deep', click: "\n\t'" }] }],
+  },
+  { name: 'true', form_factor: 'mobile', click: '- [ ] {x}' },
   { name: '2fa', click: '&anchor *alias !tag %dir @at `tick`' },
+  { name: '123', click: '"double"' },
 ];
 
-test('the rendered block reads back as the states it was made from', () => {
-  for (const states of [NASTY, DECLARED, statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [MENU] })]) {
-    assert.deepEqual(yaml.load(renderStates(states)).states, states);
+test('the file reads back as the states it was made from', () => {
+  for (const states of [NASTY, statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [MENU] })]) {
+    assert.deepEqual(yaml.load(renderStatesFile(states)), { states });
   }
-  assert.deepEqual(yaml.load(renderStates([])), { states: [] });
 });
 
-test('the rendered block writes names plain and selectors single-quoted, a state per paragraph', () => {
-  assert.equal(renderStates([
-    { click: '#menu', name: 'menu', wait_for: "[aria-expanded='true']" },
-    { name: 'signup', from: 'menu', form_factor: 'mobile', click: '#signup' },
-  ]), [
-    'states:',
+test('the file says it is generated, writes names plain and selectors single-quoted, a top-level state per paragraph', () => {
+  const text = renderStatesFile([
+    { name: 'menu', form_factor: 'mobile', click: '#menu', wait_for: "[aria-expanded='true']", states: [
+      { name: 'signup', click: '#signup', states: [{ name: 'terms', click: '#terms' }] },
+      { name: 'login', click: '#login' },
+    ] },
+    { name: 'search', click: '#search', close: '#search-close' },
+  ]);
+  const [header, body] = text.split('\n\nstates:\n');
+  assert.match(header, /^# Generated by `kanso discover`/);
+  assert.match(header, /kanso discover --write` overwrites this file whole/);
+  assert.match(header, /\.kanso\.yml/);
+  assert.ok(header.split('\n').every((line) => line.startsWith('#')));
+  assert.equal(body, [
     '  - name: menu',
+    '    form_factor: mobile',
     "    click: '#menu'",
     "    wait_for: '[aria-expanded=''true'']'",
+    '    states:',
+    '      - name: signup',
+    "        click: '#signup'",
+    '        states:',
+    '          - name: terms',
+    "            click: '#terms'",
+    '      - name: login',
+    "        click: '#login'",
     '',
-    '  - name: signup',
-    '    from: menu',
-    '    form_factor: mobile',
-    "    click: '#signup'",
-    '',
-  ].join('\n'));
-});
-
-const FILE = [
-  '# Kanso, for this project',
-  'runs: 3',
-  '',
-  'states:',
-  '  - name: old',
-  '    click: "#old"',
-  '    # an indented comment inside the block',
-  '',
-  '# Budgets: the numbers the team agreed on.',
-  'budgets:',
-  '  lcp: 2500 # ms',
-  '',
-].join('\n');
-
-test('writing the states replaces the block, and every other byte of the file stays', () => {
-  const written = writeStates(FILE, DECLARED);
-  assert.equal(written, [
-    '# Kanso, for this project',
-    'runs: 3',
-    '',
-    renderStates(DECLARED) + '',
-    '# Budgets: the numbers the team agreed on.',
-    'budgets:',
-    '  lcp: 2500 # ms',
+    '  - name: search',
+    "    click: '#search'",
+    "    close: '#search-close'",
     '',
   ].join('\n'));
-  const before = yaml.load(FILE);
-  const after = yaml.load(written);
-  assert.deepEqual(after.states, DECLARED);
-  assert.deepEqual({ ...after, states: null }, { ...before, states: null });
 });
 
-test('a block written flush under its key, or last in the file, is replaced whole', () => {
-  const flush = 'states:\n- name: old\n  click: "#old"\nruns: 2\n';
-  assert.equal(writeStates(flush, DECLARED), `${renderStates(DECLARED)}runs: 2\n`);
-
-  const last = 'runs: 2\nstates:\n  - name: old\n    click: "#old"\n';
-  assert.equal(writeStates(last, DECLARED), `runs: 2\n${renderStates(DECLARED)}`);
-
-  const noNewline = 'runs: 2\nstates:\n  - name: old\n    click: "#old"';
-  assert.equal(writeStates(noNewline, DECLARED), `runs: 2\n${renderStates(DECLARED)}`);
-
-  const tail = 'states:\n  - name: old\n    click: "#old"\n\n# the end\n';
-  assert.equal(writeStates(tail, DECLARED), `${renderStates(DECLARED)}\n# the end\n`);
+test('a name YAML would read as something else is quoted, and every other is plain', () => {
+  const text = renderStatesFile(NASTY);
+  assert.match(text, /- name: dont\n/);
+  assert.match(text, /- name: 'true'\n/);
+  assert.match(text, /- name: 2fa\n/);
+  assert.match(text, /- name: '123'\n/);
+  assert.match(text, /form_factor: mobile\n/);
 });
 
-test('states written inline are replaced, line and all', () => {
-  assert.equal(writeStates('runs: 2\nstates: []\nbudgets:\n  cls: 0.1\n', DECLARED), `runs: 2\n${renderStates(DECLARED)}budgets:\n  cls: 0.1\n`);
-  const inline = 'states: [{ name: old, click: "#old" }]  # to redo\nruns: 2\n';
-  assert.equal(writeStates(inline, DECLARED), `${renderStates(DECLARED)}runs: 2\n`);
-  const spread = 'states: [\n  { name: old, click: "#old" }\n  ]\nruns: 2\n';
-  assert.equal(writeStates(spread, DECLARED), `${renderStates(DECLARED)}runs: 2\n`);
+test('nothing found is a file that says so, and loads as no state', () => {
+  for (const states of [[], undefined]) {
+    const text = renderStatesFile(states);
+    assert.match(text, /^# Generated by `kanso discover`/);
+    assert.match(text, /No state was found/);
+    assert.deepEqual(yaml.load(text), { states: [] });
+  }
 });
 
-test('a file with no states gets them at its end, after a blank line', () => {
-  assert.equal(writeStates('runs: 2\n', DECLARED), `runs: 2\n\n${renderStates(DECLARED)}`);
-  assert.equal(writeStates('runs: 2', DECLARED), `runs: 2\n\n${renderStates(DECLARED)}`);
-  assert.equal(writeStates('runs: 2\n\n', DECLARED), `runs: 2\n\n${renderStates(DECLARED)}`);
-  // A key that only starts with the word is not the block.
-  assert.equal(writeStates('states_seen: 1\n', DECLARED), `states_seen: 1\n\n${renderStates(DECLARED)}`);
-  assert.deepEqual(yaml.load(writeStates('# comments only\nruns: 2 # three was slow\n', NASTY)), { runs: 2, states: NASTY });
+test('the same exploration gives the same file, byte for byte', () => {
+  const explored = { mobile: [MENU, SIGNUP, SETTINGS], desktop: [SETTINGS, MENU] };
+  assert.equal(renderStatesFile(statesFrom(explored)), renderStatesFile(statesFrom(structuredClone(explored))));
 });
 
-test('a file that does not exist yet is the block alone', () => {
-  assert.equal(writeStates(null, DECLARED), renderStates(DECLARED));
-  assert.equal(writeStates('', DECLARED), renderStates(DECLARED));
-  assert.equal(writeStates(undefined, []), 'states: []\n');
-});
-
-test('writing states twice gives the same file as writing them once', () => {
-  const once = writeStates(FILE, NASTY);
-  assert.equal(writeStates(once, NASTY), once);
-});
-
-// The whole way, as `kanso discover` takes it: found, merged with the file's
-// own, written back — and read by the configuration as it would be.
-test('what was found, merged into a project\'s file, loads as its configuration', () => {
-  const existing = yaml.load(FILE).states;
-  const found = statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [SETTINGS] }, { taken: existing.map((s) => s.name) });
-  const { states } = mergeStates(existing, found);
-  const written = writeStates(FILE, states);
-  const loaded = yaml.load(written);
-  assert.equal(loaded.runs, 3);
-  assert.deepEqual(loaded.budgets, { lcp: 2500 });
-  assert.deepEqual(parseStates(loaded.states).map((s) => [s.name, s.from ?? null, s.formFactor ?? null]), [
-    ['old', null, null], ['menu', null, 'mobile'], ['sign-up', 'menu', 'mobile'], ['settings', null, null],
+// The whole way, as `kanso discover --write` takes it, then the configuration.
+test('what was found, written as a file, loads as the states it found', () => {
+  const found = statesFrom({ mobile: [MENU, SIGNUP, SETTINGS], desktop: [SETTINGS] }, { taken: ['old'] });
+  assert.deepEqual(flat(yaml.load(renderStatesFile(found)).states), [
+    ['menu', null, 'mobile'], ['sign-up', 'menu', 'mobile'], ['settings', null, null],
   ]);
-  assert.ok(written.includes('# Budgets: the numbers the team agreed on.\nbudgets:'));
 });
