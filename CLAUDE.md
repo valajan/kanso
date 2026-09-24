@@ -139,7 +139,13 @@ run where the code is.
   navigation, window and dialog), each from a first visit in a context of its
   own, then every element what opened brought, breadth first, two clicks deep,
   under a click budget and a deadline. `snapshot.js` reads what a visitor can
-  click, in one call inside the page; `fingerprint.js` tells a new state from
+  click, in one call inside the page — while a modal dialog is open
+  (`dom.modal`, the reading `transition.js` makes: `dialog:modal`,
+  `aria-modal`, or the page behind it hidden or inert), only what is inside
+  it, so that two buttons opening one dialog are one state, the second click
+  a `repeat` (`repeats`, and the kept state's `alsoOpenedBy`, a comment in
+  the file); a modal open as the page loads narrows nothing (`markLoaded`).
+  `fingerprint.js` tells a new state from
   one already seen by code — controls by role, name and ARIA state, dialogs,
   new text — less what two first visits and a scroll disagree on
   (`page.js`, `prepare`); `selectors.js` picks, for each element, the
@@ -149,12 +155,20 @@ run where the code is.
   replays states with no guard, and would do it for real. The page's own
   beacons are not held against a click: a write to where `prepare`'s two
   first visits saw the page write with nothing clicked is noise
-  (`stoppedBy`). A route changed by `pushState` has left the page (`left`). `index.js` explores both screens side by side, then reaches each
+  (`stoppedBy`). A route changed by `pushState` has left the page (`left`).
+  A click on an element a state brought that gives back the page the state
+  was opened on — the same controls by role and name, whatever their ARIA
+  state, none of the state's text — is how it closes (`close`, the node's
+  `close`), not a state under it: a dialog's ×. Each click keeps what it
+  changed (`appeared`, `disappeared`, `newText`, twenty each), and the result
+  lists them all (`runs.<screen>.clicked`, in `--json`). `index.js` explores both screens side by side, then reaches each
   state again from a first visit, as an audit will (`reach`), and leaves out
   what did not come back — or came back with the guards stopping something —
-  with what is reached through it. `states.js` makes
+  with what is reached through it; a `close` that does not click again, or
+  that the guards stop, is dropped and the state kept. `states.js` makes
   the `states:` of it — one state for a path found on both screens, the others
-  `form_factor:`, nested for the tree, names from what was clicked — and the
+  `form_factor:`, nested for the tree, `wait_for` and `close:` only when every
+  screen that reached it agrees, names from what was clicked — and the
   whole of `.kanso/states.yml`, the file `--write` rewrites each time; the
   project's `.kanso.yml` is never touched. No model: the POC
   (`poc/jev-discovery`) showed a model adds little to finding states
@@ -338,7 +352,8 @@ own thresholds and `runs`.
 `states:`, at the root like `runs:`, lists the states of the page beyond the
 one it loads in — `name`, `click`, optional `form_factor` (`mobile` or
 `desktop`: a state one screen only has), optional `wait_for`, optional `close`
-(what closes it when Escape is not meant to), and optional `states:`, the
+(what closes it when Escape does not — Escape is always tried first, so a
+`close:` never spares a dialog its `escape-not-closing`), and optional `states:`, the
 states reached from it, which inherit its form factor — which a check can go
 through; a malformed one fails the config as it loads (`local-config.js`).
 They come from two files: `.kanso/states.yml`, which `kanso discover --write`

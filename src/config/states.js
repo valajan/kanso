@@ -35,8 +35,10 @@ import { isPlainObject } from './merge.js';
 // screen too.
 //
 // A state is its name, the element clicked to reach it, and, optionally, what
-// says it has been reached, and what closes it when Escape is not meant to —
-// for a check that goes in and out of it (src/probes/transition.js). All three
+// says it has been reached, and what closes it when Escape does not — for a
+// check that goes in and out of it (src/probes/transition.js), which always
+// tries Escape first: a `close:` is what is clicked next, never what spares a
+// dialog Escape leaves open its finding. All three
 // are CSS selectors. A state missing its name or its click is a mistake in the
 // file, and fails the configuration rather than being skipped: a state quietly
 // left out is a part of the page quietly left unchecked.

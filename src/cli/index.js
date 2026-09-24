@@ -37,7 +37,8 @@ sending or leaving it. It prints them, or, with --write, writes them to
 .kanso/states.yml beside .kanso.yml — rewritten whole each time, and read with
 it. .kanso.yml is never touched: a state written by hand there is kept, and
 wins over a found one. Each state found is reached a second time before it is
-kept.
+kept. A button that closes a state is written as its close:, not as a state;
+--json lists every click, with what it changed.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the

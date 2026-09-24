@@ -230,8 +230,17 @@ kanso discover dist --write    # write them to .kanso/states.yml
 
 An audit reads both files. Keep in `.kanso.yml` only the states no
 click-through can find — one behind a form to fill in, say — or one you want to
-tell how to close: where both reach the same state, yours wins, and what was
-found under it is reached from yours.
+tell how to close another way: where both reach the same state, yours wins, and
+what was found under it is reached from yours.
+
+A button that brings back the page a state was opened on — a dialog's ×, a
+drawer's Close — is not a state: it is written as that state's `close:`, which
+the checks click when Escape does not close it (Escape is always tried first,
+and still fails a dialog it leaves open). A close button one screen alone shows
+is left out, since it would fail on the other. While a modal dialog is open,
+only the dialog counts: two buttons that open the same one are one state, the
+other named beside it in a comment. `--json` lists every click with what it
+changed and what it came to, for a state you did not expect.
 
 It only looks: nothing is typed, no form is sent, no other page is opened, a
 button named like `Delete` or `Buy` is left alone, and any request that would
