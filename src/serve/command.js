@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { signalGroup, stopOnExit } from '../process/children.js';
 
 // How long a server gets to answer before Kanso gives up on it. A preview
 // server is up in a second or two; a worker runtime such as Wrangler takes
@@ -39,11 +40,14 @@ export async function startCommand({ command, url, cwd, readyTimeoutMs = READY_T
     child.once('exit', (code, signal) => done({ code, signal }));
     child.once('error', (err) => done({ error: err }));
   });
-  track(child);
+  // A server lives in its own process group, so a Ctrl-C in the terminal
+  // reaches Kanso and not the server: whatever ends Kanso ends it first, or
+  // the next audit finds the port taken.
+  const release = stopOnExit(child.pid);
 
   const stop = async () => {
     await terminate(child, exited);
-    untrack(child);
+    release();
   };
 
   try {
@@ -98,51 +102,7 @@ async function terminate(child, exited) {
 }
 
 function signal(child, name) {
-  if (child.pid === undefined) return;
-  try {
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-    } else {
-      process.kill(-child.pid, name);
-    }
-  } catch {
-    // The group is already gone.
-  }
-}
-
-// --- the servers Kanso is running ---------------------------------------------
-
-// A server lives in its own process group, so a Ctrl-C in the terminal reaches
-// Kanso and not the server. Whatever ends Kanso therefore ends the servers it
-// started first, or the next audit finds the port taken.
-const running = new Set();
-const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-
-function track(child) {
-  if (running.size === 0) {
-    process.on('exit', stopAll);
-    for (const name of SIGNALS) process.on(name, onSignal);
-  }
-  running.add(child);
-}
-
-function untrack(child) {
-  running.delete(child);
-  if (running.size === 0) {
-    process.off('exit', stopAll);
-    for (const name of SIGNALS) process.off(name, onSignal);
-  }
-}
-
-function stopAll() {
-  for (const child of running) signal(child, 'SIGKILL');
-}
-
-// Stops the servers, then lets the signal do what it would have done.
-function onSignal(name) {
-  stopAll();
-  for (const child of [...running]) untrack(child);
-  process.kill(process.pid, name);
+  signalGroup(child.pid, name);
 }
 
 // Signals a project that could not be served as configured. Each surface

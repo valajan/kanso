@@ -151,6 +151,14 @@ run where the code is.
   whole of `.kanso/states.yml`, the file `--write` rewrites each time; the
   project's `.kanso.yml` is never touched. No model: the POC
   (`poc/jev-discovery`) showed a model adds little to finding states
+- `process/` — `children.js`: the processes Kanso starts and must not leave
+  behind — the servers `serve/command.js` starts, the Chromes an audit's
+  workers and `discover` launch — each the leader of a process group, killed
+  with it when Kanso exits or is interrupted (SIGINT, SIGTERM, SIGHUP), since
+  a `finally` does not run on a signal. A worker thread receives no signal: it
+  tells the main thread its Chrome's pid as soon as it is spawned
+  (`whenStarted`). A headless Chrome left running is what macOS wakes in place
+  of the one a person opens
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
