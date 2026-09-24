@@ -27,7 +27,7 @@ export const keyboard = {
   id: 'keyboard',
   rules: ['focus-trap', 'focus-visible', 'focus-obscured'],
 
-  async run(page) {
+  async run(page, { log }) {
     // Focus the page placed itself — an autofocus, a dialog opening — is
     // where a keyboard user starts, and the first stop.
     const focused = await inPage(page, startWalk);
@@ -36,7 +36,20 @@ export const keyboard = {
       await page.keyboard.press('Tab');
       if (await inPage(page, recordStop)) break;
     }
-    return keyboardFindings(await inPage(page, endWalk));
+    const walk = await inPage(page, endWalk);
+    // Every stop, in the order Tab reached it: the walk as a keyboard user
+    // made it, whether or not anything was found on the way.
+    walk.stops.forEach((stop, index) => log.log('tab-stop', {
+      index,
+      path: stop.element.path,
+      selector: stop.element.selector,
+      label: stop.element.label,
+      indicator: stop.indicator,
+      ...(stop.hidden ? { hidden: stop.hidden } : {}),
+      ...(stop.coveredBy ? { coveredBy: stop.coveredBy } : {}),
+    }));
+    log.log('tab-end', { end: walk.end, stops: walk.stops.length });
+    return keyboardFindings(walk);
   },
 };
 

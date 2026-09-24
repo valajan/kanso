@@ -3,6 +3,8 @@ import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
 import { getModule } from '../modules/index.js';
 import { runProbes } from '../probes/index.js';
+import { Journal, journalPath, SCHEMA } from '../probes/journal.js';
+import { version } from '../version.js';
 
 // Lighthouse desktop preset — matches `lighthouse --preset=desktop` defaults.
 const DESKTOP_CONFIG = {
@@ -28,9 +30,13 @@ const DESKTOP_CONFIG = {
 // of their categories, then each module extracts its own sample. The modules'
 // probes run afterwards on the same Chrome — `probes: 'all'`, or 'measures'
 // for the ones that measure alone; with `screenshot`, the page as its load
-// ended comes back beside the samples.
-async function audit({ url, formFactor, moduleIds, config, probes = 'all', screenshot }) {
+// ended comes back beside the samples. With `record` — { dir, side, run } —
+// the load keeps a journal of what its probes did (src/probes/journal.js),
+// written to that directory however the load ends.
+async function audit({ url, formFactor, moduleIds, config, probes = 'all', screenshot, record }) {
   const modules = moduleIds.map(getModule);
+  const journal = record ? new Journal() : undefined;
+  journal?.log('load', { schema: SCHEMA, kanso: version(), url, side: record.side, formFactor, run: record.run, startedAt: new Date().toISOString(), probes });
 
   // The Launcher is built by hand rather than through chromeLauncher.launch(),
   // whose launch starts Chrome, waits for its debugging port, and — when the
@@ -44,6 +50,7 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', scree
 
   try {
     await chrome.launch();
+    journal?.log('lighthouse-start', { categories: [...new Set(modules.flatMap((m) => m.categories))] });
     const formFactorConfig = formFactor === 'desktop' ? DESKTOP_CONFIG : {};
     const result = await lighthouse(url, {
       port: chrome.port,
@@ -61,10 +68,11 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', scree
     if (runtimeError && runtimeError.code !== 'NO_ERROR') {
       throw new Error(`${runtimeError.code}: ${runtimeError.message}`);
     }
+    journal?.log('lighthouse-end', { finalUrl: result.lhr.finalDisplayedUrl, chrome: result.lhr.environment?.hostUserAgent });
 
     const probed = await runProbes({
       port: chrome.port, url, formFactor, settings: result.lhr.configSettings, modules, config,
-      measuresOnly: probes === 'measures',
+      measuresOnly: probes === 'measures', journal,
     });
 
     // The artifacts stay in this thread: a module keeps what it needs of them
@@ -76,9 +84,20 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', scree
     // The last frame of Lighthouse's trace: a JPEG data URI, the viewport as
     // the load ended.
     const shot = screenshot ? result.lhr.audits['final-screenshot']?.details?.data ?? null : null;
+    journal?.log('load-end', { ok: true });
     return { samples, screenshot: shot };
+  } catch (err) {
+    journal?.log('load-end', { ok: false, error: err?.message ?? String(err) });
+    throw err;
   } finally {
     chrome.kill();
+    if (journal) {
+      try {
+        journal.write(journalPath(record.dir, { side: record.side, formFactor, run: record.run }));
+      } catch {
+        // A journal that cannot be written costs the journal, not the audit.
+      }
+    }
   }
 }
 

@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, extname, resolve } from 'node:path';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { audit } from '../core/audit.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
@@ -26,9 +26,12 @@ const OUT_FORMATS = {
 // directory of built files Kanso serves itself. With no target, the project's
 // .kanso.yml says how to serve it — see src/serve/index.js.
 //
+// `record` is a directory where each load's journal goes
+// (src/probes/journal.js), and the result beside them as audit.json.
+//
 // `runLighthouse` and `now` are injected for the tests; everything else the
 // command needs, it resolves itself.
-export async function runAuditCommand({ target = null, baseline = null, runs = null, configPath = null, failOn = 'fail', json = false, out = [], cwd, io, runLighthouse, now = Date.now }) {
+export async function runAuditCommand({ target = null, baseline = null, runs = null, configPath = null, failOn = 'fail', json = false, out = [], record = null, cwd, io, runLighthouse, now = Date.now }) {
   // No URL guard here, unlike the server: see src/core/target.js.
   const named = target == null ? null : usage(() => siteFromArgument(target, 'target', cwd));
   const reference = baseline == null ? null : usage(() => siteFromArgument(baseline, 'baseline', cwd));
@@ -48,6 +51,11 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
   if (!json && source) io.stderr.write(`using ${source}\n`);
   if (!json && page.command) io.stderr.write(`starting ${page.command}\n`);
 
+  // Cleared only once the audit is sure to run: a command line with a mistake
+  // in it leaves an earlier record as it was.
+  const recordDir = record == null ? null : resolve(cwd, record);
+  if (recordDir) clearRecord(recordDir);
+
   const started = now();
   const stopTicking = tick(io, json, started, now);
   let report;
@@ -56,7 +64,7 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
       // A baseline typed on the command line is always audited: the comparison
       // is what the developer asked for, even when the budgets alone settle the
       // verdict.
-      const result = await audit({ url, baseline: against, config, runLighthouse, alwaysCompare: true });
+      const result = await audit({ url, baseline: against, config, runLighthouse, alwaysCompare: true, record: recordDir });
       return { url, baseline: against, served, result, config };
     });
   } finally {
@@ -79,10 +87,29 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, format(report));
   }
+  if (recordDir) {
+    writeFileSync(join(recordDir, RECORD_RESULT), JSON.stringify(jsonResult(report), null, 2) + '\n');
+    if (!json) io.stderr.write(`journal kept in ${recordDir}\n`);
+  }
 
   const { result } = report;
   if (!result.ok) return EXIT.error;
   return SEVERITY[result.conclusion] >= SEVERITY[failOn] ? EXIT.failed : EXIT.ok;
+}
+
+// What a record holds: one journal per load, named by src/probes/journal.js,
+// and the result.
+const RECORD_RESULT = 'audit.json';
+const RECORD_JOURNAL = /^(current|baseline)\.(mobile|desktop)\.\d+\.jsonl$/;
+
+// A record directory kept from an earlier audit loses what that audit wrote —
+// a third run's journal would otherwise sit beside a one-run audit's — and
+// nothing else in it.
+function clearRecord(dir) {
+  mkdirSync(dir, { recursive: true });
+  for (const name of readdirSync(dir)) {
+    if (name === RECORD_RESULT || RECORD_JOURNAL.test(name)) rmSync(join(dir, name));
+  }
 }
 
 // The result as `--json` prints it: what was loaded, how it was served when

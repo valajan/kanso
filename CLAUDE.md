@@ -95,7 +95,12 @@ run where the code is.
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
   first successful load of a page only — except a probe that measures, which
-  runs on every load
+  runs on every load. `journal.js` keeps, when asked (`--record <dir>`), what
+  each probe went through — loaded, each state reached or not, each finding
+  with its rule, state and element paths, and what a probe logs of its own
+  through the `log` it is handed (the keyboard walk's every stop) — one JSON
+  Lines file per load, `<side>.<formFactor>.<run>.jsonl`, written from the
+  worker however the load ends; off, it is a no-op
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -171,7 +176,8 @@ run where the code is.
   is the verdict — 0 audited and clean,
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
-  result and nothing else
+  result and nothing else. `--record <dir>` keeps the probes' journals there,
+  and the result beside them as `audit.json`
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv

@@ -11,6 +11,7 @@ import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
 import performance from '../../src/modules/performance/index.js';
 import { runProbes } from '../../src/probes/index.js';
+import { Journal } from '../../src/probes/journal.js';
 import { serveDirectory } from '../../src/serve/static.js';
 
 // Kanso's probes, against a real Chrome, on pages whose answers are known.
@@ -47,8 +48,8 @@ after(async () => {
   await site?.close();
 });
 
-function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs });
+function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs, journal } = {}) {
+  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs, journal });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -211,6 +212,25 @@ test('a state whose click opens nothing says what never appeared', async () => {
   assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [{ at: 'stuck', error: 'clicked #open, and #never never appeared' }]);
 });
 
+// The journal: what a probe went through, in order — for whoever wants to see
+// it done, not only its verdict.
+test('the journal follows a probe through its states, and keeps what it found where', async () => {
+  const journal = new Journal();
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU, ghost] }, timeoutMs: 6_000, journal });
+
+  assert.deepEqual(journal.events.filter((e) => e.kind !== 'finding').map((e) => [e.kind, e.probe, e.at ?? null]), [
+    ['probe-start', 'axe', null],
+    ['loaded', 'axe', null],
+    ['state-reached', 'axe', 'menu'],
+    ['state-unreached', 'axe', 'ghost'],
+    ['probe-end', 'axe', null],
+  ]);
+  const found = journal.events.filter((e) => e.kind === 'finding' && !e.needsReview).map((e) => [e.rule, e.at ?? null, e.nodes.length]);
+  assert.deepEqual(found, [['image-alt', null, 1], ['button-name', 'menu', 1]]);
+  assert.deepEqual(journal.events.at(-1).unreached, ['ghost']);
+});
+
 test('a page that never loads reached none of its states either', async () => {
   const { accessibility: result } = await runProbes({
     port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', settings: MOBILE,
@@ -282,7 +302,14 @@ test('a page whose every stop shows its focus reports nothing, however it shows 
 });
 
 test('focus nobody can see is named, with why', async () => {
-  const { accessibility: result } = await probe('keyboard-unseen.html', { modules: only(keyboard) });
+  const journal = new Journal();
+  const { accessibility: result } = await probe('keyboard-unseen.html', { modules: only(keyboard), journal });
+
+  // Every stop of the walk is in the journal, the unseen ones as such.
+  const stops = journal.events.filter((e) => e.kind === 'tab-stop');
+  assert.equal(stops.filter((stop) => !stop.indicator || stop.hidden).length, 4);
+  assert.deepEqual(stops.map((stop) => stop.index), stops.map((_, i) => i));
+  assert.equal(journal.events.find((e) => e.kind === 'tab-end').stops, stops.length);
 
   assert.deepEqual(summary(result), [{
     rule: 'focus-visible',

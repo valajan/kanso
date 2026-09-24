@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer-core';
 
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates } from '../config/states.js';
+import { findingEvent, NO_JOURNAL } from './journal.js';
 import { applyState } from './states.js';
 
 // Probes: what Kanso checks on a page itself, for what Lighthouse does not look
@@ -63,11 +64,15 @@ const SETTLE_MS = 5_000;
 // A probe that says `onlyInStates: true` has nothing to read in a page nobody
 // clicked, and is not run at all when no state is declared.
 //
+// With a `journal` (src/probes/journal.js), each probe's way through the page
+// is logged — its load, each state, how it ended, each finding — and the probe
+// is handed a `log` of its own for the rest.
+//
 // With `measuresOnly`, only the probes that measure run: the others check
 // what does not vary from one load to the next and ran on the first
 // (src/lighthouse/runner.js), while a measure is taken on every load, to be
 // folded into a median like Lighthouse's.
-export async function runProbes({ port, url, formFactor, settings, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS }) {
+export async function runProbes({ port, url, formFactor, settings, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
   const declared = parseStates(config.states);
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
@@ -107,15 +112,21 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
     // One at a time: a probe presses keys and reads focus, which only the page
     // in front has.
     for (const { mod, probe, config } of wanted) {
+      const log = journal.with({ probe: probe.id });
+      const started = Date.now();
+      log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
-        const { findings, unreached } = await runProbe(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs });
+        const { findings, unreached } = await runProbe(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
         results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
+        if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
+        log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unreached ? { unreached: unreached.states.map(({ name }) => name) } : {}) });
         if (unreached) {
           const [first, ...rest] = unreached.states;
           fail(mod, probe, config, message(unreached.error), first.name);
           for (const { name } of rest) fail(mod, probe, config, `not reached: ${first.name} could not be`, name);
         }
       } catch (err) {
+        log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
         failEverywhere(mod, probe, config, err);
       }
     }
@@ -134,7 +145,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
 // findings, and to `unreached` — { states, error } — when a state could not be
 // reached: that state and the ones after it. Rejects when the page could not
 // be read as it loaded.
-async function runProbe(browser, probe, { url, formFactor, settings, config, states = [], timeoutMs }) {
+async function runProbe(browser, probe, { url, formFactor, settings, config, states = [], timeoutMs, log = NO_JOURNAL }) {
   const context = await browser.createBrowserContext();
   const step = (work) => withTimeout(work, timeoutMs);
   try {
@@ -152,19 +163,24 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
       await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
       await page.bringToFront();
-      return { page, found: await probe.run(page, { url, formFactor, config }) };
+      log.log('loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
+      return { page, found: await probe.run(page, { url, formFactor, config, log }) };
     });
     const findings = [...found];
     const seen = probe.measures ? null : new Seen(found);
 
     for (const [i, state] of states.entries()) {
       try {
+        const at = log.with({ at: state.name });
         const found = await step(async () => {
+          const started = Date.now();
           await applyState(page, state, { waitMs: timeoutMs / 3 });
-          return probe.run(page, { url, formFactor, config, at: state.name });
+          at.log('state-reached', { click: state.click, ...(state.waitFor ? { waitFor: state.waitFor } : {}), ms: Date.now() - started });
+          return probe.run(page, { url, formFactor, config, at: state.name, log: at });
         });
         findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
+        log.log('state-unreached', { at: state.name, click: state.click, error: message(error) });
         return { findings, unreached: { states: states.slice(i), error } };
       }
     }

@@ -562,6 +562,39 @@ test('a mistake in the command line exits 2 and points at the help', async () =>
   }
 });
 
+// A record is where each load's journal goes: the runner is told where, and
+// which page it is loading, and the result lands beside the journals. What an
+// earlier audit left there goes; nothing else does.
+test('--record hands each load the directory and writes the result beside the journals', async () => {
+  const cwd = emptyProject();
+  const dir = join(cwd, 'rec');
+  mkdirSync(dir);
+  writeFileSync(join(dir, 'current.mobile.3.jsonl'), '{}\n');
+  writeFileSync(join(dir, 'notes.txt'), 'mine');
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
+
+  const { code, err } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com', '--record', 'rec'], { runLighthouse, cwd });
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    runLighthouse.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
+    [
+      `http://localhost:3000/ current ${dir}`, `http://localhost:3000/ current ${dir}`,
+      `https://example.com/ baseline ${dir}`, `https://example.com/ baseline ${dir}`,
+    ],
+  );
+  assert.equal(JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8')).url, 'http://localhost:3000/');
+  assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
+  assert.throws(() => readFileSync(join(dir, 'current.mobile.3.jsonl')));
+  assert.match(err, /journal kept in/);
+});
+
+test('without --record, no load is asked to keep a journal', async () => {
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD });
+  await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  assert.ok(runLighthouse.calls.every((c) => c.record === undefined));
+});
+
 // The MCP server is the third surface onto the same audit, and the command
 // line is how a host starts it. Its own tests are in src/mcp/__tests__.
 test('kanso mcp serves the audit on stdin and stdout', async () => {
