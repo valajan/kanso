@@ -294,7 +294,7 @@ function failuresOn(sides, side, ignore) {
 
 // An `ignore:` value from a config file: a list of rule ids, or a single one.
 // Anything else ignores nothing — and the resolved list is reported.
-function parseIgnore(value) {
+export function parseIgnore(value) {
   const rules = typeof value === 'string' ? [value] : Array.isArray(value) ? value : [];
   return rules.filter((rule) => typeof rule === 'string' && rule !== '');
 }

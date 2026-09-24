@@ -212,3 +212,33 @@ test('screenshots are asked of the page under audit only, and returned per form 
   const without = await audit({ url: 'http://localhost:3000/', runLighthouse, modules: [performance] });
   assert.equal('screenshots' in without, false, 'nobody asked');
 });
+
+// A probe that needs a state to open does not run when the project declares
+// none. The core says so from the configuration alone — the same reading the
+// worker makes to leave it out — module by module, less the rules `ignore:`
+// leaves out: a rule nobody checked must not read as one that passed.
+test('the probes left out for want of a state are listed on their module, with the rules they would have checked', async () => {
+  const inp = { id: 'inp', rules: ['inp'], onlyInStates: true };
+  const axe = { id: 'axe', rules: ['image-alt'], states: true };
+  const focus = { id: 'focus', rules: ['focus-lost', 'focus-not-returned'], transitions: true };
+  const clicks = { ...links, id: 'clicks', probes: [inp] };
+  const keys = { ...links, id: 'keys', probes: [axe, focus] };
+  const runLighthouse = fakeRunner({ 'http://localhost:3000/': {} });
+  const run = (config) => audit({ url: 'http://localhost:3000/', config, runLighthouse, modules: [clicks, keys, links] });
+
+  const bare = await run({});
+  assert.deepEqual(bare.modules.clicks.skipped, [{ probe: 'inp', rules: ['inp'], reason: 'no-states' }]);
+  assert.deepEqual(bare.modules.links.skipped, [], 'a module with no such probe skips nothing');
+  assert.deepEqual(bare.modules.keys.skipped, [{ probe: 'focus', rules: ['focus-lost', 'focus-not-returned'], reason: 'no-states' }], 'a probe that also reads the page as it loads runs');
+
+  const ignoring = await run({ keys: { ignore: ['focus-lost'] } });
+  assert.deepEqual(ignoring.modules.keys.skipped.map(({ rules }) => rules), [['focus-not-returned']]);
+  const ignoringAll = await run({ keys: { ignore: ['focus-lost', 'focus-not-returned'] } });
+  assert.deepEqual(ignoringAll.modules.keys.skipped, []);
+
+  // A state one screen has is a state declared: the other screen has none to
+  // open, and nothing is missing there.
+  const declared = await run({ states: [{ name: 'menu', click: '#open', form_factor: 'desktop' }] });
+  assert.deepEqual(declared.modules.keys.skipped, []);
+  assert.deepEqual(declared.modules.clicks.skipped, []);
+});
