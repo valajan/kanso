@@ -150,14 +150,20 @@ run where the code is.
   written into it where no config reaches, and throws away every result axe
   could not settle — which `axe.js` reports instead, marked `needsReview` and
   capped at `moderate`, so a contrast nobody can compute no longer reads as one
-  that passed. The other three probes check what one reading of one DOM cannot:
+  that passed. The other four probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off;
   `keyboard.js` presses Tab from the top until focus leaves the page —
   `focus-trap`, `focus-visible`, `focus-obscured`; `motion.js` loads and
   scrolls through it under `prefers-reduced-motion: reduce` —
-  `reduced-motion`. `rules.js` ranks those six rules on axe's scale; axe ranks
-  its own. `seo/` and
+  `reduced-motion`; `focus.js`, a transition probe, opens each declared state
+  from the keyboard and closes it with Escape — `keyboard-inoperable`,
+  `focus-lost`, `focus-not-moved`, `focus-escapes-modal`,
+  `escape-not-closing`, `focus-not-returned`, `revealed-unreachable` — reading
+  what opened from the page: a modal dialog (`dialog:modal`, `aria-modal`, or
+  the page behind it `aria-hidden` or inert, as component libraries make one),
+  a menu or listbox, what the trigger's `aria-controls` names. `rules.js` ranks
+  those thirteen rules on axe's scale; axe ranks its own. `seo/` and
   `best-practices/` are the other two Lighthouse categories, reported the same
   way. What the three share
   lives next to the registry: `findings.js` reads a category's failed rules out

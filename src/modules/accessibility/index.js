@@ -1,5 +1,6 @@
 import { evaluateFindings, firstSample, withProbed } from '../findings.js';
 import { axeProbe } from './axe.js';
+import { focus } from './focus.js';
 import { keyboard } from './keyboard.js';
 import { motion } from './motion.js';
 import { reflow } from './reflow.js';
@@ -24,14 +25,15 @@ import { reflow } from './reflow.js';
 // of its own, after Lighthouse — and report as findings of this module, on the
 // same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide,
 // keyboard.js goes through it with the Tab key, motion.js watches it under
-// `prefers-reduced-motion: reduce`.
+// `prefers-reduced-motion: reduce`, and focus.js goes into and out of each
+// declared state from the keyboard.
 export default {
   id: 'accessibility',
   label: 'Accessibility',
   // Nothing of this module is read from a Lighthouse report any more. The
   // other three still ask for theirs, and one load serves them all.
   categories: [],
-  probes: [axeProbe, reflow, keyboard, motion],
+  probes: [axeProbe, reflow, keyboard, motion, focus],
 
   extract(lhr, { probed } = {}) {
     return withProbed({ findings: [] }, probed);

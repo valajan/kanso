@@ -269,13 +269,15 @@ test('the project configuration is what list_modules reports', async () => {
   // Accessibility asks Lighthouse for nothing: it runs axe itself.
   assert.deepEqual(payload.modules[1].lighthouseCategories, []);
   assert.deepEqual(payload.modules[1].probes.map(({ id, rules }) => [id, rules.length]), [
-    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1],
+    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1], ['focus', 7],
   ]);
   assert.deepEqual(payload.modules[1].probes.slice(1).map(({ rules }) => rules), [
     ['reflow-scroll', 'reflow-clip'],
     ['focus-trap', 'focus-visible', 'focus-obscured'],
     ['reduced-motion'],
+    ['keyboard-inoperable', 'focus-lost', 'focus-not-moved', 'focus-escapes-modal', 'escape-not-closing', 'focus-not-returned', 'revealed-unreachable'],
   ]);
+  assert.deepEqual(payload.modules[1].probes.filter((probe) => probe.transitions).map(({ id }) => id), ['focus']);
   // Performance times INP itself, on the clicks the states make, and on
   // nothing else.
   assert.deepEqual(payload.modules[0].probes.map(({ id, rules, states }) => [id, rules, states]), [['inp', ['inp'], true]]);
@@ -290,10 +292,10 @@ test('the project configuration is what list_modules reports', async () => {
   assert.ok(!axe.rules.includes('region'));
 
   // The states the project declares, and which checks go through them: axe
-  // alone, for now.
+  // reads each, focus goes into and out of each.
   assert.deepEqual(payload.states, []);
-  assert.deepEqual(payload.modules[1].probes.map(({ id, states }) => [id, states]), [
-    ['axe', true], ['reflow', false], ['keyboard', false], ['motion', false],
+  assert.deepEqual(payload.modules[1].probes.map(({ id, states, transitions }) => [id, states, transitions]), [
+    ['axe', true, false], ['reflow', false, false], ['keyboard', false, false], ['motion', false, false], ['focus', false, true],
   ]);
   writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    wait_for: "#menu"\n');
   const [declared] = await session([call(1, 'list_modules', {})], { cwd });

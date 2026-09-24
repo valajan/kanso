@@ -63,6 +63,12 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'shown, each reached by a click from the one before — axe reads the page again in each, and a finding '
       + 'made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that could '
       + 'not be reached is a probeFailure carrying `at`, and so is every state after it. '
+      + 'Each state is also opened from the keyboard and closed with Escape, in a page of its own, and '
+      + 'what focus does on the way is checked: a trigger no key opens (keyboard-inoperable), focus left '
+      + 'nowhere (focus-lost), a modal dialog focus stays behind (focus-not-moved) or Tab gets out of '
+      + '(focus-escapes-modal), a dialog or menu Escape leaves open (escape-not-closing) or that does not give '
+      + 'focus back to its trigger (focus-not-returned), a disclosure whose content is not next in the Tab '
+      + 'order (revealed-unreachable). '
       + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
       + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
       + 'would, so their absence there says nothing about production. '
@@ -208,11 +214,13 @@ function listModules({ cwd }) {
           // What the module checks on the page itself, beyond Lighthouse, and
           // the rules each check can report — which, for a check the project
           // configures, is what this project's configuration makes of it.
-          // `states` says whether a check reads the page again in each of them.
+          // `states` says whether a check reads the page again in each of
+          // them, `transitions` whether it goes into and out of each.
           probes: (mod.probes ?? []).map((probe) => ({
             id: probe.id,
             rules: probeRules(probe, moduleConfig(config, mod.id)),
             states: probe.states === true,
+            transitions: probe.transitions === true,
           })),
           // Each module sees only the section carrying its id, so this is the
           // whole of what judges it — see src/config/module-config.js.

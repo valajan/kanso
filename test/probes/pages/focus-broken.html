@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus mishandled on the way in and out</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 1rem; color: #111; background: #fff; }
+  #lazy { position: fixed; inset: 20% 10%; background: #fff; border: 1px solid #111; padding: 1rem; }
+  #mouse { cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<a id="skip" href="#page">Skip to the content</a>
+<main id="page">
+  <!-- A modal dialog in name only: focus stays behind it, Tab walks the page
+       under it, Escape does nothing, and its close button takes focus away
+       with it. -->
+  <button id="lazy-open" type="button">Newsletter</button>
+  <a href="#a">A link behind the dialog</a>
+
+  <!-- Opens on a click alone. -->
+  <div id="mouse">Show the details</div>
+  <section id="mouse-panel" hidden><p>The details.</p></section>
+
+  <!-- A disclosure whose content is put at the end of the page. -->
+  <button id="portal-open" type="button" aria-expanded="false" aria-controls="portal">Filters</button>
+  <a href="#b">Another link</a>
+  <a href="#c">And another</a>
+
+  <!-- A dialog that sends focus to the top of the page as it closes. -->
+  <button id="nr-open" type="button">Help</button>
+  <dialog id="nr" aria-labelledby="nr-title">
+    <h2 id="nr-title">Help</h2>
+    <button id="nr-close" type="button">Close</button>
+  </dialog>
+
+  <!-- A drawer made modal as component libraries make one — the page behind
+       hidden from assistive technology — that leaves focus behind, in what
+       nobody can hear. -->
+  <button id="drawer-open" type="button">Basket</button>
+
+  <!-- A button that goes as it opens what it opens, taking focus with it. -->
+  <button id="vanish" type="button">Show the answer</button>
+  <p id="vanished-panel" hidden>The answer.</p>
+</main>
+
+<div id="lazy" role="dialog" aria-modal="true" aria-labelledby="lazy-title" hidden>
+  <h2 id="lazy-title">Newsletter</h2>
+  <button id="lazy-close" type="button">No thanks</button>
+</div>
+
+<div id="portal" hidden>
+  <a href="#cheap">Under 20 €</a>
+  <a href="#new">New this week</a>
+</div>
+
+<div id="drawer" role="dialog" aria-labelledby="drawer-title" hidden>
+  <h2 id="drawer-title">Basket</h2>
+  <button id="drawer-checkout" type="button">Go to checkout</button>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  $('drawer-open').addEventListener('click', () => {
+    $('drawer').hidden = false;
+    for (const id of ['skip', 'page']) $(id).setAttribute('aria-hidden', 'true');
+  });
+  // Focus kept in, once it is in — which nothing here puts it.
+  $('drawer').addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    $('drawer-checkout').focus();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || $('drawer').hidden) return;
+    $('drawer').hidden = true;
+    for (const id of ['skip', 'page']) $(id).removeAttribute('aria-hidden');
+    $('drawer-open').focus();
+  });
+
+  $('lazy-open').addEventListener('click', () => { $('lazy').hidden = false; });
+  $('lazy-close').addEventListener('click', () => { $('lazy').hidden = true; });
+
+  $('mouse').addEventListener('click', () => { $('mouse-panel').hidden = false; });
+
+  $('portal-open').addEventListener('click', () => {
+    const open = $('portal-open').getAttribute('aria-expanded') !== 'true';
+    $('portal-open').setAttribute('aria-expanded', String(open));
+    $('portal').hidden = !open;
+  });
+
+  $('nr-open').addEventListener('click', () => $('nr').showModal());
+  $('nr-close').addEventListener('click', () => $('nr').close());
+  $('nr').addEventListener('close', () => $('skip').focus());
+
+  $('vanish').addEventListener('click', () => {
+    $('vanish').hidden = true;
+    $('vanished-panel').hidden = false;
+  });
+</script>
+</body>
+</html>

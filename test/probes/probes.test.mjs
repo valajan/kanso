@@ -6,6 +6,7 @@ import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
 import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
+import { focus } from '../../src/modules/accessibility/focus.js';
 import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
@@ -391,6 +392,75 @@ test('a transition probe needs a state, and does not run without one', async () 
   const { recorder, seen } = transitionRecorder();
   assert.deepEqual(await probe('transitions.html', { modules: only(recorder) }), {});
   assert.deepEqual(seen, []);
+});
+
+// --- focus, on the way into and out of each state ---------------------------------
+
+// Each state alone: the states are cumulative, and a modal dialog left open
+// would stand between the next state's click and its trigger.
+async function focusIn(page, state) {
+  const { accessibility: result } = await probe(page, { modules: only(focus), config: { states: [state] } });
+  assert.deepEqual(result.failures, []);
+  return result.findings.map((finding) => [finding.rule, finding.at, finding.nodes[0].selector, finding.nodes[0].explanation]);
+}
+
+test('focus handled on the way in and out reports nothing, however it is handled', async () => {
+  for (const state of [
+    // The browser's own modal dialog.
+    { name: 'native', click: '#native-open', wait_for: 'dialog#native[open]' },
+    // A dialog of its own, focus sent to its title after a 300 ms transition,
+    // the page behind made inert.
+    { name: 'custom', click: '#custom-open', wait_for: '#custom:not([hidden])' },
+    // A disclosure, whose content is next, and which Escape need not close.
+    { name: 'disclosure', click: '#faq', wait_for: "#faq[aria-expanded='true']" },
+    // A menu button: focus on the first item, back on Escape.
+    { name: 'menu', click: '#actions', wait_for: "#actions[aria-expanded='true']" },
+    // Load more: gone once it loaded, focus on the first new item.
+    { name: 'more', click: '#load-more', wait_for: '#item-4' },
+    // A popover that is not modal, and keeps focus where it was.
+    { name: 'popover', click: '#tip-open', wait_for: '#tip:popover-open' },
+    // Modal the way component libraries make it: the page behind hidden.
+    { name: 'sheet', click: '#sheet-open', wait_for: '#sheet:not([hidden])' },
+  ]) {
+    assert.deepEqual(await focusIn('focus-clean.html', state), [], state.name);
+  }
+});
+
+test('a modal dialog in name only: focus behind it, Tab under it, Escape ignored, focus lost as it closes', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'lazy', click: '#lazy-open', wait_for: '#lazy:not([hidden])', close: '#lazy-close' }), [
+    ['focus-not-moved', 'lazy', 'body > div#lazy', 'focus stayed on body > main#page > button#lazy-open'],
+    // Walked from inside the dialog: Tab gets out of it, to the top of the
+    // page.
+    ['focus-escapes-modal', 'lazy', 'body > a#skip', 'Tab reached it, behind the open body > div#lazy'],
+    ['escape-not-closing', 'lazy', 'body > div#lazy', 'still open after Escape'],
+    ['focus-lost', 'lazy', 'body > main#page > button#lazy-open', 'closing what it opened left focus nowhere'],
+  ]);
+});
+
+// The pattern of a real drawer: modal by the page behind it being hidden,
+// with focus left there.
+test('a dialog made modal by hiding the page behind it, which leaves focus behind', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'drawer', click: '#drawer-open', wait_for: '#drawer:not([hidden])' }), [
+    ['focus-not-moved', 'drawer', 'body > div#drawer', 'focus stayed on body > main#page > button#drawer-open'],
+  ]);
+});
+
+test('what a click opens and no key can, and what goes as it opens, taking focus with it', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'mouse', click: '#mouse', wait_for: '#mouse-panel:not([hidden])' }), [
+    ['keyboard-inoperable', 'mouse', 'body > main#page > div#mouse', 'takes no keyboard focus, and only a click opens what it opens'],
+  ]);
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'vanish', click: '#vanish', wait_for: '#vanished-panel:not([hidden])' }), [
+    ['focus-lost', 'vanish', 'body > main#page > button#vanish', 'opening what it opens left focus nowhere'],
+  ]);
+});
+
+test('a disclosure whose content is at the end of the page, and a dialog that sends focus elsewhere as it closes', async () => {
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'portal', click: '#portal-open', wait_for: "#portal-open[aria-expanded='true']" }), [
+    ['revealed-unreachable', 'portal', 'body > main#page > button#portal-open', 'the next Tab goes to body > main#page > a, not into body > div#portal'],
+  ]);
+  assert.deepEqual(await focusIn('focus-broken.html', { name: 'noreturn', click: '#nr-open', wait_for: 'dialog#nr[open]' }), [
+    ['focus-not-returned', 'noreturn', 'body > main#page > button#nr-open', 'focus went to body > a#skip when what it opened closed'],
+  ]);
 });
 
 // --- keyboard -------------------------------------------------------------------------

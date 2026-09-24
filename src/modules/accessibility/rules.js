@@ -29,6 +29,24 @@ const IMPACTS = {
   // sees the page as a first visit does, with every banner still open.
   'focus-obscured': 'moderate',
 
+  // The way into and out of a declared state (focus.js). What only a click
+  // opens shuts out whoever has no mouse — but another way may exist, a key
+  // the widget listens for elsewhere: warns until real pages say otherwise.
+  'keyboard-inoperable': 'moderate',
+  // Focus left on nothing: a keyboard user starts again from the top of the
+  // page, and a screen reader says nothing of where they are.
+  'focus-lost': 'serious',
+  // A modal dialog open, and focus behind it: every key goes to a page the
+  // visitor cannot see. Both read from the page, not guessed.
+  'focus-not-moved': 'serious',
+  'focus-escapes-modal': 'serious',
+  // What the ARIA Authoring Practices ask of dialogs and menus, more than
+  // what WCAG requires: warns.
+  'escape-not-closing': 'moderate',
+  'focus-not-returned': 'moderate',
+  // A heuristic on the order of the page: warns.
+  'revealed-unreachable': 'moderate',
+
   // prefers-reduced-motion, and WCAG 2.3.3 Animation from Interactions (AAA).
   // The reader asked their system for less motion, and the page moves anyway:
   // for some, nausea or a migraine. Warns: AAA, and a spinner that keeps
