@@ -294,6 +294,105 @@ test('reflow runs on the mobile load only', async () => {
   assert.deepEqual(await probe('reflow-scroll.html', { formFactor: 'desktop', modules: only(reflow) }), {});
 });
 
+// --- transitions ----------------------------------------------------------------------
+
+// The way into and out of each state, for a probe that checks it rather than
+// the state itself. A probe of the tests' own, which tries the tools every
+// such check has — open by key, else by click; where focus is; close — and
+// reports what they said.
+const MENU_T = { name: 'menu', click: '#menu-button', wait_for: "#menu-button[aria-expanded='true']" };
+const SETTINGS_T = { name: 'settings', click: '#settings-button', wait_for: 'dialog[open]' };
+const MORE_T = { name: 'more', click: '#more', wait_for: '#panel:not([hidden])' };
+
+function transitionRecorder() {
+  const seen = [];
+  const recorder = {
+    id: 'recorder',
+    rules: ['recorded'],
+    transitions: true,
+    async transition(page, state, tools) {
+      const trigger = await tools.trigger();
+      const byKey = await tools.open({ by: 'keyboard' });
+      if (!byKey.opened) await tools.open();
+      const inside = await tools.focused('opened');
+      const escaped = await tools.close();
+      const after = await tools.focused('closed');
+      const declared = await tools.close({ by: 'close' });
+      seen.push({
+        state: state.name,
+        trigger: trigger.selector,
+        byKey,
+        inside: inside?.selector ?? null,
+        escaped: escaped.closed,
+        after: after?.selector ?? null,
+        declared: declared.closed,
+      });
+      return [{ rule: 'recorded', title: 'Recorded', impact: 'minor', count: 1, nodes: [trigger] }];
+    },
+  };
+  return { recorder, seen };
+}
+
+test('a transition probe goes into and out of each state, in a page brought to the state before', async () => {
+  const { recorder, seen } = transitionRecorder();
+  const journal = new Journal();
+  const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(seen, [
+    {
+      // Enter opens the menu, focus stays on its button, Escape closes it.
+      state: 'menu', trigger: 'body > main > button#menu-button', byKey: { opened: true, key: 'Enter', focusable: true },
+      inside: 'body > main > button#menu-button', escaped: true, after: 'body > main > button#menu-button', declared: null,
+    },
+    {
+      // Reached from the menu, in a page of its own: the dialog takes focus
+      // as it opens and gives it back as it closes.
+      state: 'settings', trigger: 'body > main > nav#menu > button#settings-button', byKey: { opened: true, key: 'Enter', focusable: true },
+      inside: 'body > main > dialog#settings > button#settings-close', escaped: true, after: 'body > main > nav#menu > button#settings-button', declared: null,
+    },
+  ]);
+  assert.deepEqual(result.findings.map(({ rule, at }) => [rule, at]), [['recorded', 'menu'], ['recorded', 'settings']]);
+
+  // The journal shows each transition as it went: the settings' page loaded,
+  // the menu reached on the way, then in and out of the dialog.
+  const lastPage = journal.events.slice(journal.events.findLastIndex((e) => e.kind === 'loaded'));
+  assert.deepEqual(lastPage.map((e) => [e.kind === 'focus' ? `focus ${e.why}` : e.kind, e.at]), [
+    ['loaded', 'settings'], ['state-reached', 'menu'], ['open', 'settings'], ['focus opened', 'settings'],
+    ['close', 'settings'], ['focus closed', 'settings'], ['close', 'settings'], ['finding', 'menu'], ['finding', 'settings'], ['probe-end', undefined],
+  ]);
+});
+
+test('a state no key opens says so, and the click still opens it; one nothing closes, says that', async () => {
+  const { recorder, seen } = transitionRecorder();
+  const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MORE_T] } });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(seen.map(({ byKey, escaped, declared }) => ({ byKey, escaped, declared })), [
+    { byKey: { opened: false, key: null, focusable: false }, escaped: false, declared: null },
+  ]);
+});
+
+test('a state a transition probe cannot check costs that state, and the ones beyond it', async () => {
+  const { recorder } = transitionRecorder();
+  const ghost = { name: 'ghost', click: '#nothing-here' };
+  const { accessibility: result } = await probe('transitions.html', {
+    modules: only(recorder), config: { states: [MENU_T, ghost, SETTINGS_T] }, timeoutMs: 6_000,
+  });
+
+  assert.deepEqual(result.findings.map(({ at }) => at), ['menu']);
+  assert.deepEqual(result.failures.map(({ at, error }) => ({ at, error })), [
+    { at: 'ghost', error: 'nothing visible to click at #nothing-here' },
+    { at: 'settings', error: 'not reached: ghost could not be (nothing visible to click at #nothing-here)' },
+  ]);
+});
+
+test('a transition probe needs a state, and does not run without one', async () => {
+  const { recorder, seen } = transitionRecorder();
+  assert.deepEqual(await probe('transitions.html', { modules: only(recorder) }), {});
+  assert.deepEqual(seen, []);
+});
+
 // --- keyboard -------------------------------------------------------------------------
 
 test('a page whose every stop shows its focus reports nothing, however it shows it', async () => {

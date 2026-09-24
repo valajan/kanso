@@ -3,7 +3,8 @@ import puppeteer from 'puppeteer-core';
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates } from '../config/states.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
-import { applyState } from './states.js';
+import { applyState, reach } from './states.js';
+import { transitionTools } from './transition.js';
 
 // Probes: what Kanso checks on a page itself, for what Lighthouse does not look
 // at — how the page reflows at 320 CSS pixels, what a keyboard can reach. A
@@ -64,6 +65,15 @@ const SETTLE_MS = 5_000;
 // A probe that says `onlyInStates: true` has nothing to read in a page nobody
 // clicked, and is not run at all when no state is declared.
 //
+// A probe that says `transitions: true` checks the way into and out of each
+// state rather than the state itself: what focus does when it opens, what is
+// left when it closes. For each state, it gets a page of its own, brought to
+// the state before — the states being cumulative — and its `transition(page,
+// state, context)` goes in and out with the tools src/probes/transition.js
+// hands it. A state it could not check costs that state; one the way to it
+// could not reach costs it and every state after, as above. It needs a state,
+// and does not run without one.
+//
 // With a `journal` (src/probes/journal.js), each probe's way through the page
 // is logged — its load, each state, how it ended, each finding — and the probe
 // is handed a `log` of its own for the rest.
@@ -77,11 +87,11 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
   const wanted = modules.flatMap((mod) => (mod.probes ?? [])
     .filter((probe) => probe.formFactors?.includes(formFactor) ?? true)
     .filter((probe) => !measuresOnly || probe.measures)
-    .filter((probe) => !probe.onlyInStates || declared.length > 0)
+    .filter((probe) => !(probe.onlyInStates || probe.transitions) || declared.length > 0)
     .map((probe) => ({ mod, probe, config: moduleConfig(config, mod.id) })));
   if (wanted.length === 0) return {};
 
-  const statesOf = (probe) => (probe.states ? declared : []);
+  const statesOf = (probe) => (probe.states || probe.transitions ? declared : []);
 
   const results = {};
   for (const { mod, probe } of wanted) {
@@ -116,10 +126,12 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
       const started = Date.now();
       log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
-        const { findings, unreached } = await runProbe(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
+        const run = probe.transitions ? runTransitions : runProbe;
+        const { findings, unreached, unchecked = [] } = await run(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
         results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
         if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
         log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unreached ? { unreached: unreached.states.map(({ name }) => name) } : {}) });
+        for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
         if (unreached) {
           const [first, ...rest] = unreached.states;
           fail(mod, probe, config, message(unreached.error), first.name);
@@ -150,20 +162,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
   const step = (work) => withTimeout(work, timeoutMs);
   try {
     const { page, found } = await step(async () => {
-      const page = await context.newPage();
-      // Scrollbars laid over the page, as on a phone or a Mac: a classic one
-      // would take 15 px off the width a probe asked for.
-      const session = await page.createCDPSession();
-      await session.send('Emulation.setScrollbarsHidden', { hidden: true });
-      await page.setViewport({ ...screen(settings), ...probe.viewport });
-      if (typeof settings?.emulatedUserAgent === 'string') await page.setUserAgent(settings.emulatedUserAgent);
-      if (probe.media) await page.emulateMediaFeatures(probe.media);
-      if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: cpuSlowdown(settings) });
-      if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
-      await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
-      await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
-      await page.bringToFront();
-      log.log('loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
+      const page = await loadPage(context, probe, { url, settings, timeoutMs, log });
       return { page, found: await probe.run(page, { url, formFactor, config, log }) };
     });
     const findings = [...found];
@@ -190,6 +189,66 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
     // pending in it.
     await context.close().catch(() => {});
   }
+}
+
+// A transition probe, state by state: for each, a page of its own in a
+// context of its own, loaded, brought to the state before, and handed to
+// `probe.transition` with the tools to go in and out of this one. Resolves to
+// the findings, each carrying its state, and to `unchecked` — [{ at, error }]
+// — for each state whose check failed, or that lies beyond one the way could
+// not get past.
+async function runTransitions(browser, probe, { url, formFactor, settings, config, states, timeoutMs, log = NO_JOURNAL }) {
+  const findings = [];
+  const unchecked = [];
+  for (const [i, state] of states.entries()) {
+    const at = log.with({ at: state.name });
+    const context = await browser.createBrowserContext();
+    try {
+      const page = await withTimeout(() => loadPage(context, probe, { url, settings, timeoutMs, log: at }), timeoutMs);
+      try {
+        await withTimeout(() => reach(page, states.slice(0, i), { waitMs: timeoutMs / 3, log: at }), timeoutMs);
+      } catch (error) {
+        // A state before this one, which its own turn may well have opened:
+        // this one, and every one after, lie beyond it.
+        const missed = error.state ?? states[i - 1];
+        at.log('state-unreached', { at: missed.name, click: missed.click, error: message(error) });
+        for (const { name } of states.slice(i)) unchecked.push({ at: name, error: new Error(`not reached: ${missed.name} could not be (${message(error)})`) });
+        return { findings, unchecked };
+      }
+      try {
+        const tools = transitionTools(page, state, { waitMs: timeoutMs / 3, log: at });
+        const found = await withTimeout(() => probe.transition(page, state, { url, formFactor, config, log: at, ...tools }), timeoutMs);
+        findings.push(...found.map((finding) => ({ ...finding, at: state.name })));
+      } catch (error) {
+        at.log('transition-failed', { error: message(error) });
+        unchecked.push({ at: state.name, error });
+      }
+    } finally {
+      await context.close().catch(() => {});
+    }
+  }
+  return { findings, unchecked };
+}
+
+// A page for `probe`, loaded as Lighthouse loaded it — same screen, same user
+// agent — unless the probe asks otherwise: another viewport, media features, a
+// slowed CPU, a script of its own before the page's.
+async function loadPage(context, probe, { url, settings, timeoutMs, log }) {
+  const page = await context.newPage();
+  // Scrollbars laid over the page, as on a phone or a Mac: a classic one
+  // would take 15 px off the width a probe asked for.
+  const session = await page.createCDPSession();
+  await session.send('Emulation.setScrollbarsHidden', { hidden: true });
+  await page.setViewport({ ...screen(settings), ...probe.viewport });
+  if (typeof settings?.emulatedUserAgent === 'string') await page.setUserAgent(settings.emulatedUserAgent);
+  if (probe.media) await page.emulateMediaFeatures(probe.media);
+  if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: cpuSlowdown(settings) });
+  if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
+  await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
+  await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
+  await page.bringToFront();
+  log.log('loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
+  return page;
 }
 
 // What the readings of one page have found so far, element by element, rule

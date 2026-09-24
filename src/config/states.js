@@ -10,6 +10,7 @@ import { isPlainObject } from './merge.js';
 //       wait_for: "#menu[aria-expanded='true']"
 //     - name: signup
 //       click: "#signup"
+//       close: "#signup-cancel"
 //
 // At the root, like `runs:`, and for the same reason: a state is a way through
 // the page, and what the page looks like there concerns every module, not one.
@@ -20,7 +21,8 @@ import { isPlainObject } from './merge.js';
 // visitor finds with the menu open.
 //
 // A state is its name, the element clicked to reach it, and, optionally, what
-// says it has been reached. Both are CSS selectors. A state missing either of
+// says it has been reached, and what closes it when Escape is not meant to —
+// for a check that goes in and out of it (src/probes/transition.js). Both are CSS selectors. A state missing either of
 // the first two is a mistake in the file, and fails the configuration rather
 // than being skipped: a state quietly left out is a part of the page quietly
 // left unchecked.
@@ -43,6 +45,7 @@ export function parseStates(value) {
     if (!isPlainObject(state)) throw new InvalidStates(`${where} must be a mapping with a name and a click`);
     const { name, click } = state;
     const waitFor = state.wait_for ?? state.waitFor;
+    const { close } = state;
 
     if (typeof name !== 'string' || !NAME.test(name)) {
       throw new InvalidStates(`${where} needs a name — letters, digits, - and _`);
@@ -56,6 +59,10 @@ export function parseStates(value) {
       throw new InvalidStates(`${where} (${name}): wait_for must be a selector`);
     }
 
-    return { name, click, ...(waitFor != null ? { waitFor } : {}) };
+    if (close != null && (typeof close !== 'string' || close.trim() === '')) {
+      throw new InvalidStates(`${where} (${name}): close must be a selector`);
+    }
+
+    return { name, click, ...(waitFor != null ? { waitFor } : {}), ...(close != null ? { close } : {}) };
   });
 }

@@ -34,6 +34,23 @@ export async function applyState(page, { click, waitFor }, { waitMs }) {
   await page.waitForNetworkIdle({ idleTime: IDLE_MS, timeout: SETTLE_MS }).catch(() => {});
 }
 
+// Brings `page` to the last of `states`, from the page as it loads, one state
+// after the other as `states:` is replayed — for a check that needs the page
+// in the state before the one it looks at, in a page of its own. Rejects with
+// the state that could not be reached, as `state`, beside the reason.
+export async function reach(page, states, { waitMs, log }) {
+  for (const state of states) {
+    const started = Date.now();
+    try {
+      await applyState(page, state, { waitMs });
+    } catch (err) {
+      err.state = state;
+      throw err;
+    }
+    log.with({ at: state.name }).log('state-reached', { click: state.click, ms: Date.now() - started });
+  }
+}
+
 // A wait that ran out says what was missing; anything else — a selector that
 // is no CSS — says what it is.
 function ifTimeout(message) {

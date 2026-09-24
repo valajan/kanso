@@ -91,7 +91,15 @@ run where the code is.
   there carries `at`, listing only what no earlier reading found (the INP
   probe, `measures: true`, keeps every reading as it is: two clicks are two
   measures). A state that
-  cannot be reached fails, with every state after it, under that same `at`. `dom.js` is what a probe runs inside the page with: the call
+  cannot be reached fails, with every state after it, under that same `at`.
+  A probe marked `transitions: true` checks the way into and out of each state
+  rather than the state: for each, a page of its own brought to the state
+  before (`reach`, `states.js`), and `transition(page, state, tools)` with what
+  `transition.js` hands it — open by click or by key, whether it is open (its
+  `wait_for`, else its trigger's `aria-expanded`, else `null`), close by
+  Escape or by its `close:`, where focus is — each move journaled. A state it
+  could not check costs that state; one beyond a state the way could not get
+  past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
   element helper describes a node the way Lighthouse does. Probes run on the
   first successful load of a page only — except a probe that measures, which
@@ -240,7 +248,8 @@ an agent's audit is judged by them too. Config controls budgets, each module's
 own thresholds and `runs`.
 
 `states:`, at the root like `runs:`, lists the states of the page beyond the
-one it loads in — `name`, `click`, optional `wait_for` — which a check can go
+one it loads in — `name`, `click`, optional `wait_for`, optional `close` (what
+closes it when Escape is not meant to) — which a check can go
 through; a malformed one fails the config as it loads (`local-config.js`).
 
 `serve:` says how to serve the project when a local surface is given no page:
