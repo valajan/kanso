@@ -23,7 +23,8 @@ import { serveDirectory } from '../../src/serve/static.js';
 // button, tabs, six questions of one kind, a sort menu — and clean.html, every
 // one of those patterns with nothing wrong, whose states are exactly the ones
 // it has. guards.html carries everything the explorer may click and
-// everything it must not; spa.html a route change that is another page;
+// everything it must not; spa.html a route change that is another page,
+// redirect.html an app that changes its address as it starts;
 // door.html a state that opens once and never again.
 //
 // What is tested is the product's side: what may be clicked, how it is found
@@ -58,7 +59,7 @@ async function read(page, formFactor = 'mobile') {
   const tab = await openPage(browser, formFactor);
   try {
     await load(tab, url);
-    const reading = await observe(tab.page, url);
+    const reading = await observe(tab.page);
     return { reading, selectorsOf: await selectors(tab.page, reading) };
   } finally {
     await tab.close();
@@ -74,9 +75,9 @@ async function clickOnce(page, click, formFactor = 'mobile') {
   const tab = await openPage(browser, formFactor);
   try {
     await load(tab, url);
-    const before = await observe(tab.page, url);
+    const before = await observe(tab.page);
     await applyState(tab.page, { click }, { waitMs: 5_000 });
-    const after = await settle(tab.page, url);
+    const after = await settle(tab.page);
     return { blocked: tab.guard.blocked, url: after.snap.url, change: diff(before.print, after.print) };
   } finally {
     await tab.close();
@@ -299,6 +300,14 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     // Nothing was stopped at the network: no load was asked for.
     assert.equal(run.clicks.find((c) => c.name === 'Account settings').blocked, undefined);
     assert.deepEqual(tree(run), ['Filters']);
+  });
+
+  // The route is judged from where the page stood before the click, not from
+  // the address it was loaded from: an app that moves its root on to its
+  // first screen as it starts would otherwise have every click leave it.
+  test('an app that moves on to another address as it starts still has its states', async () => {
+    const run = await explored('redirect.html', 'mobile');
+    assert.deepEqual(tree(run), ['More']);
   });
 
   // --- found, then replayed ------------------------------------------------------

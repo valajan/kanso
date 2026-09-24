@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>An app that moves on as it starts</title>
+</head>
+<body>
+<main>
+  <h1>An app that moves on as it starts</h1>
+  <!-- A single-page app sending its root on to its first screen: the page
+       stands at another address from the first moment, and a click that
+       opens a panel there has left nothing. -->
+  <button id="more" type="button" aria-expanded="false" aria-controls="panel">More</button>
+  <div id="panel" hidden><p>What only a click shows.</p></div>
+</main>
+<script>
+  history.replaceState(null, '', '/landed');
+  const more = document.getElementById('more');
+  more.addEventListener('click', () => {
+    document.getElementById('panel').hidden = false;
+    more.setAttribute('aria-expanded', 'true');
+  });
+</script>
+</body>
+</html>

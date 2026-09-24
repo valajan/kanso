@@ -69,7 +69,17 @@ const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export async function guardPage(page) {
   const blocked = [];
   let expected = null;
-  const doc = (url) => url.split('#')[0];
+  // The document an address names, as Chrome writes it: `https://a.com`
+  // is requested as `https://a.com/`, and must not be stopped for it.
+  const doc = (url) => {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      return parsed.href;
+    } catch {
+      return url.split('#')[0];
+    }
+  };
 
   await page.setRequestInterception(true);
   const onRequest = (request) => {

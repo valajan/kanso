@@ -41,10 +41,13 @@ export async function load({ page, guard }, url) {
 }
 
 // One reading of the page as it stands: the snapshot, what the guards make of
-// each element, and the fingerprint.
-export async function observe(page, pageUrl) {
+// each element, and the fingerprint. A link is judged from where the page
+// stands, which is not always the address it was loaded from: an app that
+// sends `/` on to `/home` as it starts is on `/home`, and a link to
+// `/home#top` does not leave it.
+export async function observe(page) {
   const snap = await snapshot(page);
-  const verdicts = new Map(snap.elements.map((e) => [e.index, verdict(e, pageUrl)]));
+  const verdicts = new Map(snap.elements.map((e) => [e.index, verdict(e, snap.url)]));
   const allowed = new Set([...verdicts].filter(([, v]) => v.ok).map(([i]) => i));
   return { snap, verdicts, allowed, print: fingerprint(snap) };
 }
@@ -58,12 +61,12 @@ const SETTLE_STEP_MS = 250;
 // text included. The network going quiet is not enough — a modal whose code
 // arrives with the click is drawn after the request that brought it, and a
 // reading taken then sees the page as it was before.
-export async function settle(page, pageUrl) {
-  let last = await observe(page, pageUrl);
+export async function settle(page) {
+  let last = await observe(page);
   const until = Date.now() + SETTLE_MAX_MS;
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, SETTLE_STEP_MS));
-    const next = await observe(page, pageUrl);
+    const next = await observe(page);
     if (next.print.key === last.print.key && sameLines(next.snap.lines, last.snap.lines)) return next;
     last = next;
   }
@@ -115,7 +118,7 @@ export async function prepare(browser, formFactor, url) {
   let selectorsOf;
   try {
     await load(tab, url);
-    reading = await observe(tab.page, url);
+    reading = await observe(tab.page);
     selectorsOf = await selectors(tab.page, reading);
   } finally {
     await tab.close();
@@ -131,9 +134,9 @@ export async function prepare(browser, formFactor, url) {
   let seenScrolling;
   try {
     await load(other, url);
-    again = await observe(other.page, url);
+    again = await observe(other.page);
     seenScrolling = await scrollThrough(other.page);
-    scrolled = await observe(other.page, url);
+    scrolled = await observe(other.page);
   } finally {
     await other.close();
   }
