@@ -36,14 +36,18 @@ class Semaphore {
 }
 
 const semaphore = new Semaphore(MAX_CONCURRENT);
+const LOAD_ATTEMPTS = 2;
 
 // Runs `runs` headless-Chrome Lighthouse loads of `url` and returns what each
 // module made of them: { [moduleId]: data }, folded by the module's combine().
 // Runs are sequential: they compete for the same CPU, so overlapping them
 // would be measuring the contention rather than the page.
 //
-// Rejects only when every run failed — a partial set still yields a usable
-// median, and reporting four metrics from two good runs beats reporting none.
+// A load that fails is tried once more: on a busy machine Chrome now and then
+// drops its debugging connection mid-load (ECONNREFUSED), and with one run —
+// the default — that alone would cost the whole audit. Rejects only when every
+// run failed twice — a partial set still yields a usable median, and
+// reporting four metrics from two good runs beats reporting none.
 //
 // The modules' probes run on the first load that succeeds, and no other: what
 // they check does not vary from one load to the next, and each costs a page
@@ -61,13 +65,16 @@ export async function runLighthouse(url, { formFactor = 'mobile', runs = 1, modu
   let lastError = null;
 
   for (let i = 0; i < count; i++) {
-    const first = samples.length === 0;
-    try {
-      const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probes: first ? 'all' : 'measures', screenshot: first && screenshot, record: record && { ...record, run: i + 1 } });
-      samples.push(load.samples);
-      shot ??= load.screenshot;
-    } catch (err) {
-      lastError = err;
+    for (let attempt = 0; attempt < LOAD_ATTEMPTS; attempt++) {
+      const first = samples.length === 0;
+      try {
+        const load = await runOnce(url, formFactor, modules.map((m) => m.id), { config, probes: first ? 'all' : 'measures', screenshot: first && screenshot, record: record && { ...record, run: i + 1 } });
+        samples.push(load.samples);
+        shot ??= load.screenshot;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
     }
   }
 
