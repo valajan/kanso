@@ -1,6 +1,7 @@
 import * as chromeLauncher from 'chrome-launcher';
 import puppeteer from 'puppeteer-core';
 
+import { launchedPid, stopOnExit } from '../process/children.js';
 import { NO_JOURNAL } from '../probes/journal.js';
 import { reach } from '../probes/states.js';
 import { DEFAULTS, explore } from './explore.js';
@@ -25,6 +26,9 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
   // is killed here all the same.
   const chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
   let browser;
+  // Stopped should Kanso be interrupted, when this `finally` does not run —
+  // from the moment it is spawned, launch not over (src/process/children.js).
+  const release = stopOnExit(() => launchedPid(chrome));
   try {
     await chrome.launch();
     browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.port}`, defaultViewport: null });
@@ -57,6 +61,7 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
   } finally {
     await browser?.disconnect().catch(() => {});
     chrome.kill();
+    release();
   }
 }
 

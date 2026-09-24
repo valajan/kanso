@@ -1,6 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
+import { whenStarted } from '../process/children.js';
 import { getModule } from '../modules/index.js';
 import { runProbes } from '../probes/index.js';
 import { Journal, journalPath, SCHEMA } from '../probes/journal.js';
@@ -49,7 +50,12 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', scree
   });
 
   try {
-    await chrome.launch();
+    // A signal reaches the main thread only: that is where this Chrome is
+    // stopped from if Kanso is, since this `finally` will not run then — told
+    // as soon as it is spawned, the launch not over.
+    const launching = chrome.launch();
+    whenStarted(chrome, launching, (pid) => parentPort.postMessage({ chrome: pid }));
+    await launching;
     journal?.log('lighthouse-start', { categories: [...new Set(modules.flatMap((m) => m.categories))] });
     const formFactorConfig = formFactor === 'desktop' ? DESKTOP_CONFIG : {};
     const result = await lighthouse(url, {

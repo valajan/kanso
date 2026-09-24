@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { SCREENSHOT } from '../core/audit.js';
 import { clampRuns } from '../core/runs.js';
 import { MODULES } from '../modules/index.js';
+import { stopOnExit } from '../process/children.js';
 
 const WORKER_URL = new URL('./runner.worker.js', import.meta.url);
 
@@ -94,7 +95,17 @@ async function runOnce(url, formFactor, moduleIds, { config, probes, screenshot,
         workerData: { url, formFactor, moduleIds, config, probes, screenshot, record },
       });
 
-      worker.once('message', (msg) => {
+      // The Chrome the worker launched, stopped from here should Kanso be
+      // interrupted (src/process/children.js): released once the worker is
+      // done with it, whichever way.
+      let release = () => {};
+      worker.once('exit', () => release());
+
+      worker.on('message', (msg) => {
+        if (msg.chrome !== undefined) {
+          release = stopOnExit(msg.chrome);
+          return;
+        }
         if (msg.ok) resolve({ samples: msg.samples, screenshot: msg.screenshot ?? null });
         else reject(new Error(msg.error));
         // Its answer is all a worker is for. Whatever it may still hold — a

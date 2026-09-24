@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -395,3 +396,38 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     assert.deepEqual(settled.filter((f) => f.at === details).map((f) => f.rule), ['image-alt']);
   });
 });
+
+// --- interrupted -----------------------------------------------------------------
+
+// A Ctrl-C reaches Kanso, not the Chrome it started, which is in a process
+// group of its own; and the `finally` that stops it does not run on a signal.
+// Left running, a headless Chrome is what macOS wakes in place of the one a
+// person opens (src/process/children.js).
+test('a click-through interrupted leaves no Chrome behind', { skip: process.platform === 'win32' && 'process groups' }, async () => {
+  const before = browsers();
+  const kanso = spawn(process.execPath, [fileURLToPath(new URL('../../bin/kanso.js', import.meta.url)), 'discover', urlOf('menu.html')], { stdio: 'ignore' });
+  const exited = new Promise((resolve) => kanso.once('exit', (code, signal) => resolve({ code, signal })));
+
+  let started = [];
+  for (let i = 0; i < 60 && started.length === 0; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    started = browsers().filter((pid) => !before.includes(pid));
+  }
+  assert.ok(started.length > 0, 'no Chrome was started');
+
+  kanso.kill('SIGINT');
+  const { code, signal } = await exited;
+  assert.ok(code === 130 || signal === 'SIGINT', `exited with ${code ?? signal}`);
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  assert.deepEqual(browsers().filter((pid) => started.includes(pid)), []);
+});
+
+// The browsers running, by pid: the processes whose command line says
+// headless, less their helpers.
+function browsers() {
+  return execFileSync('ps', ['-eo', 'pid=,command='], { encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => /--headless/.test(line) && !/--type=/.test(line) && !/\bps\b/.test(line))
+    .map((line) => Number(line.trim().split(/\s+/)[0]));
+}
+

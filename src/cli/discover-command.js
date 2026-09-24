@@ -34,7 +34,7 @@ export async function runDiscoverCommand({ target = null, configPath = null, wri
 
   const find = discover ?? (await import('../discover/index.js')).discover;
 
-  const progress = ticker(io, json);
+  const progress = ticker(io);
   let found;
   try {
     found = await withSites({ page }, ({ url }) => find(url, { formFactors, maxDepth, maxClicks, onProgress: progress.click }));
@@ -110,8 +110,11 @@ function summary({ explored, dropped, runs }, count) {
 
 // A click-through takes a minute or more; each click said as it lands keeps
 // that from reading as a hung command.
-function ticker(io, json) {
-  if (json || !io.stderr.isTTY) return { click() {}, stop() {} };
+//
+// Shown with --json too: the JSON goes to stdout, most often to a file, and a
+// terminal left silent for minutes reads as a command stuck.
+function ticker(io) {
+  if (!io.stderr.isTTY) return { click() {}, stop() {} };
   let count = 0;
   return {
     click({ formFactor, click }) {
