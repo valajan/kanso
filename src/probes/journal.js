@@ -29,8 +29,10 @@ export class Journal {
     this.#start = now();
   }
 
+  // `data` cannot overwrite what makes the event: its order, its time, its
+  // kind.
   log(kind, data = {}) {
-    this.#events.push({ seq: this.#events.length, t: this.#now() - this.#start, kind, ...data });
+    this.#events.push({ ...data, seq: this.#events.length, t: this.#now() - this.#start, kind });
   }
 
   // The same journal, every event it takes carrying `context` too.

@@ -23,13 +23,10 @@ import { impactOf } from './rules.js';
 //                         trigger does not go into what it revealed — content
 //                         put at the end of the page, a portal (WCAG 2.4.3)
 //
-// What opened is read from the page, never guessed: a modal dialog that was
-// not showing before — `dialog:modal`, `aria-modal="true"`, or a dialog with
-// the rest of the page hidden from assistive technology or made inert behind
-// it, which is how Radix, Reka UI and their kin make one modal —, a menu or a
-// listbox that was not, or the element the trigger's `aria-controls` names.
-// What is none of those — a list grown longer, a panel with no name — is
-// checked for focus lost, and nothing else asks anything of it.
+// What opened — a modal dialog, a menu or listbox, a disclosure — is what the
+// transition tools read from the page (src/probes/transition.js). What is
+// none of those — a list grown longer, a panel with no name — is checked for
+// focus lost, and nothing else asks anything of it.
 
 // How many Tab presses a modal dialog is walked for, looking for the way out.
 const MAX_TABS = 25;
@@ -59,16 +56,14 @@ export const focus = {
     const report = (rule, node, explanation) => found.push(finding(rule, { ...node, explanation }));
 
     const trigger = await tools.trigger();
-    await inPage(page, beforeOpen);
 
     // As a keyboard user would; a click when no key can, for the rest.
     const byKey = await tools.open({ by: 'keyboard' });
     if (!byKey.focusable) report('keyboard-inoperable', trigger, 'takes no keyboard focus, and only a click opens what it opens');
     else if (byKey.opened === false) report('keyboard-inoperable', trigger, 'neither Enter nor Space opens what a click opens');
-    if (byKey.opened !== true && byKey.opened !== null) await tools.open();
+    const opened = byKey.opened === false ? await tools.open() : byKey;
     const hadFocus = byKey.focusable;
 
-    const opened = await inPage(page, whatOpened, state.click);
     const popup = opened.kind === 'modal' || opened.kind === 'menu';
     const afterOpen = await tools.focused('opened');
 
@@ -130,53 +125,12 @@ async function tabOut(page) {
 
 // --- in the page ----------------------------------------------------------------
 //
-// Sent as source (src/probes/dom.js). What one step learns — what was showing
-// before, what opened — the next finds in the page, under a symbol no page
-// script uses.
-
-function beforeOpen() {
-  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
-  const popups = 'dialog, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-  window[Symbol.for('kanso.focus')] = { before: [...document.querySelectorAll(popups)].filter(shows) };
-}
-
-// What the state opened: { kind: 'modal' | 'menu' | 'disclosure' | 'other',
-// container }, the container kept in the page for the steps after.
-function whatOpened(dom, triggerSelector) {
-  const store = window[Symbol.for('kanso.focus')];
-  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
-  const fresh = (el) => !store.before.includes(el) && shows(el);
-  const trigger = document.querySelector(triggerSelector);
-
-  // Everything under <body> but what holds the dialog is hidden from
-  // assistive technology, or inert — and some of it shows.
-  const behindHidden = (dialog) => {
-    const behind = [...document.body.children].filter((el) => !['script', 'style', 'template', 'link', 'noscript'].includes(el.localName) && !el.contains(dialog));
-    const hidden = (el) => el.getAttribute('aria-hidden') === 'true' || el.inert;
-    return behind.some((el) => shows(el) && hidden(el)) && behind.every((el) => hidden(el) || !shows(el));
-  };
-  const modal = (el) => el.matches('dialog:modal') || el.getAttribute('aria-modal') === 'true' || behindHidden(el);
-
-  let kind = 'other';
-  let container = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].find((el) => fresh(el) && modal(el));
-  if (container) kind = 'modal';
-  else if ((container = [...document.querySelectorAll('[role="menu"], [role="listbox"]')].find(fresh))) kind = 'menu';
-  else {
-    const id = trigger?.getAttribute('aria-controls')?.trim().split(/\s+/)[0];
-    const controlled = id ? document.getElementById(id) : null;
-    if (controlled && shows(controlled)) {
-      kind = 'disclosure';
-      container = controlled;
-    }
-  }
-  store.trigger = trigger;
-  store.container = container ?? null;
-  return { kind, container: container ? dom.describe(container) : null };
-}
+// Sent as source (src/probes/dom.js). What opened and what opened it, the
+// transition tools keep in the page (src/probes/transition.js).
 
 // Whether focus is inside what opened, through shadow roots.
 function focusInside() {
-  const { container } = window[Symbol.for('kanso.focus')];
+  const { container } = window[Symbol.for('kanso.transition')];
   let element = document.activeElement;
   while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
   for (let node = element; node; node = node.parentNode ?? node.host) {
@@ -188,7 +142,7 @@ function focusInside() {
 // The focused element when it is on the page but outside what opened, else
 // null.
 function focusOutside(dom) {
-  const { container } = window[Symbol.for('kanso.focus')];
+  const { container } = window[Symbol.for('kanso.transition')];
   let element = document.activeElement;
   while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
   if (!element || element === document.body || element === document.documentElement) return null;
@@ -199,7 +153,7 @@ function focusOutside(dom) {
 }
 
 function hasFocusable() {
-  const { container } = window[Symbol.for('kanso.focus')];
+  const { container } = window[Symbol.for('kanso.transition')];
   const focusable = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
   return [...container.querySelectorAll(focusable)].some((el) => el.checkVisibility?.() ?? el.getClientRects().length > 0);
 }
@@ -207,7 +161,7 @@ function hasFocusable() {
 // Focus on the first thing in what opened that takes it, else on what opened
 // itself — unless focus is in there already.
 function focusIntoContainer() {
-  const { container } = window[Symbol.for('kanso.focus')];
+  const { container } = window[Symbol.for('kanso.transition')];
   if (container.contains(document.activeElement)) return;
   const focusable = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
   const first = [...container.querySelectorAll(focusable)].find((el) => el.checkVisibility?.() ?? el.getClientRects().length > 0);
@@ -215,12 +169,12 @@ function focusIntoContainer() {
 }
 
 function focusTrigger() {
-  window[Symbol.for('kanso.focus')].trigger.focus();
+  window[Symbol.for('kanso.transition')].trigger.focus();
 }
 
 // Whether what opened the state is still there to go back to: a trigger that
 // went — a "Load more" gone once it loaded — cannot have focus back.
 function triggerShows() {
-  const { trigger } = window[Symbol.for('kanso.focus')];
+  const { trigger } = window[Symbol.for('kanso.transition')];
   return Boolean(trigger?.isConnected && (trigger.checkVisibility?.() ?? trigger.getClientRects().length > 0));
 }

@@ -313,8 +313,9 @@ function transitionRecorder() {
     transitions: true,
     async transition(page, state, tools) {
       const trigger = await tools.trigger();
-      const byKey = await tools.open({ by: 'keyboard' });
-      if (!byKey.opened) await tools.open();
+      const { opened, key, focusable, kind } = await tools.open({ by: 'keyboard' });
+      const byKey = { opened, key, focusable };
+      if (!opened) await tools.open();
       const inside = await tools.focused('opened');
       const escaped = await tools.close();
       const after = await tools.focused('closed');
@@ -323,6 +324,7 @@ function transitionRecorder() {
         state: state.name,
         trigger: trigger.selector,
         byKey,
+        kind,
         inside: inside?.selector ?? null,
         escaped: escaped.closed,
         after: after?.selector ?? null,
@@ -343,13 +345,13 @@ test('a transition probe goes into and out of each state, in a page brought to t
   assert.deepEqual(seen, [
     {
       // Enter opens the menu, focus stays on its button, Escape closes it.
-      state: 'menu', trigger: 'body > main > button#menu-button', byKey: { opened: true, key: 'Enter', focusable: true },
+      state: 'menu', trigger: 'body > main > button#menu-button', byKey: { opened: true, key: 'Enter', focusable: true }, kind: 'disclosure',
       inside: 'body > main > button#menu-button', escaped: true, after: 'body > main > button#menu-button', declared: null,
     },
     {
       // Reached from the menu, in a page of its own: the dialog takes focus
       // as it opens and gives it back as it closes.
-      state: 'settings', trigger: 'body > main > nav#menu > button#settings-button', byKey: { opened: true, key: 'Enter', focusable: true },
+      state: 'settings', trigger: 'body > main > nav#menu > button#settings-button', byKey: { opened: true, key: 'Enter', focusable: true }, kind: 'modal',
       inside: 'body > main > dialog#settings > button#settings-close', escaped: true, after: 'body > main > nav#menu > button#settings-button', declared: null,
     },
   ]);

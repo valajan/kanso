@@ -13,6 +13,15 @@ import { applyState } from './states.js';
 // nothing else: its `wait_for` when it has one, else its trigger's
 // `aria-expanded`. A state with neither cannot be told open from closed, and
 // says so — `null` — rather than guess.
+//
+// What opened is read from the page, never guessed either: a modal dialog
+// that was not showing before — `dialog:modal`, `aria-modal="true"`, or a
+// dialog with the rest of the page hidden from assistive technology or made
+// inert behind it, which is how Radix, Reka UI and their kin make one modal —,
+// a menu or a listbox that was not, or the element the trigger's
+// `aria-controls` names. `open` says which — `kind`: 'modal', 'menu',
+// 'disclosure' or 'other' — and keeps it in the page, with the trigger, for
+// what a probe then runs there: `window[Symbol.for('kanso.transition')]`.
 
 // How long a key press is given to open a state before the next is tried, and
 // a close to show. A keyboard user waits no longer.
@@ -58,12 +67,17 @@ export function transitionTools(page, state, { waitMs, log }) {
     // the trigger, press Enter, then Space — and says what happened rather
     // than throw, since a trigger no key opens is a finding, not a fault:
     // { opened: true | false | null, key, focusable }.
+    //
+    // Either way, it also says what opened: { kind, container }, the
+    // container described as findings describe an element, or null.
     async open({ by = 'click' } = {}) {
       const started = Date.now();
+      await inPage(page, beforeOpenInPage);
       if (by === 'click') {
         await applyState(page, state, { waitMs });
-        log.log('open', { by, opened: true, ms: Date.now() - started });
-        return { opened: true };
+        const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
+        log.log('open', { by, opened: true, what: opened.kind, ms: Date.now() - started });
+        return { opened: true, ...opened };
       }
 
       const target = await trigger();
@@ -87,22 +101,33 @@ export function transitionTools(page, state, { waitMs, log }) {
         }
       }
       await settle();
-      log.log('open', { by, ...result, ms: Date.now() - started });
-      return result;
+      const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
+      log.log('open', { by, ...result, what: opened.kind, ms: Date.now() - started });
+      return { ...result, ...opened };
     },
 
     isOpen,
 
-    // Closes the state: `by: 'escape'`, or `by: 'close'` — a click on the
-    // `close:` the state declares. Resolves to { closed: true | false | null },
-    // null when nothing says whether it is open, or no close was declared.
+    // Closes the state: `by: 'escape'`; `by: 'close'` — a click on the
+    // `close:` the state declares; or `by: 'outside'` — a click on the page
+    // away from what opened and from its trigger, as one dismisses a menu or
+    // a popover. Resolves to { closed: true | false | null }, null when
+    // nothing says whether it is open, no close was declared, or nothing is
+    // known of what opened to click away from.
     async close({ by = 'escape' } = {}) {
       const started = Date.now();
       if (by === 'close' && !state.close) {
         log.log('close', { by, closed: null, reason: 'no close: declared' });
         return { closed: null };
       }
-      if (by === 'escape') await page.keyboard.press('Escape');
+      if (by === 'outside') {
+        const point = await inPage(page, outsidePointInPage);
+        if (!point) {
+          log.log('close', { by, closed: null, reason: 'no point outside what opened' });
+          return { closed: null };
+        }
+        await page.mouse.click(point.x, point.y);
+      } else if (by === 'escape') await page.keyboard.press('Escape');
       else await page.click(state.close);
       const closed = await becomes(false, KEY_WAIT_MS);
       await settle();
@@ -131,6 +156,70 @@ export function transitionTools(page, state, { waitMs, log }) {
 }
 
 // --- in the page ----------------------------------------------------------------
+
+// What shows before the state opens, to tell what opened from what was there.
+function beforeOpenInPage() {
+  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
+  const popups = 'dialog, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+  window[Symbol.for('kanso.transition')] = { before: [...document.querySelectorAll(popups)].filter(shows) };
+}
+
+// What the state opened: { kind, container }, kept in the page with the
+// trigger. Past the three kinds, what `wait_for` names — when it is not the
+// trigger itself — is what opened, for a click away from it.
+function whatOpenedInPage(dom, triggerSelector, waitFor) {
+  const store = window[Symbol.for('kanso.transition')];
+  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
+  const fresh = (el) => !store.before.includes(el) && shows(el);
+  const trigger = document.querySelector(triggerSelector);
+
+  // Everything under <body> but what holds the dialog is hidden from
+  // assistive technology, or inert — and some of it shows.
+  const behindHidden = (dialog) => {
+    const behind = [...document.body.children].filter((el) => !['script', 'style', 'template', 'link', 'noscript'].includes(el.localName) && !el.contains(dialog));
+    const hidden = (el) => el.getAttribute('aria-hidden') === 'true' || el.inert;
+    return behind.some((el) => shows(el) && hidden(el)) && behind.every((el) => hidden(el) || !shows(el));
+  };
+  const modal = (el) => el.matches('dialog:modal') || el.getAttribute('aria-modal') === 'true' || behindHidden(el);
+
+  let kind = 'other';
+  let container = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].find((el) => fresh(el) && modal(el));
+  if (container) kind = 'modal';
+  else if ((container = [...document.querySelectorAll('[role="menu"], [role="listbox"]')].find(fresh))) kind = 'menu';
+  else {
+    const id = trigger?.getAttribute('aria-controls')?.trim().split(/\s+/)[0];
+    const controlled = id ? document.getElementById(id) : null;
+    if (controlled && shows(controlled)) {
+      kind = 'disclosure';
+      container = controlled;
+    } else {
+      const named = waitFor ? document.querySelector(waitFor) : null;
+      container = named && named !== trigger && !named.contains(trigger) && shows(named) ? named : null;
+    }
+  }
+  store.trigger = trigger;
+  store.container = container ?? null;
+  return { kind, container: container ? dom.describe(container) : null };
+}
+
+// A point of the viewport outside what opened and its trigger, where a click
+// lands on the page itself — or null when none is found, or nothing is known
+// of what opened. Corners first, then the middle of each edge: where a
+// visitor clicks to dismiss.
+function outsidePointInPage() {
+  const { container, trigger } = window[Symbol.for('kanso.transition')] ?? {};
+  if (!container) return null;
+  const inset = 8;
+  const w = innerWidth;
+  const h = innerHeight;
+  const points = [[inset, inset], [w - inset, inset], [inset, h - inset], [w - inset, h - inset], [w / 2, inset], [w / 2, h - inset], [inset, h / 2], [w - inset, h / 2]];
+  for (const [x, y] of points) {
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || container.contains(hit) || hit.contains(container) || trigger?.contains(hit)) continue;
+    return { x, y };
+  }
+  return null;
+}
 
 // The focused element, or null when focus is on the body or nowhere. A frame
 // that has focus is the frame, to this document.
