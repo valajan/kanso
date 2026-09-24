@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import yaml from 'js-yaml';
 import { loadLocalConfig } from '../config/local-config.js';
-import { renderStatesFile, stateNames, statesFrom } from '../discover/states.js';
+import { MAX_STATES, auditSeconds, discovered, renderStatesFile, stateNames } from '../discover/states.js';
 import { InvalidTarget } from '../core/target.js';
 import { siteFromArgument, siteFromConfig, withSites } from '../serve/index.js';
 import { EXIT, UsageError } from './audit-command.js';
@@ -21,8 +21,13 @@ import { EXIT, UsageError } from './audit-command.js';
 // that would be written is printed, and nothing is touched: what a
 // click-through found is worth reading before an audit depends on it.
 //
+// At most `maxStates` found states are written (src/discover/states.js,
+// `discovered`): an audit's time goes by the states it goes through, and the
+// summary says which were left out, and about how long an audit through the
+// others takes.
+//
 // `discover` is injected for the tests; by default it is src/discover/.
-export async function runDiscoverCommand({ target = null, configPath = null, write = false, json = false, maxDepth, maxClicks, formFactors, cwd, io, discover }) {
+export async function runDiscoverCommand({ target = null, configPath = null, write = false, json = false, maxDepth, maxClicks, maxStates = MAX_STATES, formFactors, cwd, io, discover }) {
   const named = target == null ? null : usage(() => siteFromArgument(target, 'target', cwd));
   // Without the file it is about to write: a file gone wrong must not stand
   // in the way of the command that writes it again.
@@ -42,13 +47,14 @@ export async function runDiscoverCommand({ target = null, configPath = null, wri
     progress.stop();
   }
 
-  const handWritten = (config.states ?? []).filter((state) => !state.generated).map((state) => state.name);
-  const states = statesFrom(found.explored, { taken: handWritten });
+  const handWritten = (config.states ?? []).filter((state) => !state.generated);
+  const { states, left } = discovered(found.explored, { taken: handWritten.map((state) => state.name), max: maxStates });
   const text = renderStatesFile(states);
   const shown = relative(cwd, statesFile) || statesFile;
+  const seconds = auditSeconds(states, handWritten);
 
-  if (json) io.stdout.write(JSON.stringify({ ...found, states, statesFile }, null, 2) + '\n');
-  else io.stderr.write(summary(found, stateNames(states).length));
+  if (json) io.stdout.write(JSON.stringify({ ...found, states, statesFile, maxStates, leftOut: left, auditSeconds: seconds }, null, 2) + '\n');
+  else io.stderr.write(summary(found, stateNames(states).length, { left, maxStates, seconds, own: handWritten.length }));
 
   if (!write) {
     if (!json) {
@@ -92,8 +98,9 @@ function changes(shown, before, after) {
 }
 
 // What the click-through came to, for the terminal: what it found on each
-// screen, what it left out and why, and whether it stopped short.
-function summary({ explored, dropped, runs }, count) {
+// screen, what it left out and why, whether it stopped short, and about how
+// long an audit through what it kept would take.
+function summary({ explored, dropped, runs }, count, { left, maxStates, seconds, own }) {
   const lines = [];
   for (const [formFactor, run] of Object.entries(runs)) {
     const states = explored[formFactor]?.length ?? 0;
@@ -104,8 +111,23 @@ function summary({ explored, dropped, runs }, count) {
   for (const { formFactor, name, role, reason } of dropped) {
     lines.push(`left out on ${formFactor}: ${role} "${name}" — it did not replay (${reason})`);
   }
-  lines.push(`${count} state${count === 1 ? '' : 's'} found`);
+  if (left.length === 0) {
+    lines.push(`${count} state${count === 1 ? '' : 's'} found`);
+  } else {
+    const names = left.slice(0, NAMED).map(({ role, name }) => `${role} "${(name ?? '').slice(0, 40)}"`).join(', ') + (left.length > NAMED ? ', …' : '');
+    lines.push(`${count + left.length} states found, ${count} kept: ${left.length} over --max-states ${maxStates} left out, the last found (${names})`);
+  }
+  if (count + own > 0) {
+    const through = [count > 0 ? (count === 1 ? 'this state' : 'these states') : null, own > 0 ? `the ${own} of .kanso.yml` : null].filter(Boolean).join(' and ');
+    lines.push(`an audit through ${through} takes ${duration(seconds)}, roughly — twice that against a baseline`);
+  }
   return lines.join('\n') + '\n';
+}
+
+// An estimate said as one: minutes, rounded, and nothing finer.
+function duration(seconds) {
+  if (seconds < 90) return 'about a minute';
+  return `about ${Math.round(seconds / 60)} min`;
 }
 
 // The clicks not kept because the guards stopped something they did, and

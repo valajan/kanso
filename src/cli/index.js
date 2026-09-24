@@ -14,6 +14,7 @@ const OPTIONS = {
   write: { type: 'boolean', short: 'w' },
   depth: { type: 'string' },
   'max-clicks': { type: 'string' },
+  'max-states': { type: 'string' },
   'form-factor': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
@@ -22,7 +23,7 @@ const OPTIONS = {
 const USAGE = `Kanso — frontend audits, on your machine
 
   kanso audit [url | dir] [options]
-  kanso discover [url | dir] [--write]
+  kanso discover [url | dir] [--write] [--max-states <n>]
   kanso mcp
 
 Audits a page on mobile and desktop and judges it against your budgets, or
@@ -37,8 +38,10 @@ sending or leaving it. It prints them, or, with --write, writes them to
 .kanso/states.yml beside .kanso.yml — rewritten whole each time, and read with
 it. .kanso.yml is never touched: a state written by hand there is kept, and
 wins over a found one. Each state found is reached a second time before it is
-kept. A button that closes a state is written as its close:, not as a state;
---json lists every click, with what it changed.
+kept, and twenty are kept at most (--max-states): an audit goes through every
+one, and the summary says about how long that takes. A button that closes a
+state is written as its close:, not as a state; --json lists every click, with
+what it changed.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the
@@ -65,6 +68,8 @@ Options for discover
                         .kanso.yml (or --config)
       --depth <n>       clicks deep, 1-3 (default: 2)
       --max-clicks <n>  clicks per screen before stopping (default: 60)
+      --max-states <n>  states written, at most, top-level ones first
+                        (default: 20). An audit takes about 15 s per state
       --form-factor <mobile | desktop>
                         explore one screen only (default: both)
       --json            print what was found as JSON
@@ -102,7 +107,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     const [head, ...rest] = positionals;
     if (!['audit', 'discover', 'mcp'].includes(head) && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
 
-    const discoverOnly = ['write', 'depth', 'max-clicks', 'form-factor'].filter((key) => key in values);
+    const discoverOnly = ['write', 'depth', 'max-clicks', 'max-states', 'form-factor'].filter((key) => key in values);
     if (head === 'discover') {
       const auditOnly = ['baseline', 'runs', 'fail-on', 'out', 'record'].filter((key) => key in values);
       if (auditOnly.length > 0) throw new UsageError(`discover takes no --${auditOnly[0]}: that is an audit's`);
@@ -114,6 +119,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
         json: Boolean(values.json),
         maxDepth: values.depth == null ? undefined : whole(values.depth, 'depth', 1, 3),
         maxClicks: values['max-clicks'] == null ? undefined : whole(values['max-clicks'], 'max-clicks', 1, 500),
+        maxStates: values['max-states'] == null ? undefined : whole(values['max-states'], 'max-states', 1, 500),
         formFactors: values['form-factor'] == null ? undefined : [formFactor(values['form-factor'])],
         cwd,
         io,
