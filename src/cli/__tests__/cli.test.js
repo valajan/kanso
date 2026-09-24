@@ -563,9 +563,10 @@ test('a mistake in the command line exits 2 and points at the help', async () =>
 });
 
 // A record is where each load's journal goes: the runner is told where, and
-// which page it is loading, and the result lands beside the journals. What an
-// earlier audit left there goes; nothing else does.
-test('--record hands each load the directory and writes the result beside the journals', async () => {
+// which page it is loading, and the result lands beside the journals, with the
+// page that shows them. What an earlier audit left there goes; nothing else
+// does.
+test('--record hands each load the directory and writes the result and its page beside the journals', async () => {
   const cwd = emptyProject();
   const dir = join(cwd, 'rec');
   mkdirSync(dir);
@@ -584,6 +585,7 @@ test('--record hands each load the directory and writes the result beside the jo
     ],
   );
   assert.equal(JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8')).url, 'http://localhost:3000/');
+  assert.match(readFileSync(join(dir, 'index.html'), 'utf8'), /<title>Kanso record<\/title>/);
   assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
   assert.throws(() => readFileSync(join(dir, 'current.mobile.3.jsonl')));
   assert.match(err, /journal kept in/);

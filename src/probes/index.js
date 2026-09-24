@@ -76,7 +76,9 @@ const SETTLE_MS = 5_000;
 //
 // With a `journal` (src/probes/journal.js), each probe's way through the page
 // is logged — its load, each state, how it ended, each finding — and the probe
-// is handed a `log` of its own for the rest.
+// is handed a `log` of its own for the rest. The page as it loaded and as each
+// state showed is logged with a frame of it; not for a probe that measures,
+// whose timing a screenshot would skew.
 //
 // With `measuresOnly`, only the probes that measure run: the others check
 // what does not vary from one load to the next and ran on the first
@@ -122,7 +124,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
     // One at a time: a probe presses keys and reads focus, which only the page
     // in front has.
     for (const { mod, probe, config } of wanted) {
-      const log = journal.with({ probe: probe.id });
+      const log = probe.measures ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
       const started = Date.now();
       log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
@@ -174,7 +176,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
         const found = await step(async () => {
           const started = Date.now();
           await applyState(page, state, { waitMs: timeoutMs / 3 });
-          at.log('state-reached', { click: state.click, ...(state.waitFor ? { waitFor: state.waitFor } : {}), ms: Date.now() - started });
+          await at.shot(page, 'state-reached', { click: state.click, ...(state.waitFor ? { waitFor: state.waitFor } : {}), ms: Date.now() - started });
           return probe.run(page, { url, formFactor, config, at: state.name, log: at });
         });
         findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
@@ -247,7 +249,7 @@ async function loadPage(context, probe, { url, settings, timeoutMs, log }) {
   await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
   await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
   await page.bringToFront();
-  log.log('loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
+  await log.shot(page, 'loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
   return page;
 }
 

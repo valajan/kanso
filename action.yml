@@ -43,7 +43,8 @@ inputs:
   record:
     description: >
       true to keep a journal of what the checks did on each page load — one
-      JSON Lines file per load, and the result beside them as audit.json — and
+      JSON Lines file per load, the result beside them as audit.json, and an
+      index.html that shows them, frames of the page included — and
       upload it as a workflow artifact, a failed audit included: that is when
       it is wanted.
     required: false
