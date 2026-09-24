@@ -1,7 +1,6 @@
 import { moduleConfig } from '../config/module-config.js';
 import { countLabel, elementHint, elementWhere, explanationLine, sharedExplanation } from '../modules/findings.js';
-import { MODULES } from '../modules/index.js';
-import { inpProbed } from '../modules/performance/inp.js';
+import { checkLabel, MODULES } from '../modules/index.js';
 import { getMetric, METRICS, roundScore } from '../modules/performance/metrics.js';
 import { evaluateStatuses, failThreshold, metricsWithStatus } from '../modules/performance/status.js';
 import { siteName } from '../serve/index.js';
@@ -52,15 +51,16 @@ export function renderMarkdown({ url, baseline, served = null, result, config = 
 // `modules` is the audit's per-module results, from which the findings sections
 // are built; a module that reports none contributes nothing.
 // `diagnostics` is the performance module's, of which the report says only
-// why INP is missing, when it is.
+// why INP is missing part of its clicks, when it is. Why it is missing
+// altogether is the performance module's `skipped`, said as every module's is.
 //
 // Exported for the tests, which are the only other caller.
 export function formatReport(scores, { header, budget = {}, referenceKind = 'baseline', referenceLabel = 'baseline', modules = {}, diagnostics = {} } = {}) {
   const sections = [
     renderSection('mobile', scores.mobile, budget, { referenceLabel, referenceKind, inp: diagnostics.mobile?.current?.inp }),
     renderSection('desktop', scores.desktop, budget, { referenceLabel, referenceKind, inp: diagnostics.desktop?.current?.inp }),
-    ...(Object.keys(scores).length > 0 && !inpProbed({ diagnostics })
-      ? ['_INP not measured: no `states:` declared in `.kanso.yml`, so nothing was clicked to time._\n']
+    ...(Object.keys(scores).length > 0 && modules.performance?.skipped?.length > 0
+      ? [`${skippedLine('performance', modules.performance.skipped)}\n`]
       : []),
     // Findings are compared against the reference page, whatever the metrics
     // ended up being judged against — the two can differ, since budgets alone
@@ -207,7 +207,7 @@ const RULES_NAMED = 6;
 // failed folded into a <details>, and a line saying what it was all judged
 // against — without which a reader cannot tell a clean page from a page whose
 // findings were all there before the change.
-function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [], probeFailures = [] }, referenceLabel) {
+function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn, ignore = [], probeFailures = [], skipped = [] }, referenceLabel) {
   const heading = `### ${MODULE_ICONS[mod.id] ?? '🔎'} ${mod.label}`;
 
   // What it was all judged against, found or not: without it, a section with
@@ -232,7 +232,10 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
       ? `\n_⚠️ ${code(at)} could not be reached on ${where}: ${rulesLabel(rules)} unchecked there_`
       : `\n_⚠️ ${code(probe)} did not run on ${where}: ${rulesLabel(rules)} unchecked_`;
   });
-  const judged = `_${parts.join(' · ')}_${unchecked.join('')}`;
+  // A probe left out for want of a state is neither: nothing went wrong, and
+  // nothing was checked.
+  const notRun = skipped.length > 0 ? `\n${skippedLine(mod.id, skipped)}` : '';
+  const judged = `_${parts.join(' · ')}_${unchecked.join('')}${notRun}`;
 
   if (findings.length === 0) {
     return `${heading}\n\n_No findings — every rule checked passed._\n\n${judged}\n`;
@@ -282,6 +285,16 @@ function renderFindings(mod, { findings, fixed = [], comparedToBaseline, failOn,
 // loads: the declared state it was found in.
 function atLabel({ at }) {
   return at ? ` @ ${code(at)}` : '';
+}
+
+// The probes of a module that did not run, the project declaring no state for
+// them to open or click, and the rules nobody checked for it — with the way
+// to declare some.
+function skippedLine(moduleId, skipped) {
+  const probes = skipped.map(({ probe }) => code(probe)).join(', ');
+  const rules = skipped.flatMap((skip) => skip.rules.map((rule) => checkLabel(moduleId, rule)));
+  return `_⏭️ ${probes} skipped: no \`states:\` declared in \`.kanso.yml\`, so nothing was opened or clicked: `
+    + `${rulesLabel(rules)} not checked. \`kanso discover --write\` finds them._`;
 }
 
 // A handful of rules by name; axe's hundred by number.

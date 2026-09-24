@@ -111,7 +111,27 @@ test('an INP nobody measured says so, and why', async () => {
 
   assert.equal(code, 0);
   assert.match(out, /INP\s+500ms\s+—\s+—\s+not measured/);
-  assert.equal(out.match(/INP not measured: no states declared in \.kanso\.yml/g).length, 1, 'said once, not per form factor');
+  assert.equal(out.match(/- inp skipped: no states declared in \.kanso\.yml, so nothing was opened or clicked: INP not checked/g).length, 1, 'said once, not per form factor');
+});
+
+// The probes that need a state to open are skipped without one, which is said
+// module by module — apart from a probe that failed, and never as a clean page.
+test('a probe skipped for want of a state is said, with the rules nobody checked', async () => {
+  const quiet = { ...GOOD, inp: null, diagnostics: { inp: null } };
+  const clean = { findings: [] };
+  const runLighthouse = async () => ({ performance: quiet, accessibility: clean, seo: clean, 'best-practices': clean, interactions: clean });
+
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+
+  assert.equal(code, 0);
+  assert.match(out, /Accessibility {2}pass\n\n {2}no findings\n\n {2}failing from serious up\n\n {2}- focus skipped: no states declared in \.kanso\.yml, so nothing was opened or clicked: 7 rules not checked \(kanso discover --write finds them\)\n/);
+  assert.match(out, /- residues, leaks skipped: .*: 10 rules not checked/);
+  assert.doesNotMatch(out, /SEO[^]*skipped[^]*Interactions/, 'a module with nothing to skip says nothing');
+
+  const cwd = emptyProject();
+  writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    form_factor: desktop\n');
+  const { out: declared } = await run(['audit', 'http://localhost:3000'], { runLighthouse, cwd });
+  assert.doesNotMatch(declared, /skipped/, 'a state on one screen is a state declared');
 });
 
 test('an INP over budget names the click, and where its time went', async () => {
@@ -119,7 +139,10 @@ test('an INP over budget names the click, and where its time went', async () => 
     type: 'click', at: 'menu', latency: 640, inputDelay: 12, processing: 600, presentation: 28,
     target: { selector: 'header > button#open', snippet: '<button id="open">', label: 'Menu' },
   };
+  const cwd = emptyProject();
+  writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n  - name: signup\n    click: "#signup"\n');
   const { code, out } = await run(['audit', 'http://localhost:3000'], {
+    cwd,
     runLighthouse: fakeRunner({ 'http://localhost:3000/': {
       ...GOOD, inp: 640,
       diagnostics: { inp: { interaction, count: 2, failures: [{ at: 'signup', error: 'nothing visible to click at #signup' }] } },
@@ -131,7 +154,7 @@ test('an INP over budget names the click, and where its time went', async () => 
   assert.match(out, /INP interaction\s+click {2}header > button#open {2}"Menu" {2}@ menu/);
   assert.match(out, /INP, parts\s+640ms = 12ms input delay \+ 600ms processing \+ 28ms presentation/);
   assert.match(out, /! signup could not be reached \(nothing visible to click at #signup\): its click is not in the INP/);
-  assert.doesNotMatch(out, /no states declared/);
+  assert.doesNotMatch(out, /no states declared|skipped/);
   assert.match(out, /fail · INP/);
 });
 

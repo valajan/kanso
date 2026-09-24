@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import performance from '../index.js';
-import { inpDiagnostics, inpProbed, slowestInteraction } from '../inp.js';
+import { inpDiagnostics, slowestInteraction } from '../inp.js';
 import { evaluateStatuses } from '../status.js';
 
 // A Lighthouse report with every metric the module reads, and nothing else.
@@ -72,6 +72,4 @@ test('the helpers read nothing into nothing', () => {
   assert.equal(slowestInteraction([]), null);
   assert.equal(slowestInteraction(undefined), null);
   assert.equal(inpDiagnostics(null), null);
-  assert.equal(inpProbed({ diagnostics: { mobile: { current: { inp: null }, baseline: null } } }), false);
-  assert.equal(inpProbed({ diagnostics: { mobile: { current: { inp: { count: 0, failures: [] } } } } }), true);
 });

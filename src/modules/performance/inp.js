@@ -67,12 +67,6 @@ export function inpDiagnostics(probed) {
   };
 }
 
-// Whether the probe ran for any load of a performance result — false when the
-// project declared no state, and INP was never going to be measured.
-export function inpProbed({ diagnostics = {} } = {}) {
-  return Object.values(diagnostics).some((sides) => sides?.current?.inp != null || sides?.baseline?.inp != null);
-}
-
 // --- in the page ----------------------------------------------------------------
 
 // Installed before any of the page's scripts, in the top frame: keeps the
