@@ -7,7 +7,8 @@ import { applyState } from './states.js';
 // when it opens, what is left when it closes. The runner brings a fresh page
 // to the state before this one; these open it, tell whether it is open, close
 // it, and say where focus is — the moves every such check makes, whatever it
-// checks. Each is logged, so a journal shows the transition as it went.
+// checks. Each is logged, so a journal shows the transition as it went — the
+// opening and the closing with a frame of the page as they left it.
 //
 // Whether a state is open is read from what the configuration says of it, and
 // nothing else: its `wait_for` when it has one, else its trigger's
@@ -78,7 +79,7 @@ export function transitionTools(page, state, { waitMs, log }) {
       if (by === 'click') {
         await applyState(page, state, { waitMs, fromTop });
         const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
-        log.log('open', { by, opened: true, what: opened.kind, ms: Date.now() - started });
+        await log.shot(page, 'open', { by, opened: true, what: opened.kind, ms: Date.now() - started });
         return { opened: true, ...opened };
       }
 
@@ -104,7 +105,7 @@ export function transitionTools(page, state, { waitMs, log }) {
       }
       await settle();
       const opened = await inPage(page, whatOpenedInPage, state.click, state.waitFor ?? null);
-      log.log('open', { by, ...result, what: opened.kind, ms: Date.now() - started });
+      await log.shot(page, 'open', { by, ...result, what: opened.kind, ms: Date.now() - started });
       return { ...result, ...opened };
     },
 
@@ -133,7 +134,7 @@ export function transitionTools(page, state, { waitMs, log }) {
       else await page.click(state.close);
       const closed = await becomes(false, KEY_WAIT_MS);
       await settle();
-      log.log('close', { by, closed, ms: Date.now() - started });
+      await log.shot(page, 'close', { by, closed, ms: Date.now() - started });
       return { closed };
     },
 

@@ -1,11 +1,10 @@
-import { writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates } from '../config/states.js';
 import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
-import { clearRecord, RECORD_RESULT } from '../core/record.js';
+import { clearRecord, writeRecord } from '../core/record.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
 import { MODULES } from '../modules/index.js';
@@ -91,8 +90,9 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'reported and not held against it. '
       + 'Name a record directory to keep a journal of what the checks did on each load — the page loaded, '
       + 'each state reached or not, each Tab stop, each finding with the path of its elements — one JSON '
-      + 'Lines file per load, beside the result as audit.json: for when a finding needs retracing to the '
-      + 'moment that produced it. '
+      + 'Lines file per load, with frames of the page at the moments that explain a finding, beside the result '
+      + 'as audit.json and an index.html that shows them all offline: for when a finding needs retracing to '
+      + 'the moment that produced it. '
       + 'Takes 10 to 60 seconds per run, and reports progress while it works.',
     inputSchema: {
       type: 'object',
@@ -120,7 +120,8 @@ function auditPage({ cwd, runLighthouse, now }) {
           type: 'string',
           description:
             'A directory to keep the journal in, relative to the project: one file per page load, '
-            + '<side>.<formFactor>.<run>.jsonl, and the result as audit.json. What an earlier audit recorded '
+            + '<side>.<formFactor>.<run>.jsonl, its frames under frames/, the result as audit.json, and '
+            + 'index.html, a page a person opens to see it all. What an earlier audit recorded '
             + 'there is replaced; nothing else in it is touched. The result says where it went, under record. '
             + 'Defaults to no journal.',
         },
@@ -195,11 +196,11 @@ function auditPage({ cwd, runLighthouse, now }) {
         elapsedMs: now() - started,
         ...audited,
       };
-      // The record holds the result as the call returned it, and the result
-      // says where the record is — the one thing audit.json leaves out, since
-      // it sits in that directory.
+      // The record holds the result as the call returned it, and the page that
+      // shows it; the result says where the record is — the one thing
+      // audit.json leaves out, since it sits in that directory.
       if (recordDir) {
-        writeFileSync(join(recordDir, RECORD_RESULT), JSON.stringify(payload, null, 2) + '\n');
+        writeRecord(recordDir, payload);
         payload.record = recordDir;
       }
 

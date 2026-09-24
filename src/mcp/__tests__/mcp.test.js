@@ -285,6 +285,7 @@ test('record hands each load the directory and writes the result beside the jour
   const recorded = JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8'));
   assert.equal(recorded.url, 'http://localhost:4173/');
   assert.equal(recorded.conclusion, payload.conclusion);
+  assert.match(readFileSync(join(dir, 'index.html'), 'utf8'), /<title>Kanso record<\/title>/);
   assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
   assert.throws(() => readFileSync(join(dir, 'current.mobile.3.jsonl')));
 });

@@ -111,7 +111,12 @@ run where the code is.
   with its rule, state and element paths, and what a probe logs of its own
   through the `log` it is handed (the keyboard walk's every stop) — one JSON
   Lines file per load, `<side>.<formFactor>.<run>.jsonl`, written from the
-  worker however the load ends; off, it is a no-op
+  worker however the load ends; off, it is a no-op. A view's `shot(page,
+  kind, data)` logs an event with a frame — a JPEG of the viewport (quality
+  60, forty a load at most) and its size in CSS pixels — kept in memory, then
+  written under `frames/<journal>/`: the page loaded, each state reached, a
+  transition's open and close. Never for a probe that measures
+  (`withoutFrames()`), never with NO_JOURNAL
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -124,9 +129,15 @@ run where the code is.
   every module and returns the verdict; `levels.js` combines `pass`/`warn`/`fail`
   worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
   what every surface accepts as a page to audit; `record.js` is what a record
-  directory holds, and clears an earlier audit's files from it before a new
-  one. The CLI and the MCP server are its two callers — and the Action is the
-  CLI.
+  directory holds, clears an earlier audit's files from it before a new one,
+  and writes the result and `index.html` into it once the audit is done —
+  `viewer.js`, one self-contained page (no request: it opens from file://,
+  journals, result and frames inlined) listing the findings and, for the one
+  selected, the moments that produced it — joined on form factor, probe,
+  state, rule and element — frames with the focus boxes drawn over them;
+  a finding exports from it as a page of its own, built in the browser by the
+  same functions. The CLI and the MCP server are its two callers — and the
+  Action is the CLI.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
   documents the module interface (`extract`, `combine`, `needsBaseline`,
   `evaluate`) and the two shapes of detail every surface can render — `scores`
@@ -208,7 +219,8 @@ run where the code is.
   1 audited and over `--fail-on`, 2 the audit could not run — which is what
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
   result and nothing else. `--record <dir>` keeps the probes' journals there,
-  and the result beside them as `audit.json`
+  their frames, the result beside them as `audit.json`, and `index.html` to
+  see it all
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv

@@ -368,6 +368,32 @@ test('a transition probe goes into and out of each state, in a page brought to t
   ]);
 });
 
+// Frames: what the page looked like at each moment that explains a finding —
+// the page loaded, the transition's way in and out — each a JPEG of the
+// viewport, with the size of the viewport the focus boxes are measured in.
+test('a recorded transition carries frames of the page loaded, opened and closed', async () => {
+  const { recorder } = transitionRecorder();
+  const journal = new Journal();
+  await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
+
+  assert.deepEqual(journal.events.filter((e) => e.frame).map((e) => [e.kind, e.at]), [
+    ['loaded', 'menu'], ['open', 'menu'], ['close', 'menu'],
+    ['loaded', 'settings'], ['open', 'settings'], ['close', 'settings'],
+  ]);
+  for (const { frame } of journal.events.filter((e) => e.frame)) {
+    assert.deepEqual({ width: frame.width, height: frame.height, scale: frame.scale }, { width: 412, height: 823, scale: 1.75 });
+    const jpeg = journal.frames.get(frame.file);
+    assert.deepEqual([...jpeg.subarray(0, 2)], [0xff, 0xd8]);
+    assert.ok(jpeg.length < 200_000, `a frame of ${jpeg.length} bytes`);
+  }
+
+  // The focus read after the dialog opened carries the box it is in, which a
+  // viewer draws over the frame before it.
+  const inside = journal.events.find((e) => e.kind === 'focus' && e.why === 'opened');
+  assert.equal(inside.frame, undefined);
+  assert.ok(inside.rect.width > 0 && inside.rect.height > 0);
+});
+
 test('a state no key opens says so, and the click still opens it; one nothing closes, says that', async () => {
   const { recorder, seen } = transitionRecorder();
   const { accessibility: result } = await probe('transitions.html', { modules: only(recorder), config: { states: [MORE_T] } });
@@ -694,6 +720,15 @@ test('a click that cannot be made leaves its state, and the ones after it, untim
 
 // The loads after the first run the probes that measure, and those alone:
 // a median needs a number from each load; a finding does not change.
+// A screenshot between two clicks would be timed with them.
+test('the probe that measures is journaled without a frame', async () => {
+  const journal = new Journal();
+  await probe('inp-slow.html', { modules: [performance], config: { states: [QUICK] }, journal });
+  assert.deepEqual(journal.events.filter((e) => e.probe === 'inp').map((e) => e.kind).slice(0, 3), ['probe-start', 'loaded', 'state-reached']);
+  assert.deepEqual(journal.events.filter((e) => e.frame), []);
+  assert.equal(journal.frames.size, 0);
+});
+
 test('on a repeated load, only the probe that measures runs', async () => {
   const result = await probe('inp-slow.html', {
     modules: [performance, only(axeProbe)[0]], config: { states: [SLOW] }, measuresOnly: true,
