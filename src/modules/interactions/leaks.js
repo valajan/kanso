@@ -34,6 +34,9 @@ export const leaks = {
   id: 'leaks',
   rules: Object.keys(TEXT),
   transitions: true,
+  // Sixteen openings and closings a state, the same picture each time: they
+  // would spend a load's frames on nothing the journal needs to show.
+  frames: false,
 
   async transition(page, state, tools) {
     const trigger = await tools.trigger();

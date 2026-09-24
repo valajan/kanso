@@ -78,7 +78,8 @@ const SETTLE_MS = 5_000;
 // is logged — its load, each state, how it ended, each finding — and the probe
 // is handed a `log` of its own for the rest. The page as it loaded and as each
 // state showed is logged with a frame of it; not for a probe that measures,
-// whose timing a screenshot would skew.
+// whose timing a screenshot would skew, nor for one that says `frames: false`
+// — one that goes through the same moment again and again.
 //
 // With `measuresOnly`, only the probes that measure run: the others check
 // what does not vary from one load to the next and ran on the first
@@ -124,7 +125,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
     // One at a time: a probe presses keys and reads focus, which only the page
     // in front has.
     for (const { mod, probe, config } of wanted) {
-      const log = probe.measures ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
+      const log = probe.measures || probe.frames === false ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
       const started = Date.now();
       log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
