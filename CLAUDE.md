@@ -257,7 +257,8 @@ run where the code is.
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
   `reflow-scroll` when it scrolls sideways, `reflow-clip` when text is cut off
   — in the mobile load's states too, a state its trigger is gone from at that
-  width failing as unreached;
+  width failing as unreached, and a modal dialog open there read alone (the
+  page behind it locked would read as cut off);
   `keyboard.js` presses Tab from the top until focus leaves the page —
   `focus-trap`, `focus-visible`, `focus-obscured` — and in each state from
   where the click left focus, which is no stop (a click lights no

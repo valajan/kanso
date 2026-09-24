@@ -24,7 +24,10 @@ import { impactOf } from './rules.js';
 // 320 px falls under, and a state only a desktop has is not looked for. One
 // the mobile screen has and 320 px does not — its trigger gone at that width —
 // cannot be reached, and fails as any state does: what it shows at 320 px is
-// unknown, and nothing found there would be nothing checked.
+// unknown, and nothing found there would be nothing checked. In a state with
+// a modal dialog open, the dialog is what is read: the page behind it is out
+// of reach, and usually locked — its scrolling taken away, which would read
+// everything wider than the screen as cut off, when it is only waiting.
 const VIEWPORT_WIDTH = 320;
 
 export const reflow = {
@@ -40,8 +43,8 @@ export const reflow = {
   // `orientation: landscape` rule applies.
   viewport: { width: VIEWPORT_WIDTH, height: 640, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
 
-  async run(page) {
-    return reflowFindings(await inPage(page, measureReflow));
+  async run(page, { at } = {}) {
+    return reflowFindings(await inPage(page, measureReflow, at != null));
   },
 };
 
@@ -95,9 +98,12 @@ export function reflowFindings({ viewport, scrolls, culprits, clipped }) {
 //             or, when the screen does, the outermost element carrying the
 //             text past it
 //
+// `inState`: in a declared state, where an open modal dialog is all that is
+// read.
+//
 // Sent to the page as source (src/probes/dom.js): nothing outside it is in
 // scope there.
-export async function measureReflow(dom) {
+export async function measureReflow(dom, inState = false) {
   await document.fonts?.ready;
 
   const root = document.documentElement;
@@ -119,6 +125,11 @@ export async function measureReflow(dom) {
   const screenClips = clips(rootCss) || (rootCss.overflowX === 'visible' && clips(style(body)));
   const scrolls = root.scrollWidth > viewport + 1 && !screenClips;
 
+  // What is read: the page, or the modal dialog a state left open over it.
+  const shows = (el) => (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) : el.getClientRects().length > 0);
+  const scope = (inState && [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')]
+    .find((el) => shows(el) && dom.modal(el))) || body;
+
   // What may need two dimensions (WCAG's exceptions), and whatever it holds.
   const TWO_DIMENSIONAL = new Set(['img', 'picture', 'video', 'audio', 'canvas', 'svg', 'iframe', 'object', 'embed', 'map', 'table']);
 
@@ -137,7 +148,7 @@ export async function measureReflow(dom) {
     if (element !== body && (clips(css) || css.overflowX === 'auto' || css.overflowX === 'scroll')) return;
     for (const child of element.children) visit(child);
   };
-  if (scrolls) visit(body);
+  if (scrolls) visit(scope);
   const withinCulprit = (element) => {
     for (let node = element; node; node = node.parentElement) if (culprits.has(node)) return true;
     return false;
@@ -201,7 +212,7 @@ export async function measureReflow(dom) {
   };
 
   const cut = new Map();
-  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
   while (walker.nextNode()) {
     const text = walker.currentNode;

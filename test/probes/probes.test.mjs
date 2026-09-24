@@ -325,17 +325,21 @@ test('reflow runs on the mobile load only', async () => {
 
 // A panel of fixed width is where a page that reflows stops reflowing — and a
 // menu is one. The banner the page shows as it loads is reported there, and
-// not again with the menu open over it.
+// not again with the menu open over it. A modal dialog is read alone.
 const WIDE_MENU = { name: 'menu', click: '#open', wait_for: "#open[aria-expanded='true']" };
 
 test('reflow lays each state out at 320 px too, and reports what it adds', async () => {
   const faq = { name: 'faq', click: '#faq summary', wait_for: '#faq[open]' };
-  const { accessibility: result } = await probe('reflow-states.html', { modules: only(reflow), config: { states: [WIDE_MENU, faq] } });
+  const dialog = { name: 'dialog', click: '#contact', wait_for: '#dialog:not([hidden])' };
+  const { accessibility: result } = await probe('reflow-states.html', { modules: only(reflow), config: { states: [WIDE_MENU, faq, dialog] } });
 
   assert.deepEqual(result.failures, []);
   assert.deepEqual(result.findings.map(({ rule, at, nodes }) => [rule, at ?? null, nodes.map((node) => node.selector)]), [
     ['reflow-scroll', null, ['body > main > div.banner']],
     ['reflow-scroll', 'menu', ['body > header > nav#menu']],
+    // The dialog's own form, and not the banner its lock leaves cut off
+    // behind it.
+    ['reflow-clip', 'dialog', ['body > div#dialog > div.fields']],
   ]);
 });
 
