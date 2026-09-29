@@ -8,11 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 node bin/kanso.js audit <url>  # Audit a page from the terminal (npm run kanso -- audit <url>)
 node bin/kanso.js audit dist   # Audit a build directory, served by Kanso for the audit
 node bin/kanso.js discover dist [--write] [--max-states 20]  # Find the page's states (20 at most by default), print them or write .kanso/states.yml
+node bin/kanso.js discover dist --check  # Replay the declared states, explore nothing; exit 0 all fine, 1 not, 2 could not run
 node bin/kanso.js mcp          # Serve the audit to a coding agent over MCP (stdio)
 npm test           # Run all tests (Node's built-in test runner)
 node --test src/modules/performance/__tests__/status.test.js  # Run a single test file
 npm run test:probes      # The probes against a real Chrome, on pages with known answers (~10 s)
 npm run test:discover    # The click-through behind `kanso discover`, against a real Chrome
+npm run test:check       # `checkStates` and `kanso discover --check` against a real Chrome, on a page built to break each fact (~75 s)
 npm run test:acceptance  # End-to-end suite against ../kanso-landing (needs Chrome, ~5 min)
 ```
 
@@ -60,15 +62,18 @@ surface onto it.
 
 Three surfaces exist today:
 
-- **the CLI** (`bin/kanso.js`) — `kanso audit <url | dir>` (and `kanso discover`,
-  which writes the states the audit goes through), on a developer's
+- **the CLI** (`bin/kanso.js`) — `kanso audit <url | dir>` (`kanso discover`, which writes the states the audit goes through, and
+  `kanso discover --check`, which replays the declared ones and explores
+  nothing — what a CI job runs), on a developer's
   machine, against a local build. No server, no credentials, no network but the
   page. The **GitHub Action** (`action.yml`) is this CLI run in a client's own
   runner: it writes the Markdown report to the job summary and fails the job on
   the verdict, with no token and no permission.
 - **the MCP server** (`kanso mcp`) — the same audit over stdio, so the agent
   that wrote the code can measure it. Facts only: in MCP the host is the model,
-  so nothing here calls one.
+  so nothing here calls one. Besides `audit_page` and `list_modules`, it has
+  `check_states`: the agent, which has the source, proposes the page's states
+  and Kanso verifies them.
 - **the GitHub Action** (`action.yml`) — the CLI again, in a client's own
   runner, writing the Markdown report to the job summary and exiting on the
   verdict. With `record: true` it passes `--record` and uploads the journal as
@@ -102,7 +107,8 @@ run where the code is.
   on its module's result as `skipped` (`{ probe, rules, reason: 'no-states' }`,
   less the rules `ignore:` leaves out), and the terminal, the Markdown report,
   the JSON and the record's page say so apart from a failure — not checked,
-  not clean, with `kanso discover --write` to find the states. States declared
+  not clean, with `check_states` (the agent proposes states, Kanso verifies them)
+  or `kanso discover --write` to find them. States declared
   for one screen only are states declared: the other has none to open, and
   nothing is skipped there. A probe marked `states: true` (axe, reflow, keyboard and INP) also goes
   through the states `.kanso.yml` declares at its root (`src/config/states.js`
@@ -195,7 +201,38 @@ run where the code is.
   the screen with more (`auditSeconds`, calibrated on a real 30-state audit),
   which the summary prints as an order of magnitude, `--json` as
   `auditSeconds`. No model: the POC
-  (`poc/jev-discovery`) showed a model adds little to finding states
+  (`poc/jev-discovery`) showed a model adds little to finding states. The
+  exploration is kept as a fallback for a first draft, with no new investment:
+  finding the states is the coding agent's job, which has the source, and
+  nothing that runs in CI explores the page any more — CI only replays.
+  `check.js` is that replay, `checkStates(url, states)`: each proposed state
+  (the shape `.kanso.yml` takes) is reached from a first visit in a page of
+  its own, down its path (`pathTo`), on each screen it is on (`statesOn`),
+  under the same guards as `explore.js` and `index.js` — a click the guards
+  had to stop is not reached, since an audit stops nothing — and reported as
+  facts, not judged: `reached`, or the `step` it failed at (`path`, `click`,
+  `wait_for`, `guards`, `left`) with its `reason` and, under a state not
+  reached, every state below it failing through it; the `click` (how many
+  elements the selector matches and how many are visible, the element by role
+  and name, the `steadiest` selector that finds it alone, `refused` when the
+  explorer's rules would not have touched it); `waitFor` (matches before and
+  after the click: one already there before waits for nothing); `changed`
+  (`appeared`, `disappeared`, `newText`, less what `prepare`'s two first
+  visits disagree on); `duplicates` (an earlier state on the same screen it
+  ends at too); `close` (whether clicking it brings the page back, `backTo`);
+  `closesParent` (its click brings the page back to where it loaded: a
+  dialog's ×, which is the `close:` of the state it is under, not a state);
+  and `revealed` (what can be clicked in the state that was not there before,
+  one per family, `families`, so that the agent can propose the states under
+  it without guessing). `walk` (the replay's order and its skips) and
+  `summarize` are pure and unit-tested; the rest needs a Chrome
+  (`test:check`). `summary.ok` is false when a state is unreached, unchanged,
+  a duplicate, a `closesParent`, or has a `close:` that does not close —
+  `ambiguous` (a selector matching more than one element) and `waitsForNothing`
+  are worth fixing, replay all the same, and are only counted. What it shares
+  with `explore.js` (`broughtBy`, `backTo`, `capped`, `families`, `keyOf`,
+  `samePage`, `without`) is exported from there; `err.step` in
+  `src/probes/states.js` says which step of a state failed.
 - `process/` — `children.js`: the processes Kanso starts and must not leave
   behind — the servers `serve/command.js` starts, the Chromes an audit's
   workers and `discover` launch — each the leader of a process group, killed
@@ -306,7 +343,10 @@ run where the code is.
 - `cli/` — the local surface. `index.js` parses the command line,
   `audit-command.js` resolves the config, serves the target and runs
   `core/audit.js`, `discover-command.js` runs `discover/` and prints or writes
-  what it found, `render.js` prints the tables for a terminal and
+  what it found, `check-command.js` runs `kanso discover [target] --check`
+  (`checkStates` on the declared states only, no exploration; exit 0 when
+  `summary.ok`, 1 when not, 2 when it could not run), `render.js` (`renderCheck`
+  prints each state's facts beside `summary`) prints the tables for a terminal and
   `markdown.js` renders the report `--out report.md` writes, under a header
   naming what was audited — which is what a CI job summary shows. The exit code
   is the verdict — 0 audited and clean,
@@ -318,8 +358,11 @@ run where the code is.
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv
-  in for transports Kanso does not serve), `tools.js` exposes `audit_page` and
-  `list_modules`. The result is the JSON of `kanso audit --json`, in both the
+  in for transports Kanso does not serve), `tools.js` exposes `audit_page`,
+  `check_states` and `list_modules`. `check_states` takes the states to check
+  (`states`, else the ones the project declares), returns `checkStates`' result
+  as it is and writes nothing — the agent writes the states it keeps into
+  `.kanso.yml` itself. The audit's result is the JSON of `kanso audit --json`, in both the
   text and the structured block, with nothing sampled out — an agent handed
   part of a finding reloads the page for the rest; a long call reports
   progress, which is what keeps a host from abandoning it. With `screenshot:
@@ -386,7 +429,9 @@ one it loads in — `name`, `click`, optional `form_factor` (`mobile` or
 `close:` never spares a dialog its `escape-not-closing`), and optional `states:`, the
 states reached from it, which inherit its form factor — which a check can go
 through; a malformed one fails the config as it loads (`local-config.js`).
-They come from two files: `.kanso/states.yml`, which `kanso discover --write`
+They come from two files (and, in the recommended flow, from the coding agent:
+it proposes them through `check_states`, and writes the ones that check out
+into `.kanso.yml`; CI replays them with `discover --check`): `.kanso/states.yml`, which `kanso discover --write`
 rewrites whole, and the project's own `.kanso.yml`, for what a click-through
 cannot find. `loadLocalConfig` reads both (`statesFile` says where the first
 is: beside the configuration), and `combineStates` makes one flat list of them

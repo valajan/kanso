@@ -183,14 +183,25 @@ export async function explore(browser, formFactor, url, { maxDepth = DEFAULTS.ma
 // one per family — and, past the page as it loads, only what the state
 // brought: the menu's items, not the page behind it again.
 function candidatesOf(node, reading, selectorsOf, parent) {
-  const before = parent ? new Set(parent.reading.print.parts) : null;
-  const clicked = node.path.at(-1);
+  const brought = parent ? broughtBy(reading, parent.reading, node.path.at(-1)) : reading.allowed;
   return families(reading.snap, reading.allowed)
     .map(({ first }) => reading.snap.elements[first])
     .filter((e) => selectorsOf.get(e.index))
-    .filter((e) => !before || !before.has(partOf(e)))
-    .filter((e) => !clicked || !(e.role === clicked.role && e.name === clicked.name))
+    .filter((e) => brought.has(e.index))
     .map((e) => ({ ...e, selector: selectorsOf.get(e.index) }));
+}
+
+// The elements the guards allow in `reading` that are new with the state it
+// reads: none of the controls `before` already had, by role, name and
+// ARIA state, and not the element `clicked` to get there, whatever state it
+// says it is in now — the menu's items, not the page behind it again, nor the
+// burger that opened it. The numbers of the elements, as `allowed` holds them.
+export function broughtBy(reading, before, clicked) {
+  const had = new Set(before.print.parts);
+  return new Set([...reading.allowed].filter((i) => {
+    const e = reading.snap.elements[i];
+    return !had.has(partOf(e)) && !(clicked && e.role === clicked.role && e.name === clicked.name);
+  }));
 }
 
 // The allowed elements grouped by what they are, in page order of their first
@@ -297,11 +308,20 @@ function shape({ cssPath, name }, loose = false) {
 // state says: a trigger left saying it is expanded is still the page it was
 // opened on. And none of the text the state brought is still there.
 function closes(element, state, from, after, volatile) {
+  if (identities(from, volatile).includes(identity(element))) return false;
+  return backTo(from, state.reading, after, volatile);
+}
+
+// Whether `after` is the page `from` again, once the state read as `state`
+// was opened from it: the same controls and dialogs, by role and name,
+// whatever their ARIA state says, and none of the text the state brought
+// still there. What a close is judged by, whether the explorer found it or a
+// `close:` was handed to Kanso (./check.js).
+export function backTo(from, state, after, volatile) {
   const known = identities(from, volatile);
-  if (known.includes(identity(element))) return false;
   const now = identities(after, volatile);
   if (now.length !== known.length || now.some((id, i) => id !== known[i])) return false;
-  const brought = contentDiff(from.snap, state.reading.snap, volatile.lines).appeared;
+  const brought = contentDiff(from.snap, state.snap, volatile.lines).appeared;
   const left = new Set(contentDiff(from.snap, after.snap, volatile.lines).appeared);
   return !brought.some((line) => left.has(line));
 }
@@ -321,17 +341,17 @@ function identities(reading, volatile) {
 // a menu or a dialog brings, and the start of what a page swapped whole.
 const KEPT = 20;
 
-function capped(list) {
+export function capped(list) {
   return list.length > KEPT ? [...list.slice(0, KEPT), `… and ${list.length - KEPT} more`] : list;
 }
 
-function without({ appeared, disappeared }, ignored) {
+export function without({ appeared, disappeared }, ignored) {
   return { appeared: appeared.filter((p) => !ignored.has(p)), disappeared: disappeared.filter((p) => !ignored.has(p)) };
 }
 
 // The same document: a fragment is still the page, another path or query is
 // not.
-function samePage(a, b) {
+export function samePage(a, b) {
   try {
     const [x, y] = [new URL(a), new URL(b)];
     return x.origin === y.origin && x.pathname === y.pathname && x.search === y.search;
@@ -342,7 +362,7 @@ function samePage(a, b) {
 
 // A state: its controls, and the text it shows that the page as it loads does
 // not, less what changes on its own.
-function keyOf(reading, rootReading, volatile) {
+export function keyOf(reading, rootReading, volatile) {
   const text = contentDiff(rootReading.snap, reading.snap, volatile.lines).appeared;
   const parts = reading.print.parts.filter((p) => !volatile.parts.has(p));
   return createHash('sha1').update(parts.join('\n')).update('\0').update([...text].sort().join('\n')).digest('hex').slice(0, 12);

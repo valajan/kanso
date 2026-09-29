@@ -256,7 +256,7 @@ function unchecked({ probeFailures = [] }, c) {
 function skipped(id, { skipped: probes = [] }, c) {
   if (probes.length === 0) return [];
   const rules = probes.flatMap((probe) => probe.rules.map((rule) => checkLabel(id, rule)));
-  return ['', '  ' + c('dim', `- ${probes.map(({ probe }) => probe).join(', ')} skipped: no states declared in .kanso.yml, so nothing was opened or clicked: ${rulesLabel(rules)} not checked (kanso discover --write finds them)`)];
+  return ['', '  ' + c('dim', `- ${probes.map(({ probe }) => probe).join(', ')} skipped: no states declared in .kanso.yml, so nothing was opened or clicked: ${rulesLabel(rules)} not checked (have your coding agent propose states with check_states, or run kanso discover --write)`)];
 }
 
 // A handful of rules by name; axe's hundred by number.
@@ -328,4 +328,75 @@ function table(rows, aligns, c, indent = '  ') {
     })
     .join('  ')
     .trimEnd());
+}
+
+// What `kanso discover --check` found of the declared states, for a terminal:
+// per screen, each state in the order it was walked, indented by how deep it
+// sits, with a mark — reached and fine, reached with something worth fixing,
+// or something that fails the check — and what is wrong, in words, beneath
+// it. Then the count. The facts come as check.js gives them; nothing is
+// judged here beyond what `summary.ok` judges.
+const MARKS = { ok: ['green', '✓'], warn: ['yellow', '!'], fail: ['red', '✗'] };
+
+export function renderCheck({ url, screens, summary }, { color = false } = {}) {
+  const c = (name, text) => (color && name ? CODES[name] + text + CODES.reset : text);
+  const out = ['', `${c('bold', 'Kanso')} · ${url}`, c('dim', 'the declared states, replayed'), ''];
+
+  for (const [formFactor, screen] of Object.entries(screens)) {
+    out.push(c('bold', formFactor));
+    if (!screen.stable) out.push(c('dim', '  the page is not the same on two first visits: what moves on its own was left out of the comparison'));
+    for (const state of screen.states) {
+      const { problems, warnings } = stateNotes(state);
+      const level = problems.length > 0 ? 'fail' : warnings.length > 0 ? 'warn' : 'ok';
+      const [color, mark] = MARKS[level];
+      const indent = '  ' + '  '.repeat(state.path.length);
+      out.push(`${indent}${c(color, mark)} ${state.name}`);
+      for (const text of problems) out.push(`${indent}    ${c('red', text)}`);
+      for (const text of warnings) out.push(`${indent}    ${c('yellow', text)}`);
+    }
+    out.push('');
+  }
+
+  out.push(checkVerdict(summary, c), '');
+  return out.join('\n');
+}
+
+// What is wrong with a state, in words: `problems` fail the check, `warnings`
+// replay all the same and are only worth fixing.
+function stateNotes(state) {
+  const problems = [];
+  const warnings = [];
+  if (!state.reached) {
+    problems.push(`${state.step}: ${state.reason}`);
+  } else {
+    if (!state.changed) problems.push('changes nothing');
+    if (state.duplicates) problems.push(`duplicates ${state.duplicates}: it ends where that one does`);
+    if (state.closesParent) problems.push(`closes its parent ${state.closesParent} — declare it as ${state.closesParent}'s close:`);
+    if (state.close && !state.close.closed) problems.push(`close: does not close (${state.close.reason})`);
+  }
+  const { click, waitFor } = state;
+  if (click?.matches > 1) {
+    const steadiest = click.steadiest?.selector ?? click.steadiest;
+    warnings.push(`selector matches ${click.matches} elements, the first is clicked${steadiest ? ` — ${steadiest} finds it alone` : ''}`);
+  }
+  if (waitFor?.matchesBefore > 0) warnings.push('wait_for already there before the click: it waits for nothing');
+  return { problems, warnings };
+}
+
+function checkVerdict(summary, c) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const counts = [
+    [summary.unreached, 'not reached'],
+    [summary.unchanged, 'changing nothing'],
+    [summary.duplicates, 'duplicating another'],
+    [summary.closesParent, 'closing its parent'],
+    [summary.closeBroken, 'with a close: that does not close'],
+  ].filter(([n]) => n > 0).map(([n, what]) => `${n} ${what}`);
+  const notes = [
+    [summary.ambiguous, 'ambiguous selector'],
+    [summary.waitsForNothing, 'wait_for waiting for nothing'],
+  ].filter(([n]) => n > 0).map(([n, what]) => plural(n, what));
+  const tail = notes.length > 0 ? ` · ${notes.join(', ')}` : '';
+  if (summary.ok) return `${c('green', c('bold', 'pass'))} · ${plural(summary.checked, 'state')} checked, all hold${tail}`;
+  return `${c('red', c('bold', 'fail'))} · ${plural(summary.checked, 'state')} checked: ${counts.join(', ')}${tail}`;
 }

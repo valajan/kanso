@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { version } from '../version.js';
 import { runAuditCommand, parseRuns, parseFailOn, EXIT, UsageError } from './audit-command.js';
 import { runDiscoverCommand } from './discover-command.js';
+import { runCheckCommand } from './check-command.js';
 
 const OPTIONS = {
   baseline: { type: 'string', short: 'b' },
@@ -12,6 +13,7 @@ const OPTIONS = {
   out: { type: 'string', short: 'o', multiple: true },
   record: { type: 'string' },
   write: { type: 'boolean', short: 'w' },
+  check: { type: 'boolean' },
   depth: { type: 'string' },
   'max-clicks': { type: 'string' },
   'max-states': { type: 'string' },
@@ -24,6 +26,7 @@ const USAGE = `Kanso — frontend audits, on your machine
 
   kanso audit [url | dir] [options]
   kanso discover [url | dir] [--write] [--max-states <n>]
+  kanso discover [url | dir] --check
   kanso mcp
 
 Audits a page on mobile and desktop and judges it against your budgets, or
@@ -42,6 +45,15 @@ kept, and twenty are kept at most (--max-states): an audit goes through every
 one, and the summary says about how long that takes. A button that closes a
 state is written as its close:, not as a state; --json lists every click, with
 what it changed.
+
+\`kanso discover --check\` explores nothing: it replays the states the project
+declares — the ones an audit goes through, from .kanso.yml and
+.kanso/states.yml — and says what it found of each. A state that cannot be
+reached, that changes nothing, that ends where another does, that only closes
+the state it is under, or whose close: does not close it fails the check. A
+selector matching several elements, and a wait_for already there before the
+click, are only warned of. It is how states proposed by whoever has the page's
+source are verified, and how CI keeps them true. --json prints the result.
 
 \`kanso mcp\` serves the same audit to a coding agent over MCP, on stdin and
 stdout, so the agent that just wrote the code can measure it. It reads the
@@ -73,6 +85,10 @@ Options for discover
       --form-factor <mobile | desktop>
                         explore one screen only (default: both)
       --json            print what was found as JSON
+      --check           replay the declared states instead of exploring: exit 0
+                        when each holds, 1 when one does not, 2 when there are
+                        none or the page could not be checked. Takes only
+                        --form-factor, --config and --json
 
   -h, --help            print this
   -v, --version         print the version
@@ -81,12 +97,14 @@ Exit codes
   0  audited, and nothing reached --fail-on
   1  audited, and something did
   2  the audit could not run
+
+discover --check: 0 every state holds, 1 one does not, 2 it could not run
 `;
 
 // Parses the command line and runs the requested command, returning the
 // process exit code. Nothing here writes to the real stdio or reads the real
 // argv, so the CLI is exercised in the tests exactly as a user runs it.
-export async function main(argv, { io = process, cwd = process.cwd(), runLighthouse, discover } = {}) {
+export async function main(argv, { io = process, cwd = process.cwd(), runLighthouse, discover, check } = {}) {
   try {
     const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true });
 
@@ -107,11 +125,26 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     const [head, ...rest] = positionals;
     if (!['audit', 'discover', 'mcp'].includes(head) && !head.includes('://')) throw new UsageError(`unknown command: ${head}`);
 
-    const discoverOnly = ['write', 'depth', 'max-clicks', 'max-states', 'form-factor'].filter((key) => key in values);
+    const discoverOnly = ['write', 'check', 'depth', 'max-clicks', 'max-states', 'form-factor'].filter((key) => key in values);
     if (head === 'discover') {
       const auditOnly = ['baseline', 'runs', 'fail-on', 'out', 'record'].filter((key) => key in values);
       if (auditOnly.length > 0) throw new UsageError(`discover takes no --${auditOnly[0]}: that is an audit's`);
       if (rest.length > 1) throw new UsageError(`discover takes one page, got ${rest.length}`);
+      if (values.check) {
+        // Nothing is explored, so nothing that shapes an exploration or its
+        // result applies: accepting it would read as honoured.
+        const exploring = ['write', 'depth', 'max-clicks', 'max-states'].filter((key) => key in values);
+        if (exploring.length > 0) throw new UsageError(`--check takes no --${exploring[0]}: it replays the declared states, and explores nothing`);
+        return await runCheckCommand({
+          target: rest[0] ?? null,
+          configPath: values.config ?? null,
+          json: Boolean(values.json),
+          formFactors: values['form-factor'] == null ? undefined : [formFactor(values['form-factor'])],
+          cwd,
+          io,
+          check,
+        });
+      }
       return await runDiscoverCommand({
         target: rest[0] ?? null,
         configPath: values.config ?? null,

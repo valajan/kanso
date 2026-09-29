@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme outfitters — states someone else proposed</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #111; background: #fff; }
+  header, main, footer { padding: 1rem; }
+  header { display: flex; gap: 1rem; align-items: flex-start; border-bottom: 1px solid #ddd; }
+  button { font: inherit; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  #menu { display: none; }
+  #menu.open { display: block; }
+  #drawer { display: none; }
+  #drawer.open { display: block; }
+  dialog { max-width: 22rem; border: 1px solid #999; border-radius: 8px; }
+  dialog::backdrop { background: rgb(0 0 0 / .5); }
+  /* A desktop has room for the menu from the start, and no drawer. */
+  @media (min-width: 768px) {
+    #drawer-button { display: none; }
+  }
+</style>
+</head>
+<body>
+<!-- Built to be checked, not explored: each control answers one question a
+     proposed state can ask. A menu with a submenu in it; a button that opens
+     a panel twice over, under one class; a button that does nothing; one
+     native dialog two buttons open, with a close button that closes it; a
+     panel whose "Done" closes nothing; a button that writes; one that
+     changes route; a drawer a phone's layout alone has. -->
+<header>
+  <strong>Acme outfitters</strong>
+  <button class="burger" id="menu-button" type="button" aria-expanded="false" aria-controls="menu">Menu</button>
+  <nav id="menu" aria-label="Main">
+    <ul>
+      <li><a href="#about">About us</a></li>
+      <li>
+        <button id="products" type="button" aria-expanded="false" aria-controls="sub">Products</button>
+        <ul id="sub" hidden>
+          <li><a href="#anvils">Anvils</a></li>
+          <li><a href="#rockets">Rockets</a></li>
+        </ul>
+      </li>
+    </ul>
+  </nav>
+  <button id="drawer-button" type="button" aria-expanded="false" aria-controls="drawer">Filters on a phone</button>
+  <div id="drawer"><p>Everything a phone shows in its drawer.</p></div>
+  <button id="account" type="button" aria-haspopup="dialog" aria-expanded="false">Account</button>
+</header>
+<main>
+  <h1>Outfitters since 1949</h1>
+  <button data-offer hidden type="button">The offer, as a wide screen shows it</button>
+  <button id="twin-a" class="twin" type="button" data-offer>See the offer</button>
+  <button id="twin-b" class="twin" type="button">See the offer again</button>
+  <div id="twin-panel" hidden><p>Two anvils for the price of one.</p></div>
+
+  <button id="nothing" type="button">Nothing happens</button>
+
+  <button id="signin" type="button">Sign in</button>
+
+  <button id="filters" type="button" aria-expanded="false" aria-controls="filters-panel">Filters</button>
+  <div id="filters-panel" hidden>
+    <button type="button" aria-pressed="false">Heavy</button>
+    <button type="button" aria-pressed="false">Light</button>
+    <button id="filters-done" type="button">Done</button>
+  </div>
+
+  <button id="save" type="button">Save my list</button>
+  <button id="route" type="button">Open the catalogue</button>
+
+  <h2 id="about">About us</h2>
+  <p>A family business.</p>
+  <h2 id="anvils">Anvils</h2>
+  <h2 id="rockets">Rockets</h2>
+</main>
+<footer><p>Acme outfitters Ltd</p></footer>
+<dialog id="auth" aria-labelledby="auth-title">
+  <h2 id="auth-title">Sign in</h2>
+  <p>We will send you a link.</p>
+  <button id="auth-close" type="button" aria-label="Close">×</button>
+</dialog>
+<script>
+  const toggles = (button, panel, open = (el) => { el.hidden = !el.hidden; return !el.hidden; }) => {
+    button.addEventListener('click', () => button.setAttribute('aria-expanded', String(open(panel))));
+  };
+  toggles(document.getElementById('menu-button'), document.getElementById('menu'), (el) => el.classList.toggle('open'));
+  toggles(document.getElementById('drawer-button'), document.getElementById('drawer'), (el) => el.classList.toggle('open'));
+  toggles(document.getElementById('products'), document.getElementById('sub'));
+  toggles(document.getElementById('filters'), document.getElementById('filters-panel'));
+  for (const twin of document.querySelectorAll('.twin')) {
+    twin.addEventListener('click', () => { document.getElementById('twin-panel').hidden = false; });
+  }
+  for (const pressed of document.querySelectorAll('[aria-pressed]')) {
+    pressed.addEventListener('click', () => pressed.setAttribute('aria-pressed', String(pressed.getAttribute('aria-pressed') !== 'true')));
+  }
+
+  const auth = document.getElementById('auth');
+  const account = document.getElementById('account');
+  account.addEventListener('click', () => {
+    account.setAttribute('aria-expanded', 'true');
+    auth.showModal();
+  });
+  document.getElementById('signin').addEventListener('click', () => auth.showModal());
+  document.getElementById('auth-close').addEventListener('click', () => auth.close());
+
+  // "Done", which closes nothing: its handler was never written.
+  document.getElementById('filters-done').addEventListener('click', () => {});
+  document.getElementById('save').addEventListener('click', () => fetch('/api/save', { method: 'POST', body: '{}' }).catch(() => {}));
+  document.getElementById('route').addEventListener('click', () => history.pushState(null, '', '/catalogue'));
+</script>
+</body>
+</html>

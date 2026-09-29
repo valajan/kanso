@@ -124,7 +124,7 @@ test('a probe skipped for want of a state is said, with the rules nobody checked
   const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
 
   assert.equal(code, 0);
-  assert.match(out, /Accessibility {2}pass\n\n {2}no findings\n\n {2}failing from serious up\n\n {2}- focus skipped: no states declared in \.kanso\.yml, so nothing was opened or clicked: 7 rules not checked \(kanso discover --write finds them\)\n/);
+  assert.match(out, /Accessibility {2}pass\n\n {2}no findings\n\n {2}failing from serious up\n\n {2}- focus skipped: no states declared in \.kanso\.yml, so nothing was opened or clicked: 7 rules not checked \(have your coding agent propose states with check_states, or run kanso discover --write\)\n/);
   assert.match(out, /- residues, leaks skipped: .*: 10 rules not checked/);
   assert.doesNotMatch(out, /SEO[^]*skipped[^]*Interactions/, 'a module with nothing to skip says nothing');
 
@@ -632,7 +632,7 @@ test('kanso mcp serves the audit on stdin and stdout', async () => {
 
   assert.equal(await served, 0);
   const [message] = io.out.trim().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'list_modules']);
+  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'check_states', 'list_modules']);
 });
 
 test('--help and --version are answered without auditing', async () => {
