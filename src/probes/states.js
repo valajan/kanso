@@ -21,13 +21,13 @@ export async function applyState(page, { click, waitFor }, { waitMs, fromTop = t
   if (fromTop) await page.evaluate('window.scrollTo(0, 0)');
 
   const target = await page.waitForSelector(click, { visible: true, timeout: waitMs })
-    .catch(ifTimeout(`nothing visible to click at ${click}`));
+    .catch(ifTimeout(`nothing visible to click at ${click}`, 'click'));
   await target.click();
   await target.dispose();
 
   if (waitFor) {
     await page.waitForSelector(waitFor, { timeout: waitMs })
-      .catch(ifTimeout(`clicked ${click}, and ${waitFor} never appeared`));
+      .catch(ifTimeout(`clicked ${click}, and ${waitFor} never appeared`, 'wait_for'));
   }
   return settle(page);
 }
@@ -52,9 +52,13 @@ export async function reach(page, states, { waitMs, log }) {
 }
 
 // A wait that ran out says what was missing; anything else — a selector that
-// is no CSS — says what it is.
-function ifTimeout(message) {
+// is no CSS — says what it is. Either way the error carries the `step` it
+// failed at, `click` or `wait_for`, for a caller that reports which of the
+// two a state got wrong (src/discover/check.js).
+function ifTimeout(message, step) {
   return (err) => {
-    throw err?.name === 'TimeoutError' ? new Error(message) : err;
+    const out = err?.name === 'TimeoutError' ? new Error(message) : err;
+    if (out && typeof out === 'object') out.step = step;
+    throw out;
   };
 }
