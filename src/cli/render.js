@@ -256,7 +256,7 @@ function unchecked({ probeFailures = [] }, c) {
 function skipped(id, { skipped: probes = [] }, c) {
   if (probes.length === 0) return [];
   const rules = probes.flatMap((probe) => probe.rules.map((rule) => checkLabel(id, rule)));
-  return ['', '  ' + c('dim', `- ${probes.map(({ probe }) => probe).join(', ')} skipped: no states declared in .kanso.yml, so nothing was opened or clicked: ${rulesLabel(rules)} not checked (kanso discover --write finds them)`)];
+  return ['', '  ' + c('dim', `- ${probes.map(({ probe }) => probe).join(', ')} skipped: no states declared in .kanso.yml, so nothing was opened or clicked: ${rulesLabel(rules)} not checked (have your coding agent propose states with check_states, or run kanso discover --write)`)];
 }
 
 // A handful of rules by name; axe's hundred by number.

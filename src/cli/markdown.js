@@ -294,7 +294,7 @@ function skippedLine(moduleId, skipped) {
   const probes = skipped.map(({ probe }) => code(probe)).join(', ');
   const rules = skipped.flatMap((skip) => skip.rules.map((rule) => checkLabel(moduleId, rule)));
   return `_⏭️ ${probes} skipped: no \`states:\` declared in \`.kanso.yml\`, so nothing was opened or clicked: `
-    + `${rulesLabel(rules)} not checked. \`kanso discover --write\` finds them._`;
+    + `${rulesLabel(rules)} not checked. Have your coding agent propose them with \`check_states\`, or run \`kanso discover --write\`._`;
 }
 
 // A handful of rules by name; axe's hundred by number.

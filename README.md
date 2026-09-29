@@ -222,7 +222,29 @@ as unchecked, with every state listed under it, and never reads as a clean
 one. A state only one screen has — the drawer behind a phone's menu button —
 says `form_factor: mobile`, and is not looked for on desktop.
 
-**Or let Kanso find them.** `kanso discover` clicks through the page, two clicks
+**Let your coding agent find them.** The agent that wrote the page has its
+source, and knows what opens what better than a click-through guessing from
+outside. Through the MCP server it proposes states in the shape above and calls
+`check_states`: Kanso replays each one from a fresh visit, on mobile and
+desktop, under the same guards as `kanso discover` (below), and reports facts —
+whether it was reached and, if not, at which step and why; how many elements
+its selector matches, and a steadier one when there is one; what the click
+changed; a state that ends where another does, or that only closes its parent
+(a dialog's ×, which belongs in `close:`); what it reveals to click next, for
+the states under it. Nothing is written: the agent fixes what the check found,
+checks again, and writes the states that hold into `.kanso.yml` itself.
+
+In CI, nothing explores the page: `kanso discover --check` replays the states
+you declared and exits `0` when each is reached, changes something and is no
+other's duplicate, `1` when one is not, `2` when it could not run. A page that
+changes under a state fails the job there, not as an audit that silently
+checked less.
+
+```bash
+kanso discover dist --check    # replay the declared states, explore nothing
+```
+
+**Or let Kanso find a first draft.** `kanso discover` clicks through the page, two clicks
 deep, on mobile and desktop, and prints what it found; `--write` writes it to
 `.kanso/states.yml`, a file of its own beside your `.kanso.yml`, rewritten whole
 each time the page changes — commit it, like a lock file:
@@ -445,6 +467,7 @@ Which is all a CI job needs:
 
 ```yaml
 - run: npm run build
+- run: kanso discover dist --check   # the declared states still open
 - run: kanso audit dist --fail-on warn --out kanso.md
 ```
 
@@ -617,7 +640,8 @@ kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
 kanso audit <url> --config other.yml     # another configuration file
-kanso discover dist --write              # find the states, write .kanso/states.yml
+kanso discover dist --check              # replay the declared states, explore nothing
+kanso discover dist --write              # find a first draft of the states, write .kanso/states.yml
 kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```
