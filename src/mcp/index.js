@@ -10,6 +10,8 @@ Use it to check a frontend change rather than describe one: build, then audit th
 
 An audit needs a baseline to tell a regression from a page's existing debt. When a before-and-after is available — the same build without the change, the main branch's preview, production — pass it as \`baseline\`.
 
+Much of what an audit checks happens in the page's states — a menu opened, a dialog shown — and it only goes through the ones the project declares. When the page opens things on click and none are declared, or the change added one, read the source for what opens what and propose them to \`check_states\`: it replays each and says what holds.
+
 A call takes 10 to 60 seconds per run and reports progress while it works.`;
 
 // Serves MCP over a stream pair and resolves when the host closes the input.
@@ -18,14 +20,14 @@ A call takes 10 to 60 seconds per run and reports progress while it works.`;
 //
 // `input`/`output` are the process's own streams in production and fakes in the
 // tests, which is what lets the protocol be exercised without a subprocess.
-export async function runMcpServer({ input = process.stdin, output = process.stdout, cwd = process.cwd(), runLighthouse } = {}) {
+export async function runMcpServer({ input = process.stdin, output = process.stdout, cwd = process.cwd(), runLighthouse, checkStates } = {}) {
   const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
   const stream = protectStdout(output);
 
   const dispatch = createDispatcher({
     serverInfo: { name: 'kanso', title: 'Kanso', version: version() },
     instructions: INSTRUCTIONS,
-    tools: createTools({ cwd, runLighthouse: lighthouse }),
+    tools: createTools({ cwd, runLighthouse: lighthouse, checkStates }),
   });
 
   await serve({ input, output: stream, dispatch });

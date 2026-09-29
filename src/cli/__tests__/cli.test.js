@@ -632,7 +632,7 @@ test('kanso mcp serves the audit on stdin and stdout', async () => {
 
   assert.equal(await served, 0);
   const [message] = io.out.trim().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'list_modules']);
+  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'check_states', 'list_modules']);
 });
 
 test('--help and --version are answered without auditing', async () => {

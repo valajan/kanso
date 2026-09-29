@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { moduleConfig } from '../config/module-config.js';
-import { parseStates } from '../config/states.js';
+import { InvalidStates, parseStates, statesOn } from '../config/states.js';
 import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
 import { clearRecord, writeRecord } from '../core/record.js';
@@ -29,8 +29,8 @@ const PROGRESS_INTERVAL_MS = 2000;
 
 // The tools, bound to the directory the server was started in — which is the
 // project whose .kanso.yml judges these audits.
-export function createTools({ cwd = process.cwd(), runLighthouse, now = Date.now } = {}) {
-  return [auditPage({ cwd, runLighthouse, now }), listModules({ cwd })];
+export function createTools({ cwd = process.cwd(), runLighthouse, checkStates, now = Date.now } = {}) {
+  return [auditPage({ cwd, runLighthouse, now }), checkStatesTool({ cwd, checkStates, now }), listModules({ cwd })];
 }
 
 function auditPage({ cwd, runLighthouse, now }) {
@@ -61,7 +61,8 @@ function auditPage({ cwd, runLighthouse, now }) {
       + 'Graph tags. A check that could not run is listed under probeFailures with the rules it left unchecked: '
       + 'nothing found there is not a clean page. A check that needs a declared state, when the project declares '
       + 'none, does not run: each module lists it under skipped — { probe, rules, reason: "no-states" } — and its '
-      + 'rules were not checked, not passed; kanso discover --write finds the states. '
+      + 'rules were not checked, not passed; check_states verifies the states you propose, and kanso discover --write '
+      + 'finds some by clicking through the page. '
       + 'When the project declares states — in its .kanso.yml, or in .kanso/states.yml, which kanso discover writes (list_modules shows them) — a menu opened, a dialog '
       + 'shown, each reached by a click from the page as it loads or from the state it is listed under — axe, the 320 px reflow and the Tab walk read the page again in each, and a finding '
       + 'made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that could '
@@ -217,6 +218,177 @@ function auditPage({ cwd, runLighthouse, now }) {
         // A page that never loaded is the tool failing, not a verdict on the
         // page — and the model is told so rather than reading four green rows.
         isError: !result.ok,
+      };
+    },
+  };
+}
+
+function checkStatesTool({ cwd, checkStates, now }) {
+  return {
+    name: 'check_states',
+    title: 'Check the states of a page',
+    description:
+      'Checks the states you propose for a page against the page itself, so that what an audit goes through '
+      + 'is what you meant. A state is what only a click shows — a menu opened, a dialog shown, a disclosure '
+      + 'expanded, a tab selected, a drawer slid in — and the audit reads the page again in each: accessibility, '
+      + 'the 320 px reflow, the Tab walk, INP, focus going in and out. You have the source, which is more than a '
+      + 'click-through has: read it for what opens what (useState(isOpen), <Dialog open>, aria-controls, '
+      + 'aria-expanded, a hidden attribute a button removes), and propose the states in the shape .kanso.yml\'s '
+      + 'states: takes — name, click (a CSS selector), optional form_factor (mobile or desktop, for a state one '
+      + 'screen alone has), optional wait_for (a selector that appears once it is open), optional close (what '
+      + 'closes it when Escape does not), optional states (the ones reached from it, which start from it). '
+      + 'Kanso replays each one from a first visit, in a page of its own, on mobile and on desktop, the way an '
+      + 'audit will — under guards: no request that writes, no navigation, no window, no dialog is let through, '
+      + 'and a click that needed one is not reached, since an audit has no guard and would do it for real. '
+      + 'Only clicks are replayed: no hover, no typing, no key. '
+      + 'The result is facts, per screen and per state, for you to act on; nothing is written. '
+      + '`reached` says whether the state was reached; when not, `step` says where it failed — path (a state it '
+      + 'starts from was not reached, named in `through`), click (nothing visible matches), wait_for (what says it '
+      + 'opened never did), guards (what was stopped, in `stopped`), left (the click changed the address: another '
+      + 'page, not a state) — and `reason` says it in words. `click` says how many elements the selector matches '
+      + 'and how many are visible: Puppeteer clicks the first, so a selector matching two follows the page\'s '
+      + 'order — and gives the element it clicked, by role and name, with `steadiest`, the selector that finds it '
+      + 'alone, which you can adopt; `refused` says a rule the exploration keeps (a button named like Delete, a '
+      + 'field, a link) would not have let it touch that element. A selector whose first match is hidden fails '
+      + 'on it, even when a later one is shown: `visibleMatch` then describes the one shown, with its '
+      + 'steadiest selector; one that matches only hidden elements is a state this screen does not have — '
+      + 'form_factor: keeps it to the other. `waitFor` counts what wait_for matches before '
+      + 'the click and after: one already there before waits for nothing. `changed` says whether the state shows '
+      + 'anything the page did not, and `appeared`, `disappeared` and `newText` say what — a click that changes '
+      + 'nothing is no state. `duplicates` names the earlier state this one ends at too (two buttons opening the '
+      + 'same dialog: keep one). `closesParent` names the state this one closes, which brings the page back to '
+      + 'where it loaded — a dialog\'s ×: it is no state, but the close: of the state it is under. `close` says '
+      + 'whether clicking the close: selector brings the page back to where the state started. `revealed` lists '
+      + 'what can be clicked in the state that was not there before — role, name, steadiest selector, one per '
+      + 'family of alike elements, `alike` counting them — which is where the states under it come from: propose '
+      + 'them as nested states and check again. `stable` and `drift` say what differed between two first visits '
+      + 'of the page, left out of every comparison. `summary` counts what came out: checked, reached, unreached, '
+      + 'unchanged, duplicates, closesParent, closeBroken (a close: that does not close), ambiguous (a selector '
+      + 'matching several), waitsForNothing, and `ok` when none of unreached, unchanged, duplicates, closesParent '
+      + 'or closeBroken is above zero — a summary that is not ok is a list of states to fix, not a failed call. '
+      + 'Once the states check out, write them yourself into .kanso.yml under states: — or keep them in '
+      + '.kanso/states.yml, which kanso discover --write rewrites whole — and audit_page goes through them. '
+      + 'Without `states`, it checks the ones the project already declares (list_modules shows them): to see '
+      + 'whether they still hold after a change. With none declared, there is nothing to check. '
+      + 'Point it at a build, as audit_page: a URL or a directory of built files, or nothing when .kanso.yml has '
+      + 'a serve: block. Takes about 5 seconds per state and per screen, the two screens going side by side, so '
+      + 'a dozen states take a minute or so; it reports progress while it works.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        states: {
+          type: 'array',
+          description:
+            'The states to check, in the shape .kanso.yml\'s states: takes. Defaults to the states the project '
+            + 'declares, in .kanso.yml and .kanso/states.yml.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Letters, digits, - and _; unique among the states.' },
+              click: { type: 'string', description: 'CSS selector of the element that opens the state.' },
+              form_factor: { type: 'string', enum: ['mobile', 'desktop'], description: 'The one screen the state is on. Both when left out.' },
+              wait_for: { type: 'string', description: 'CSS selector that matches once the state is open.' },
+              close: { type: 'string', description: 'CSS selector of what closes the state when Escape does not.' },
+              states: { type: 'array', description: 'States reached from this one, in the same shape.', items: { type: 'object' } },
+            },
+            required: ['name', 'click'],
+          },
+        },
+        url: {
+          type: 'string',
+          description:
+            'The page to check: an http or https URL, localhost included, or a directory of built files, relative '
+            + 'to the project. Defaults to what the serve: block of the project\'s .kanso.yml says.',
+        },
+      },
+      additionalProperties: false,
+    },
+    // As audit_page: with no url, it runs the command the project's .kanso.yml
+    // names to serve the build, which a host should not approve unseen on the
+    // strength of a read-only hint. The page itself is replayed under guards —
+    // no request that writes, no navigation, no window and no dialog is let
+    // through — and nothing is written to the project.
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+
+    async run(args, { progress }) {
+      const named = args.url == null ? null : site(args.url, 'url', cwd);
+      let proposed = null;
+      if (args.states != null) {
+        try {
+          proposed = parseStates(args.states);
+        } catch (err) {
+          if (err instanceof InvalidStates) throw new InvalidParams(err.message);
+          throw err;
+        }
+      }
+
+      const { config, source } = loadLocalConfig({ cwd });
+      const states = proposed ?? parseStates(config.states);
+      if (states.length === 0) {
+        return {
+          content: [{ type: 'text', text: 'There are no states to check: none were given, and the project declares none. Read the source for what opens what — dialogs, menus, disclosures, tabs, drawers — and call check_states again with the states you propose.' }],
+          isError: true,
+        };
+      }
+
+      let page;
+      try {
+        page = named ?? siteFromConfig(config.serve, { configDir: source && dirname(source), cwd });
+      } catch (err) {
+        return notServed(err);
+      }
+      if (!page) throw new InvalidParams('url is required: the project has no serve: block in .kanso.yml saying how to serve it');
+
+      const check = checkStates ?? (await import('../discover/check.js')).checkStates;
+      const formFactors = ['mobile', 'desktop'];
+      // One count over both screens, which go side by side: what has been
+      // checked of what there is to check.
+      const total = formFactors.reduce((sum, formFactor) => sum + statesOn(states, formFactor).length, 0);
+      // Progress only ever goes up, so a state finished and a sign of life share
+      // one counter: a host that hears nothing for a while thinks the call
+      // has died, and a state can take longer than that to check.
+      let done = 0;
+      let beat = 0;
+      let said = 'checking…';
+      const started = now();
+      progress(beat, said);
+      const timer = setInterval(() => progress(++beat, `${said} ${Math.round((now() - started) / 1000)}s`), PROGRESS_INTERVAL_MS);
+      timer.unref?.();
+      const stopTicking = () => clearInterval(timer);
+      let checked;
+      try {
+        checked = await withSites({ page }, async ({ url, served }) => ({
+          ...(served ? { served } : {}),
+          result: await check(url, states, {
+            formFactors,
+            onProgress: ({ formFactor, state }) => {
+              done += 1;
+              said = `checked ${state} on ${formFactor} (${done}/${total})`;
+              progress(++beat, said);
+            },
+          }),
+        }));
+      } catch (err) {
+        // A page that could not be loaded is the tool failing, not a finding
+        // about a state: the message says which.
+        if (err instanceof ServeError) return notServed(err);
+        return { content: [{ type: 'text', text: `The page could not be checked: ${err.message}` }], isError: true };
+      } finally {
+        stopTicking();
+      }
+
+      const payload = {
+        ...(checked.served ? { served: checked.served } : {}),
+        configSource: source,
+        elapsedMs: now() - started,
+        ...checked.result,
+      };
+      // Not an error whatever `summary.ok` says: the check ran, and a state
+      // that does not hold is the answer it was asked for.
+      return {
+        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+        isError: false,
       };
     },
   };

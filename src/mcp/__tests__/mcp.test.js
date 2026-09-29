@@ -59,10 +59,10 @@ function emptyProject() {
 const noRunner = async () => assert.fail('must not audit');
 
 // Feeds the server a conversation and returns everything it said back.
-async function session(requests, { runLighthouse = noRunner, cwd = emptyProject() } = {}) {
+async function session(requests, { runLighthouse = noRunner, checkStates, cwd = emptyProject() } = {}) {
   const input = new PassThrough();
   const output = collect();
-  const served = runMcpServer({ input, output, cwd, runLighthouse });
+  const served = runMcpServer({ input, output, cwd, runLighthouse, checkStates });
 
   for (const request of requests) input.write(JSON.stringify(request) + '\n');
   input.end();
@@ -94,12 +94,16 @@ test('announces its protocol version, its capabilities and its tools', async () 
   assert.match(initialized.instructions, /baseline/);
 
   const tools = messages[1].result.tools;
-  assert.deepEqual(tools.map((tool) => tool.name), ['audit_page', 'list_modules']);
+  assert.deepEqual(tools.map((tool) => tool.name), ['audit_page', 'check_states', 'list_modules']);
   assert.equal(tools[0].inputSchema.required, undefined, 'a project with a serve: block needs no url');
   // It may run the command a project serves itself with, which no read-only
   // hint should vouch for.
   assert.equal(tools[0].annotations.readOnlyHint, false);
-  assert.equal(tools[1].annotations.readOnlyHint, true);
+  assert.equal(tools[1].annotations.readOnlyHint, false);
+  assert.equal(tools[2].annotations.readOnlyHint, true);
+  assert.deepEqual(tools[1].inputSchema.required, undefined, 'the declared states are the default');
+  assert.deepEqual(Object.keys(tools[1].inputSchema.properties), ['states', 'url']);
+  assert.deepEqual(tools[1].inputSchema.properties.states.items.required, ['name', 'click']);
   assert.equal(tools[0].run, undefined, 'the handler is the server\'s business, not the host\'s');
 });
 
@@ -421,6 +425,116 @@ test('progress is reported to a host that asked for it, and only then', async ()
 
   const silent = await session([call(2, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
   assert.deepEqual(silent.map((m) => m.id), [2]);
+});
+
+// --- checking states --------------------------------------------------------
+
+// Answers like checkStates, from what it is handed, and remembers it.
+function fakeCheck({ progress = [], fail = null } = {}) {
+  const calls = [];
+  const run = async (url, states, options) => {
+    calls.push({ url, states, formFactors: options.formFactors });
+    if (fail) throw fail;
+    for (const event of progress) options.onProgress(event);
+    return { url, screens: { mobile: { stable: true, drift: { appeared: [], disappeared: [] }, states: [] } }, summary: { checked: 1, reached: 0, unreached: 1, ok: false } };
+  };
+  run.calls = calls;
+  return run;
+}
+
+const MENU = { name: 'menu', click: '#open', wait_for: '#menu', states: [{ name: 'sub', click: '#more' }] };
+
+test('check_states replays the states it is given, and returns what checkStates found as it is', async () => {
+  const checkStates = fakeCheck();
+
+  const [message] = await session([
+    call(1, 'check_states', { url: 'http://localhost:4173', states: [MENU] }),
+  ], { checkStates });
+
+  // The check ran: a state that does not hold is its answer, not the tool failing.
+  assert.equal(message.result.isError, false);
+  assert.equal(checkStates.calls.length, 1);
+  assert.equal(checkStates.calls[0].url, 'http://localhost:4173/');
+  assert.deepEqual(checkStates.calls[0].states, [
+    { name: 'menu', click: '#open', waitFor: '#menu' },
+    { name: 'sub', click: '#more', from: 'menu' },
+  ]);
+  const { configSource, elapsedMs, ...result } = message.result.structuredContent;
+  assert.equal(configSource, null);
+  assert.equal(typeof elapsedMs, 'number');
+  assert.deepEqual(result, {
+    url: 'http://localhost:4173/',
+    screens: { mobile: { stable: true, drift: { appeared: [], disappeared: [] }, states: [] } },
+    summary: { checked: 1, reached: 0, unreached: 1, ok: false },
+  });
+  assert.deepEqual(JSON.parse(message.result.content[0].text), message.result.structuredContent, 'the same facts, twice');
+});
+
+test('check_states with no states checks the ones the project declares, and serves the project', async () => {
+  const cwd = builtProject('serve:\n  dir: dist\nstates:\n  - name: menu\n    click: "#open"\n');
+  const checkStates = fakeCheck();
+
+  const [message] = await session([call(1, 'check_states', {})], { checkStates, cwd });
+
+  assert.equal(message.result.isError, false);
+  assert.deepEqual(checkStates.calls[0].states, [{ name: 'menu', click: '#open' }]);
+  assert.match(checkStates.calls[0].url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+  assert.deepEqual(message.result.structuredContent.served, { url: { dir: 'dist' } });
+  await assert.rejects(fetch(checkStates.calls[0].url), 'stopped once the check is done');
+});
+
+test('check_states with nothing to check says where states come from', async () => {
+  const [message] = await session([call(1, 'check_states', { url: 'http://localhost:4173' })], { checkStates: fakeCheck() });
+
+  assert.equal(message.result.isError, true);
+  assert.match(message.result.content[0].text, /no states to check.*propose/s);
+});
+
+test('check_states reports a page it could not load as the tool failing', async () => {
+  const checkStates = fakeCheck({ fail: new Error('net::ERR_CONNECTION_REFUSED') });
+
+  const [message] = await session([
+    call(1, 'check_states', { url: 'http://localhost:4173', states: [MENU] }),
+  ], { checkStates });
+
+  assert.equal(message.result.isError, true);
+  assert.match(message.result.content[0].text, /could not be checked: net::ERR_CONNECTION_REFUSED/);
+});
+
+test('check_states reports each state checked to a host that asked for progress', async () => {
+  const events = [
+    { formFactor: 'mobile', state: 'menu', reached: true, done: 1, total: 2 },
+    { formFactor: 'desktop', state: 'menu', reached: true, done: 1, total: 2 },
+  ];
+
+  const messages = await session([
+    call(1, 'check_states', { url: 'http://localhost:4173', states: [{ name: 'menu', click: '#open' }] }, { progressToken: 'tok' }),
+  ], { checkStates: fakeCheck({ progress: events }) });
+
+  const heard = messages.filter((m) => m.method === 'notifications/progress').map((m) => m.params);
+  assert.deepEqual(heard.map((p) => p.message), [
+    'checking…', 'checked menu on mobile (1/2)', 'checked menu on desktop (2/2)',
+  ]);
+  const counts = heard.map((p) => p.progress);
+  assert.deepEqual(counts, [...counts].sort((a, b) => a - b), 'progress only goes up');
+  assert.equal(messages.at(-1).id, 1, 'then the answer');
+});
+
+test('check_states refuses states that are not valid, and a url it cannot use', async () => {
+  const cases = [
+    [{ states: [{ name: 'menu' }] }, /needs a click/],
+    [{ states: [{ name: 'a b', click: '#x' }] }, /needs a name/],
+    [{ states: [MENU, { name: 'menu', click: '#y' }] }, /taken by an earlier state/],
+    [{ states: 'menu' }, /states: must be a list/],
+    [{ url: 'nope', states: [MENU] }, /url is neither a URL nor a directory: nope/],
+    [{ states: [MENU] }, /url is required/],
+  ];
+
+  for (const [args, expected] of cases) {
+    const [message] = await session([call(1, 'check_states', args)], { checkStates: fakeCheck() });
+    assert.equal(message.error.code, -32602, JSON.stringify(args));
+    assert.match(message.error.message, expected);
+  }
 });
 
 // --- mistakes ---------------------------------------------------------------
