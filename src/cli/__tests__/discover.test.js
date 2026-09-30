@@ -211,7 +211,7 @@ test('at most twenty states are written unless told otherwise, and the summary n
   assert.equal(names.length, 20);
   assert.equal(names.at(-1), 'state-number-20');
   assert.match(err, /^25 states found, 20 kept: 5 over --max-states 20 left out, the last found \(button "State number 21", button "State number 22", button "State number 23", button "State number 24", …\)$/m);
-  assert.match(err, /takes about 5 min, roughly/);
+  assert.match(err, /takes about 6 min, roughly/);
 });
 
 test('--max-states sets the cap, and an audit through fewer states is said to take less', async () => {
@@ -238,7 +238,7 @@ test('--json says how many states it keeps at most, which it left out, and about
   const result = JSON.parse(out);
   assert.equal(result.maxStates, 23);
   assert.deepEqual(result.leftOut.map(({ name, depth }) => [name, depth]), [['State number 24', 1], ['Deep link', 2]]);
-  assert.equal(result.auditSeconds, 15 + 15 * 23);
+  assert.equal(result.auditSeconds, 5 + 17 * 23);
 });
 
 test('--json prints what was found, the tree and where it goes, and nothing else', async () => {

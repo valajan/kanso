@@ -516,7 +516,7 @@ flagged read-only to the host.
 *is* the model, and it has the diff it just wrote in front of it — more context
 than any report could reconstruct.
 
-**A call takes a few seconds to a few minutes** — about 15 s per declared state
+**A call takes a few seconds to a few minutes** — about 17 s per declared state
 on the screen with more, doubled when you pass a `baseline`. Kanso sends progress notifications while it
 works, which is what stops a host giving up mid-audit; if yours times out anyway,
 raise its limit (`MCP_TOOL_TIMEOUT` in Claude Code) or leave `runs` at 1.

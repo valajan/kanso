@@ -226,7 +226,7 @@ export function statesFrom(explored, options) {
 
 // How many states a `kanso discover` keeps unless told otherwise
 // (`--max-states`). What an audit costs goes by its states (`auditSeconds`):
-// twenty is about five minutes of audit on a page as quick as the one it was
+// twenty is about six minutes of audit on a page as quick as the one it was
 // calibrated on, which a developer waits for before a push, and a CI job
 // without anyone reaching for its timeout. A page with more states than that
 // is one where each extra state is, most often, one more dialog of the same
@@ -238,34 +238,28 @@ export const MAX_STATES = 20;
 // declares by hand, flat, as the configuration holds them, which the audit
 // goes through as well.
 //
-// Calibrated on one real audit of a page with 30 states (13 top-level, 17
-// reached from another; 27 on desktop), no baseline, `runs: 1`, whose journals time every
-// probe on every state:
-//   - the page with no state: 16 s (Lighthouse's load 7.4-7.9 s, the
-//     stateless probes 4 s, the rest Chrome starting and stopping);
-//   - through the states, five probes replay each one — INP and axe (86 s and
-//     84 s on mobile, 73 s and 79 s on desktop), focus (136 s, 127 s),
-//     residues (126 s, 117 s), leaks (143 s, 137 s): 575 s on mobile for 30
-//     states, 533 s on desktop for 27;
-//   - one state could not be reached, and cost 159 s on its own: every probe
-//     waits 30 s for it. Without it, a state costs 14.3 s on mobile and
-//     15.2 s on desktop; its median is 13 s, a state reached from another
-//     12.7 s against 18 s for a top-level one — depth does not add, what
-//     costs is each probe loading the page again, and waiting on a close that
-//     does not come;
-//   - the audit took 597 s: the two screens run side by side, and the one
-//     with more states sets the time. The model says 465 s — the gap is the
-//     state that could not be reached, which a discover that replayed every
-//     state it kept does not foresee.
-// Hence 15 s, plus 15 s per state on the screen with more. Lighthouse's load
-// has left the audit since, and the base is some 8 s lighter: kept as it was
-// until a real audit calibrates it again — an order of magnitude errs better
-// long than short. A slower page
-// costs more per state — each probe loads it again — and so does a baseline:
-// four loads on three Chromes (KANSO_CONCURRENCY) take about twice as
-// long as two.
-const AUDIT_BASE_S = 15;
-const AUDIT_PER_STATE_S = 15;
+// Calibrated on real audits, no baseline, `runs: 1`, since Lighthouse's load
+// left the audit:
+//   - a page with no state: 4 s for a small one, 5 s for a landing page —
+//     Chrome starting and stopping, and the probes that read the page as it
+//     loads;
+//   - the same landing page through 2, 4 and 6 states on mobile: 38 s, 72 s
+//     and 108 s — 17 s a state, in a line. Each probe that goes through the
+//     states loads the page again for each (INP, axe, keyboard, focus,
+//     residues, leaks), and focus, residues and leaks cost about as much as
+//     the other three together;
+//   - an earlier audit of a page with 30 states (27 on desktop) cost 14 to
+//     15 s a state, and a state that could not be reached 159 s on its own:
+//     every probe waits 30 s for it, which no estimate foresees;
+//   - the two screens run side by side, and the one with more states sets the
+//     time.
+// Hence 5 s, plus 17 s per state on the screen with more — the dearer of the
+// two pages, since an order of magnitude errs better long than short. A
+// slower page costs more per state — each probe loads it again — and so does
+// a baseline: four loads on three Chromes (KANSO_CONCURRENCY) take about
+// twice as long as two.
+const AUDIT_BASE_S = 5;
+const AUDIT_PER_STATE_S = 17;
 
 export function auditSeconds(states, extra = []) {
   const on = { mobile: 0, desktop: 0 };

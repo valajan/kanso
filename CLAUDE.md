@@ -196,8 +196,8 @@ run where the code is.
   when that is not enough. At most `--max-states` states are kept (20 by
   default, `MAX_STATES`), counted as the file holds them, breadth first — a
   child never without its parent — and the summary (and `--json`, `leftOut`)
-  says which were left out. An audit costs about 15 s plus 15 s per state on
-  the screen with more (`auditSeconds`, calibrated on a real 30-state audit),
+  says which were left out. An audit costs about 5 s plus 17 s per state on
+  the screen with more (`auditSeconds`, calibrated on real audits),
   which the summary prints as an order of magnitude, `--json` as
   `auditSeconds`. No model: the POC
   (`poc/jev-discovery`) showed a model adds little to finding states. The
