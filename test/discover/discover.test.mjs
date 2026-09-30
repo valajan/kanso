@@ -4,8 +4,6 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import * as chromeLauncher from 'chrome-launcher';
-import puppeteer from 'puppeteer-core';
 
 import { discover } from '../../src/discover/index.js';
 import { explore } from '../../src/discover/explore.js';
@@ -13,6 +11,7 @@ import { diff } from '../../src/discover/fingerprint.js';
 import { renderStatesFile, stateNames, statesFrom } from '../../src/discover/states.js';
 import { load, observe, openPage, selectors, settle } from '../../src/discover/page.js';
 import { axeProbe } from '../../src/modules/accessibility/axe.js';
+import { launchChrome } from '../../src/process/chrome.js';
 import { runProbes } from '../../src/probes/index.js';
 import { applyState } from '../../src/probes/states.js';
 import { serveDirectory } from '../../src/serve/static.js';
@@ -42,15 +41,13 @@ let browser;
 let site;
 
 before(async () => {
-  chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
-  await chrome.launch();
-  browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.port}`, defaultViewport: null });
+  chrome = await launchChrome();
+  ({ browser } = chrome);
   site = await serveDirectory(fileURLToPath(new URL('./pages', import.meta.url)));
 });
 
 after(async () => {
-  await browser?.disconnect();
-  chrome?.kill();
+  await chrome?.close();
   await site?.close();
 });
 
@@ -195,7 +192,7 @@ test('every allowed element gets a selector that finds it alone, the steadiest k
   assert.doesNotMatch(of('Generated id').selector, /radix/);
 
   // Plain CSS, every one: a state's selectors are read inside the page too,
-  // by document.querySelector, which knows nothing of Puppeteer's own.
+  // by document.querySelector, which knows nothing of a driver's own.
   const tab = await openPage(browser, 'mobile');
   try {
     await load(tab, urlOf('guards.html'));
@@ -522,7 +519,7 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     const details = `s${run.nodes.find((node) => node.name === 'What will you send me?').id}`;
 
     const { accessibility } = await runProbes({
-      port: chrome.port, url: urlOf('modal.html'), formFactor: 'desktop',
+      browser: chrome.browser, url: urlOf('modal.html'), formFactor: 'desktop',
       modules: [{ id: 'accessibility', probes: [axeProbe] }], config: { states },
     });
     assert.deepEqual(accessibility.failures, []);

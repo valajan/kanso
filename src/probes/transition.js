@@ -1,3 +1,4 @@
+import { click, find, waitForElement } from './browser.js';
 import { inPage } from './dom.js';
 import { settle } from './settle.js';
 import { applyState } from './states.js';
@@ -50,7 +51,7 @@ const KEY_WAIT_MS = 2_000;
 // anything reads it: the requests it makes, the animations it plays, the
 // focus a script moves once they are done.
 export function transitionTools(page, state, { waitMs, log }) {
-  const trigger = async () => page.waitForSelector(state.click, { visible: true, timeout: waitMs })
+  const trigger = async () => waitForElement(page, state.click, { visible: true, timeout: waitMs })
     .catch(() => {
       throw new Error(`nothing visible to click at ${state.click}`);
     });
@@ -99,7 +100,11 @@ export function transitionTools(page, state, { waitMs, log }) {
   // nothing.
   const isOpen = async () => {
     try {
-      if (state.waitFor) return (await page.$(state.waitFor)) != null;
+      if (state.waitFor) {
+        const shown = await find(page, state.waitFor);
+        await shown?.dispose();
+        return shown != null;
+      }
       const read = await inPage(page, openInPage, state.click);
       if (read.popup != null) return read.popup;
       if (await freshPopup()) return true;
@@ -209,7 +214,12 @@ export function transitionTools(page, state, { waitMs, log }) {
         }
         await page.mouse.click(point.x, point.y);
       } else if (by === 'escape') await page.keyboard.press('Escape');
-      else await page.click(state.close);
+      else {
+        const target = await find(page, state.close);
+        if (!target) throw new Error(`nothing to click at ${state.close}`);
+        await click(target);
+        await target.dispose();
+      }
       const closed = await becomes(false, KEY_WAIT_MS);
       await settle(page);
       const gone = await leaving(`closing it (${by})`);

@@ -1,8 +1,7 @@
-import * as chromeLauncher from 'chrome-launcher';
-import puppeteer from 'puppeteer-core';
-
 import { pathTo, statesOn, walkOrder } from '../config/states.js';
-import { launchedPid, stopOnExit } from '../process/children.js';
+import { stopOnExit } from '../process/children.js';
+import { chromeByMarker, launchChrome, newMarker } from '../process/chrome.js';
+import { count as countOf, findAll } from '../probes/browser.js';
 import { NO_JOURNAL } from '../probes/journal.js';
 import { applyState, reach } from '../probes/states.js';
 import { backTo, broughtBy, capped, families, keyOf, samePage, without } from './explore.js';
@@ -39,8 +38,8 @@ import { selectorFor } from './selectors.js';
 //                 `reason`, in words. A state under one not reached is not
 //                 tried: it is not reached, through it.
 //   click       — how many elements its selector matches, how many of them
-//                 are visible, and whether the first is: Puppeteer clicks the
-//                 first match, once visible, and a selector matching two is a
+//                 are visible, and whether the first is: a state's click is
+//                 on the first match, once visible, and a selector matching two is a
 //                 state that follows the page's order. The element clicked,
 //                 by role and name, and the steadiest selector that finds it
 //                 alone (./selectors.js), which the agent can adopt — and
@@ -82,15 +81,14 @@ const WAIT_MS = 5_000;
 const MAX_REVEALED = 30;
 
 export async function checkStates(url, states, { formFactors = ['mobile', 'desktop'], onProgress = () => {} } = {}) {
-  // Launched as ./index.js launches it, and for the same reasons: by hand, so
-  // that a Chrome whose port never opened is killed all the same, and
-  // stopped should Kanso be interrupted (src/process/children.js).
-  const chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
-  let browser;
-  const release = stopOnExit(() => launchedPid(chrome));
+  // Stopped should Kanso be interrupted, as ./index.js stops its own
+  // (src/process/chrome.js).
+  const marker = newMarker();
+  let chrome;
+  const release = stopOnExit(() => chrome?.pid ?? chromeByMarker(marker));
   try {
-    await chrome.launch();
-    browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.port}`, defaultViewport: null });
+    chrome = await launchChrome({ marker });
+    const { browser } = chrome;
 
     // The two screens side by side; a screen's states one after the other.
     const screens = Object.fromEntries(await Promise.all(formFactors.map(async (formFactor) => {
@@ -106,8 +104,7 @@ export async function checkStates(url, states, { formFactors = ['mobile', 'deskt
     })));
     return { url, screens, summary: summarize(screens) };
   } finally {
-    await browser?.disconnect().catch(() => {});
-    chrome.kill();
+    await chrome?.close();
     release();
   }
 }
@@ -245,14 +242,14 @@ async function replayOne(browser, formFactor, url, prep, state, path) {
 }
 
 // The element a state's selector clicks, told from the others it matches:
-// Puppeteer takes the first match and waits for it to be visible, so a
+// a click takes the first match and waits for it to be visible, so a
 // selector whose first match is hidden fails where a later one would do.
 // Read on `reading`, the last snapshot taken: the element's number in it is
 // what its steadiest selector is checked against (./selectors.js).
 async function describeClick(page, reading, selector) {
   let handles = [];
   try {
-    handles = await page.$$(selector);
+    handles = await findAll(page, selector);
   } catch {
     // Not a selector: the click says so when it fails.
     return { selector, matches: 0, visible: 0 };
@@ -347,7 +344,7 @@ async function closeAgain(tab, selector, { start, reached, prep, url }) {
 
 async function count(page, selector) {
   try {
-    return (await page.$$eval(selector, (nodes) => nodes.length));
+    return await countOf(page, selector);
   } catch {
     return 0;
   }

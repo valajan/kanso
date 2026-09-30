@@ -1,3 +1,4 @@
+import { click as clickOn, waitForElement } from './browser.js';
 import { settle } from './settle.js';
 
 // Takes a page from one state to the next — src/config/states.js — the way a
@@ -20,13 +21,13 @@ import { settle } from './settle.js';
 export async function applyState(page, { click, waitFor }, { waitMs, fromTop = true }) {
   if (fromTop) await page.evaluate('window.scrollTo(0, 0)');
 
-  const target = await page.waitForSelector(click, { visible: true, timeout: waitMs })
+  const target = await waitForElement(page, click, { visible: true, timeout: waitMs })
     .catch(ifTimeout(`nothing visible to click at ${click}`, 'click'));
-  await target.click();
+  await clickOn(target);
   await target.dispose();
 
   if (waitFor) {
-    await page.waitForSelector(waitFor, { timeout: waitMs })
+    await waitForElement(page, waitFor, { timeout: waitMs })
       .catch(ifTimeout(`clicked ${click}, and ${waitFor} never appeared`, 'wait_for'));
   }
   return settle(page);

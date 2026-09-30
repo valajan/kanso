@@ -23,7 +23,7 @@ export const motion = {
   // Motion is a preference, not a device: one load is enough to see whether
   // the page honours it, and the mobile load is the one that runs it.
   formFactors: ['mobile'],
-  media: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  media: { reducedMotion: 'reduce' },
   beforeLoad: watchMotion,
 
   async run(page) {

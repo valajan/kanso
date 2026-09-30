@@ -1,12 +1,14 @@
+import { findAll } from '../probes/browser.js';
+
 // A selector for an element the snapshot read, one that finds it again in the
 // next load of the page — which is what a `states:` entry replays
 // (src/probes/states.js). Every candidate is tried in the live page, and kept
 // only when it matches that element and nothing else.
 //
-// Plain CSS, and nothing else: a state's selectors are read inside the page as
-// well as by Puppeteer — the transition probes look for the trigger with
-// `document.querySelector` — so none of Puppeteer's own selectors, however
-// steady `::-p-aria()` would be.
+// Plain CSS, and nothing else: a state's selectors are read inside the page —
+// the transition probes look for the trigger with `document.querySelector`,
+// and so does every click (src/probes/browser.js) — so none of a driver's own
+// selectors, however steady an ARIA one would be.
 //
 // The order is how well each survives a change to the page:
 //
@@ -57,7 +59,7 @@ function cssEscape(id) {
 async function pointsAt(page, selector, index) {
   let handles = [];
   try {
-    handles = await page.$$(selector);
+    handles = await findAll(page, selector);
     if (handles.length !== 1) return false;
     return await handles[0].evaluate((node, i) => window[Symbol.for('kanso.discover')]?.nodes[i] === node, index);
   } catch {

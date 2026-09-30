@@ -81,23 +81,22 @@ export async function guardPage(page) {
     }
   };
 
-  await page.setRequestInterception(true);
-  const onRequest = (request) => {
-    if (request.isInterceptResolutionHandled()) return;
+  const onRequest = (route, request) => {
     const url = request.url();
     if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-      if (expected !== null && doc(url) === doc(expected)) return request.continue();
+      if (expected !== null && doc(url) === doc(expected)) return route.continue().catch(() => {});
       blocked.push({ kind: 'navigation', url });
       // A 204 cancels a navigation and leaves the page where it was; an abort
       // would swap it for Chrome's error page.
-      return request.respond({ status: 204, body: '' });
+      return route.fulfill({ status: 204, body: '' }).catch(() => {});
     }
     if (!READS.has(request.method())) {
       blocked.push({ kind: 'write', method: request.method(), url });
-      return request.abort('blockedbyclient');
+      return route.abort('blockedbyclient').catch(() => {});
     }
-    return request.continue();
+    return route.continue().catch(() => {});
   };
+  await page.route('**/*', onRequest);
   const onPopup = (popup) => {
     blocked.push({ kind: 'window', url: popup?.url() ?? null });
     popup?.close().catch(() => {});
@@ -106,7 +105,6 @@ export async function guardPage(page) {
     blocked.push({ kind: 'dialog', type: dialog.type(), message: dialog.message() });
     dialog.dismiss().catch(() => {});
   };
-  page.on('request', onRequest);
   page.on('popup', onPopup);
   page.on('dialog', onDialog);
 
@@ -116,10 +114,9 @@ export async function guardPage(page) {
       expected = url;
     },
     async dispose() {
-      page.off('request', onRequest);
       page.off('popup', onPopup);
       page.off('dialog', onDialog);
-      await page.setRequestInterception(false).catch(() => {});
+      await page.unroute('**/*', onRequest).catch(() => {});
     },
   };
 }

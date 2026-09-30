@@ -136,7 +136,14 @@ run where the code is.
   could not check costs that state; one beyond a state the way could not get
   past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
-  element helper describes a node the way Lighthouse does. Probes run on the
+  element helper describes a node the way Lighthouse does. `browser.js` is
+  what everything that drives a page shares, on top of Playwright: a page on
+  one of the screens, in a context of its own (`newPage`), the network gone
+  quiet for 500 ms counted from the call (`networkIdle`), and a state's
+  selectors found as the page finds them — `document.querySelector`, the
+  first match, no shadow root pierced (`find`, `waitForElement`) — then
+  clicked where they are, uncovered or not (`click`, Playwright's `force`).
+  Probes run on the
   first successful load of a page only — except a probe that measures, which
   runs on every load. `journal.js` keeps, when asked (`--record <dir>`), what
   each probe went through — loaded, each state reached or not, each finding
@@ -236,10 +243,15 @@ run where the code is.
   behind — the servers `serve/command.js` starts, the Chromes an audit's
   workers and `discover` launch — each the leader of a process group, killed
   with it when Kanso exits or is interrupted (SIGINT, SIGTERM, SIGHUP), since
-  a `finally` does not run on a signal. A worker thread receives no signal: it
-  tells the main thread its Chrome's pid as soon as it is spawned
-  (`whenStarted`). A headless Chrome left running is what macOS wakes in place
-  of the one a person opens
+  a `finally` does not run on a signal. `chrome.js` launches Chrome — the one
+  installed (`channel: 'chrome'`), or `CHROME_PATH` — through Playwright
+  (`launchServer`, which gives its pid), marked with an argument of its own
+  (`--kanso-launch=<id>`): until its launch is over and its pid known, it is
+  found by that marker (`chromeByMarker`, `pgrep`). A worker thread receives
+  no signal: the main thread makes the marker, hands it to the worker and
+  watches over that Chrome from the start, by its pid once the worker tells
+  it. A headless Chrome left running is what macOS wakes in place of the one
+  a person opens
 - `serve/` — what the local surfaces can audit besides a URL: a directory of
   built files (`static.js`, loopback, a free port, gzip), or the command a
   project serves itself with (`command.js`, started in its own process group,
@@ -352,7 +364,7 @@ run where the code is.
   are kept there as with `--record`, the result beside them as `audit.json`,
   and the result says where under `record`
 - `runner/runner.js` — runs the page loads; `runner.worker.js` is one load
-  in its own worker thread: it launches Chrome, checks the page answers (a
+  in its own worker thread: it launches Chrome (`process/chrome.js`), checks the page answers (a
   network error or an HTTP status of 400 and up fails the load), runs the
   modules' probes on it and hands each module what its own made of the page
   to `extract` from. No Lighthouse: Kanso does not measure a load nobody
@@ -425,7 +437,8 @@ under it reached from the project's.
 it, and where), relative to the file. The CLI, the MCP server and the Action
 all read it.
 
-**Environment:** one variable, `KANSO_CONCURRENCY` (default 3,
-`src/runner/runner.js`) — how many headless Chromes may run at once, each
-~300-400 MB. Nothing else is read from the environment: no key, no token, no
-endpoint.
+**Environment:** `KANSO_CONCURRENCY` (default 3, `src/runner/runner.js`) —
+how many headless Chromes may run at once, each ~300-400 MB — and
+`CHROME_PATH`, the Chrome to launch when it is not the one installed
+(`src/process/chrome.js`). Nothing else is read from the environment: no key,
+no token, no endpoint.

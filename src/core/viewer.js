@@ -120,7 +120,7 @@ export function describeEvent(event) {
     case 'load': return `${event.side} page, ${event.formFactor}, run ${event.run} — ${event.url}`;
     case 'reached': return `the page answered${event.status ? ` ${event.status}` : ''} — ${event.finalUrl ?? ''}`;
     case 'probe-start': return `${event.module} probe starts${event.states?.length ? ` — states: ${event.states.join(', ')}` : ''}`;
-    case 'loaded': return `page loaded, ${event.viewport?.width ?? '?'}×${event.viewport?.height ?? '?'}${event.media ? ' — ' + event.media.map((m) => `${m.name}: ${m.value}`).join(', ') : ''}`;
+    case 'loaded': return `page loaded, ${event.viewport?.width ?? '?'}×${event.viewport?.height ?? '?'}${event.media ? ' — ' + Object.entries(event.media).map(([name, value]) => `${name}: ${value}`).join(', ') : ''}`;
     case 'state-reached': return `state reached — clicked ${event.click}${event.waitFor ? `, ${event.waitFor} showed` : ''} (${event.ms} ms)`;
     case 'state-unreached': return `state not reached — ${event.error}`;
     case 'open': return `opened by ${event.by}: ${event.opened === true ? 'open' : event.opened === false ? 'did not open' : 'cannot tell'}${event.what ? ` — ${event.what}` : ''}${event.key ? ` (${event.key})` : ''}${event.focusable === false ? ' — trigger takes no focus' : ''}`;

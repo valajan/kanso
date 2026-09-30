@@ -27,15 +27,9 @@ export const SCREENS = {
   },
 };
 
-// A form factor's screen as Puppeteer takes a viewport.
+// A form factor's screen: its size, pixel density, and whether it is a
+// phone's — laid out at its meta viewport, touched rather than clicked.
 export function viewport(formFactor) {
   const { width, height, deviceScaleFactor, mobile } = SCREENS[formFactor];
   return { width, height, deviceScaleFactor, isMobile: mobile, hasTouch: mobile };
-}
-
-export async function emulate(page, formFactor) {
-  const session = await page.createCDPSession();
-  await session.send('Emulation.setScrollbarsHidden', { hidden: true });
-  await page.setViewport(viewport(formFactor));
-  await page.setUserAgent(SCREENS[formFactor].userAgent);
 }

@@ -17,8 +17,8 @@ const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 // Watches over the group `pid` leads until the returned function is called.
 // `pid` may be a function that says it when asked: a Chrome being launched
-// exists before its launcher resolves, and an interruption then must stop it
-// too.
+// exists before its launch resolves, and an interruption then must stop it
+// too (src/process/chrome.js, `chromeByMarker`).
 export function stopOnExit(pid) {
   if (pid === undefined) return () => {};
   if (running.size === 0) {
@@ -52,30 +52,6 @@ export function signalGroup(pid, name) {
 
 function stopAll() {
   for (const pid of running) signalGroup(typeof pid === 'function' ? pid() : pid, 'SIGKILL');
-}
-
-// The pid of the Chrome a chrome-launcher Launcher started, from the moment it
-// is spawned: the launcher's own `pid` is only set once Chrome answers on its
-// debugging port, seconds later.
-export function launchedPid(launcher) {
-  return launcher.chromeProcess?.pid ?? launcher.pid;
-}
-
-// Calls `told(pid)` once the Chrome `launcher` is starting has one, without
-// waiting for the launch to be over — for a thread that must say so to the
-// one signals reach. Stops looking once `launching` settles.
-export function whenStarted(launcher, launching, told) {
-  let done = false;
-  const look = () => {
-    const pid = launchedPid(launcher);
-    if (done || pid === undefined) return;
-    done = true;
-    clearInterval(timer);
-    told(pid);
-  };
-  const timer = setInterval(look, 10);
-  look();
-  launching.finally(look).catch(() => {}).finally(() => clearInterval(timer));
 }
 
 // Stops them all, then lets the signal do what it would have done.
