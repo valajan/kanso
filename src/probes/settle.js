@@ -1,3 +1,4 @@
+import { networkIdle } from './browser.js';
 import { inPage } from './dom.js';
 
 // What a state is given, once a click or a key has opened or closed it, before
@@ -34,7 +35,7 @@ const ANIMATIONS_MS = 2_000;
 // rejects: a page that goes as it is read — a click that left it — says so
 // elsewhere, when it is read.
 export async function settle(page) {
-  await page.waitForNetworkIdle({ idleTime: IDLE_MS, timeout: SETTLE_MS }).catch(() => {});
+  await networkIdle(page, { idleMs: IDLE_MS, timeoutMs: SETTLE_MS });
   return animationsDone(page);
 }
 

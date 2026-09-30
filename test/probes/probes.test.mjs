@@ -2,7 +2,6 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import * as chromeLauncher from 'chrome-launcher';
 
 import accessibility from '../../src/modules/accessibility/index.js';
 import { axeProbe, ruleIds } from '../../src/modules/accessibility/axe.js';
@@ -13,6 +12,7 @@ import { keyboard } from '../../src/modules/accessibility/keyboard.js';
 import { motion } from '../../src/modules/accessibility/motion.js';
 import { reflow } from '../../src/modules/accessibility/reflow.js';
 import performance from '../../src/modules/performance/index.js';
+import { launchChrome } from '../../src/process/chrome.js';
 import { runProbes } from '../../src/probes/index.js';
 import { Journal } from '../../src/probes/journal.js';
 import { serveDirectory } from '../../src/serve/static.js';
@@ -34,18 +34,17 @@ let chrome;
 let site;
 
 before(async () => {
-  chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
-  await chrome.launch();
+  chrome = await launchChrome();
   site = await serveDirectory(fileURLToPath(new URL('./pages', import.meta.url)));
 });
 
 after(async () => {
-  chrome?.kill();
+  await chrome?.close();
   await site?.close();
 });
 
 function probe(page, { modules = [accessibility], formFactor = 'mobile', config, measuresOnly, timeoutMs, journal } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, modules, config, measuresOnly, timeoutMs, journal });
+  return runProbes({ browser: chrome.browser, url: new URL(page, site.url).href, formFactor, modules, config, measuresOnly, timeoutMs, journal });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -130,7 +129,7 @@ test('a rule axe cannot settle is reported as a doubt, and cannot fail an audit 
 test('the rules the probe answers for follow the tags the project asked for', async () => {
   const dead = `http://127.0.0.1:${await closedPort()}/`;
   const run = (config) => runProbes({
-    port: chrome.port, url: dead, formFactor: 'mobile',
+    browser: chrome.browser, url: dead, formFactor: 'mobile',
     modules: [{ id: 'accessibility', probes: [axeProbe] }], config,
   });
 
@@ -236,7 +235,7 @@ test('the journal follows a probe through its states, and keeps what it found wh
 
 test('a page that never loads reached none of its states either', async () => {
   const { accessibility: result } = await runProbes({
-    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile',
+    browser: chrome.browser, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile',
     modules: only(axeProbe), config: { states: [MENU, SIGNUP] },
   });
   assert.deepEqual(result.failures.map(({ at }) => at ?? null), [null, 'menu', 'signup']);
@@ -916,7 +915,7 @@ test('a probe that throws or never ends costs its own rules, and the others stil
 
 test('a page that never answers fails every probe, with what went wrong', async () => {
   const { accessibility: result } = await runProbes({
-    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', modules: [accessibility],
+    browser: chrome.browser, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', modules: [accessibility],
   });
 
   assert.equal(result.findings.length, 0);

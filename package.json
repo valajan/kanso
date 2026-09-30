@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Kanso \u2014 deterministic probes through a web app: accessibility, keyboard, interactions and INP, in the states it opens, from the terminal, your coding agent, or your CI",
+  "description": "Kanso — deterministic probes through a web app: accessibility, keyboard, interactions and INP, in the states it opens, from the terminal, your coding agent, or your CI",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/valajan/kanso.git"
@@ -27,8 +27,7 @@
   },
   "dependencies": {
     "axe-core": "4.13.0",
-    "chrome-launcher": "^1.2.1",
     "js-yaml": "^4.3.2",
-    "puppeteer-core": "^25.12.0"
+    "playwright-core": "^1.63.0"
   }
 }

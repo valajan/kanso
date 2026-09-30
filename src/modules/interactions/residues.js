@@ -119,7 +119,7 @@ async function wheelBehind(page) {
   if (!point) return 0;
   const y = await page.evaluate('scrollY');
   await page.mouse.move(point.x, point.y);
-  await page.mouse.wheel({ deltaY: WHEEL_PX });
+  await page.mouse.wheel(0, WHEEL_PX);
   await new Promise((resolve) => setTimeout(resolve, 300));
   const moved = Math.round(Math.abs((await page.evaluate('scrollY')) - y));
   // Back where it was, whatever happened: what closes next is judged from

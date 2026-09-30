@@ -223,7 +223,7 @@ function checkStatesTool({ cwd, checkStates, now }) {
       + 'starts from was not reached, named in `through`), click (nothing visible matches), wait_for (what says it '
       + 'opened never did), guards (what was stopped, in `stopped`), left (the click changed the address: another '
       + 'page, not a state) — and `reason` says it in words. `click` says how many elements the selector matches '
-      + 'and how many are visible: Puppeteer clicks the first, so a selector matching two follows the page\'s '
+      + 'and how many are visible: the first is the one clicked, so a selector matching two follows the page\'s '
       + 'order — and gives the element it clicked, by role and name, with `steadiest`, the selector that finds it '
       + 'alone, which you can adopt; `refused` says a rule the exploration keeps (a button named like Delete, a '
       + 'field, a link) would not have let it touch that element. A selector whose first match is hidden fails '

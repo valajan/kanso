@@ -1,3 +1,4 @@
+import { devtools } from '../../probes/browser.js';
 import { impactOf } from './rules.js';
 
 // What opening and closing a state again and again leaves in memory. A
@@ -40,7 +41,7 @@ export const leaks = {
 
   async transition(page, state, tools) {
     const trigger = await tools.trigger();
-    const session = await page.createCDPSession();
+    const session = await devtools(page);
     const counters = async () => {
       await session.send('HeapProfiler.collectGarbage');
       return session.send('Memory.getDOMCounters');

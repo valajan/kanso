@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { clampRuns } from '../core/runs.js';
 import { MODULES } from '../modules/index.js';
 import { stopOnExit } from '../process/children.js';
+import { chromeByMarker, newMarker } from '../process/chrome.js';
 
 const WORKER_URL = new URL('./runner.worker.js', import.meta.url);
 
@@ -84,19 +85,22 @@ async function runOnce(url, formFactor, moduleIds, { config, probes, record }) {
   await semaphore.acquire();
   try {
     return await new Promise((resolve, reject) => {
+      const marker = newMarker();
       const worker = new Worker(WORKER_URL, {
-        workerData: { url, formFactor, moduleIds, config, probes, record },
+        workerData: { url, formFactor, moduleIds, config, probes, record, marker },
       });
 
-      // The Chrome the worker launched, stopped from here should Kanso be
-      // interrupted (src/process/children.js): released once the worker is
-      // done with it, whichever way.
-      let release = () => {};
+      // The Chrome the worker launches, stopped from here should Kanso be
+      // interrupted (src/process/children.js) — by its pid once the worker
+      // tells it, by its marker until then (src/process/chrome.js) —
+      // released once the worker is done with it, whichever way.
+      let pid;
+      const release = stopOnExit(() => pid ?? chromeByMarker(marker));
       worker.once('exit', () => release());
 
       worker.on('message', (msg) => {
         if (msg.chrome !== undefined) {
-          release = stopOnExit(msg.chrome);
+          pid = msg.chrome;
           return;
         }
         if (msg.ok) resolve(msg.samples);

@@ -1,7 +1,5 @@
-import * as chromeLauncher from 'chrome-launcher';
-import puppeteer from 'puppeteer-core';
-
-import { launchedPid, stopOnExit } from '../process/children.js';
+import { stopOnExit } from '../process/children.js';
+import { chromeByMarker, launchChrome, newMarker } from '../process/chrome.js';
 import { NO_JOURNAL } from '../probes/journal.js';
 import { applyState, reach } from '../probes/states.js';
 import { DEFAULTS, explore } from './explore.js';
@@ -24,17 +22,15 @@ import { load, openPage, settle } from './page.js';
 // click not kept because the guards stopped something it did, `clicked`
 // every click as ./explore.js records it.
 export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onProgress = () => {} } = {}) {
-  // Built by hand rather than through chromeLauncher.launch(), for the reason
-  // src/runner/runner.worker.js gives: a Chrome whose port never opened
-  // is killed here all the same.
-  const chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
-  let browser;
   // Stopped should Kanso be interrupted, when this `finally` does not run —
-  // from the moment it is spawned, launch not over (src/process/children.js).
-  const release = stopOnExit(() => launchedPid(chrome));
+  // from the moment it is spawned, launch not over: by its marker until its
+  // pid is known (src/process/chrome.js).
+  const marker = newMarker();
+  let chrome;
+  const release = stopOnExit(() => chrome?.pid ?? chromeByMarker(marker));
   try {
-    await chrome.launch();
-    browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.port}`, defaultViewport: null });
+    chrome = await launchChrome({ marker });
+    const { browser } = chrome;
 
     // The two screens side by side: each click is a page of its own, in a
     // context of its own, and nothing here is timed.
@@ -69,8 +65,7 @@ export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDe
       })),
     };
   } finally {
-    await browser?.disconnect().catch(() => {});
-    chrome.kill();
+    await chrome?.close();
     release();
   }
 }

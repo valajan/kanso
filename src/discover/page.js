@@ -1,6 +1,6 @@
 import { diff, fingerprint, volatileLines } from './fingerprint.js';
 import { guardPage, verdict, writeKey } from './guards.js';
-import { emulate } from '../probes/screens.js';
+import { networkIdle, newPage } from '../probes/browser.js';
 import { selectorFor } from './selectors.js';
 import { markLoaded, snapshot } from './snapshot.js';
 
@@ -14,9 +14,7 @@ const LOAD_TIMEOUT_MS = 30_000;
 // dismissed for the whole context, and every reading after it would differ
 // from the first by the banner alone.
 export async function openPage(browser, formFactor) {
-  const context = await browser.createBrowserContext();
-  const page = await context.newPage();
-  await emulate(page, formFactor);
+  const { context, page } = await newPage(browser, formFactor);
   const guard = await guardPage(page);
   return {
     page,
@@ -38,7 +36,7 @@ export async function load({ page, guard }, url) {
   } finally {
     guard.allow(null);
   }
-  await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
+  await networkIdle(page, { idleMs: 500, timeoutMs: SETTLE_MS });
   await markLoaded(page);
 }
 
@@ -106,7 +104,7 @@ export async function scrollThrough(page) {
     scrollTo(0, 0);
     return [...seen];
   });
-  await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
+  await networkIdle(page, { idleMs: 500, timeoutMs: SETTLE_MS });
   return lines;
 }
 

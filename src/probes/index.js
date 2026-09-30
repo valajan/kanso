@@ -1,9 +1,8 @@
-import puppeteer from 'puppeteer-core';
-
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates, pathTo, statesOn, walkOrder } from '../config/states.js';
+import { networkIdle, newPage } from './browser.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
-import { SCREENS, viewport } from './screens.js';
+import { SCREENS } from './screens.js';
 import { applyState, reach } from './states.js';
 import { transitionTools } from './transition.js';
 
@@ -41,7 +40,7 @@ const SETTLE_MS = 5_000;
 // whose probe measures. Each failure is { probe, rules, error }: `rules` are
 // what the probe would have checked, and so what nobody did.
 //
-// - port:       the debugging port of the Chrome to use
+// - browser:    the Playwright Browser of the Chrome to use
 // - config:     the resolved .kanso.yml. A probe is handed its module's own
 //               section of it, never the rest — the same rule the modules
 //               themselves are held to (src/config/module-config.js). What a
@@ -94,7 +93,7 @@ const SETTLE_MS = 5_000;
 // what does not vary from one load to the next and ran on the first
 // (src/runner/runner.js), while a measure is taken on every load, to be
 // folded into a median.
-export async function runProbes({ port, url, formFactor, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
+export async function runProbes({ browser, url, formFactor, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
   // The states on this screen: a drawer only a phone's layout has is not
   // looked for on a desktop, where it would read as one out of reach.
   const declared = statesOn(parseStates(config.states), formFactor);
@@ -124,35 +123,23 @@ export async function runProbes({ port, url, formFactor, modules, config = {}, m
     for (const { name } of statesOf(probe)) fail(mod, probe, config, message(err), name);
   };
 
-  let browser;
-  try {
-    browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
-  } catch (err) {
-    for (const { mod, probe, config } of wanted) failEverywhere(mod, probe, config, err);
-    return results;
-  }
-
-  try {
-    // One at a time: a probe presses keys and reads focus, which only the page
-    // in front has.
-    for (const { mod, probe, config } of wanted) {
-      const log = probe.measures || probe.frames === false ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
-      const started = Date.now();
-      log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
-      try {
-        const run = probe.transitions ? runTransitions : runProbe;
-        const { findings, unchecked } = await run(browser, probe, { url, formFactor, config, states: statesOf(probe), timeoutMs, log });
-        results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
-        if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
-        log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
-        for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
-      } catch (err) {
-        log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
-        failEverywhere(mod, probe, config, err);
-      }
+  // One at a time: a probe presses keys and reads focus, which only the page
+  // in front has.
+  for (const { mod, probe, config } of wanted) {
+    const log = probe.measures || probe.frames === false ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
+    const started = Date.now();
+    log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
+    try {
+      const run = probe.transitions ? runTransitions : runProbe;
+      const { findings, unchecked } = await run(browser, probe, { url, formFactor, config, states: statesOf(probe), timeoutMs, log });
+      results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
+      if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
+      log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
+      for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
+    } catch (err) {
+      log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
+      failEverywhere(mod, probe, config, err);
     }
-  } finally {
-    await browser.disconnect().catch(() => {});
   }
   return results;
 }
@@ -172,9 +159,7 @@ async function runProbe(browser, probe, { url, formFactor, config, states = [], 
   const open = async (at) => {
     // The page a branch leaves behind is not gone back to.
     await Promise.all(contexts.splice(0).map((context) => context.close().catch(() => {})));
-    const context = await browser.createBrowserContext();
-    contexts.push(context);
-    return loadPage(context, probe, { url, formFactor, timeoutMs, log: at });
+    return loadPage(browser, probe, { url, formFactor, timeoutMs, log: at, opened: (context) => contexts.push(context) });
   };
   const step = (work) => withTimeout(work, timeoutMs);
   try {
@@ -262,9 +247,9 @@ async function runTransitions(browser, probe, { url, formFactor, config, states,
       unchecked.push({ at: state.name, error: new Error(`not reached: ${beyond.name} could not be (${missed.get(beyond.name)})`) });
       continue;
     }
-    const context = await browser.createBrowserContext();
+    let context;
     try {
-      const page = await withTimeout(() => loadPage(context, probe, { url, formFactor, timeoutMs, log: at }), timeoutMs);
+      const page = await withTimeout(() => loadPage(browser, probe, { url, formFactor, timeoutMs, log: at, opened: (opened) => { context = opened; } }), timeoutMs);
       try {
         await withTimeout(() => reach(page, path, { waitMs: timeoutMs / 3, log: at }), timeoutMs);
       } catch (error) {
@@ -285,30 +270,26 @@ async function runTransitions(browser, probe, { url, formFactor, config, states,
         unchecked.push({ at: state.name, error });
       }
     } finally {
-      await context.close().catch(() => {});
+      await context?.close().catch(() => {});
     }
   }
   return { findings, unchecked };
 }
 
-// A page for `probe`, on the form factor's screen with its user agent, unless
-// the probe asks otherwise: another viewport, media features, a
-// slowed CPU, a script of its own before the page's.
-async function loadPage(context, probe, { url, formFactor, timeoutMs, log }) {
-  const page = await context.newPage();
-  // Scrollbars laid over the page, as on a phone or a Mac: a classic one
-  // would take 15 px off the width a probe asked for.
-  const session = await page.createCDPSession();
-  await session.send('Emulation.setScrollbarsHidden', { hidden: true });
-  await page.setViewport({ ...viewport(formFactor), ...probe.viewport });
-  await page.setUserAgent(SCREENS[formFactor].userAgent);
-  if (probe.media) await page.emulateMediaFeatures(probe.media);
+// A page for `probe`, in a context of its own — handed to `opened` as soon as
+// it exists, for the caller to close however the load ends — on the form
+// factor's screen with its user agent, unless the probe asks otherwise:
+// another viewport, media features, a slowed CPU, a script of its own before
+// the page's.
+async function loadPage(browser, probe, { url, formFactor, timeoutMs, log, opened }) {
+  const { context, page, session, screen } = await newPage(browser, formFactor, { viewport: probe.viewport, media: probe.media });
+  opened(context);
   if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: SCREENS[formFactor].cpuSlowdown });
-  if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
+  if (probe.beforeLoad) await page.addInitScript(probe.beforeLoad);
   await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
-  await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
+  await networkIdle(page, { idleMs: 500, timeoutMs: SETTLE_MS });
   await page.bringToFront();
-  await log.shot(page, 'loaded', { url, viewport: page.viewport(), ...(probe.media ? { media: probe.media } : {}) });
+  await log.shot(page, 'loaded', { url, viewport: screen, ...(probe.media ? { media: probe.media } : {}) });
   return page;
 }
 

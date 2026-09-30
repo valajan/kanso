@@ -15,7 +15,8 @@ and **in CI** to stop a regression before it merges.
 ## 1. Requirements
 
 - **Node 22.19 or later** (`node -v`)
-- **Google Chrome** installed — Kanso drives it, it does not ship it
+- **Google Chrome** installed — Kanso drives it, it does not ship it (another
+  Chrome or Chromium: name it with `CHROME_PATH`)
 
 Nothing else: no account, no API key, no server.
 
@@ -539,7 +540,7 @@ Chrome: they fight over the same CPU as the page being timed.
 |---|---|
 | `error · net::ERR_CONNECTION_REFUSED` | nothing is serving that port |
 | `error · the page answered 404` | the server answers, with an error |
-| `error · ...ChromeLauncher...` | Chrome is missing, or not where Kanso looks for it |
+| `error · could not start Google Chrome…` | Chrome is missing, or not where Kanso looks for it: install it, or set `CHROME_PATH` |
 | `configuration file not found` | the path given to `--config` does not exist |
 | `there is no dist directory to serve` | the project has not been built yet |
 | `something already answers at …` | a server is already running where `serve.url` points: stop it, or audit that URL directly |

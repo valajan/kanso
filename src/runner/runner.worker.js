@@ -1,11 +1,9 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import * as chromeLauncher from 'chrome-launcher';
-import puppeteer from 'puppeteer-core';
-import { whenStarted } from '../process/children.js';
+import { launchChrome } from '../process/chrome.js';
 import { getModule } from '../modules/index.js';
+import { newPage } from '../probes/browser.js';
 import { runProbes } from '../probes/index.js';
 import { Journal, journalPath, SCHEMA } from '../probes/journal.js';
-import { emulate } from '../probes/screens.js';
 import { version } from '../version.js';
 
 // How long the page is given to answer before the load is called failed.
@@ -17,34 +15,26 @@ const REACH_TIMEOUT_MS = 30_000;
 // own sample from what its probes made of the page. With `record` — { dir,
 // side, run } — the load keeps a journal of what its probes did
 // (src/probes/journal.js), written to that directory however the load ends.
-async function audit({ url, formFactor, moduleIds, config, probes = 'all', record }) {
+// Chrome is launched with `marker`, by which the main thread finds it should
+// Kanso be interrupted before this thread could tell it its pid
+// (src/process/chrome.js).
+async function audit({ url, formFactor, moduleIds, config, probes = 'all', record, marker }) {
   const modules = moduleIds.map(getModule);
   const journal = record ? new Journal() : undefined;
   journal?.log('load', { schema: SCHEMA, kanso: version(), url, side: record.side, formFactor, run: record.run, startedAt: new Date().toISOString(), probes });
 
-  // The Launcher is built by hand rather than through chromeLauncher.launch(),
-  // whose launch starts Chrome, waits for its debugging port, and — when the
-  // port never opens — throws without killing the Chrome it started. That
-  // Chrome then keeps this thread, and so the whole process, alive: a CI job
-  // that runs every audit to the end, then never exits. Killed here in every
-  // case, launch included.
-  const chrome = new chromeLauncher.Launcher({
-    chromeFlags: ['--headless=new', '--no-sandbox'],
-  });
-
+  let chrome;
   try {
     // A signal reaches the main thread only: that is where this Chrome is
-    // stopped from if Kanso is, since this `finally` will not run then — told
-    // as soon as it is spawned, the launch not over.
-    const launching = chrome.launch();
-    whenStarted(chrome, launching, (pid) => parentPort.postMessage({ chrome: pid }));
-    await launching;
+    // stopped from if Kanso is, since this `finally` will not run then.
+    chrome = await launchChrome({ marker });
+    parentPort.postMessage({ chrome: chrome.pid });
 
-    const reached = await reach(chrome.port, url, formFactor);
+    const reached = await reach(chrome.browser, url, formFactor);
     journal?.log('reached', reached);
 
     const probed = await runProbes({
-      port: chrome.port, url, formFactor, modules, config,
+      browser: chrome.browser, url, formFactor, modules, config,
       measuresOnly: probes === 'measures', journal,
     });
 
@@ -55,7 +45,7 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', recor
     journal?.log('load-end', { ok: false, error: err?.message ?? String(err) });
     throw err;
   } finally {
-    chrome.kill();
+    await chrome?.close();
     if (journal) {
       try {
         journal.write(journalPath(record.dir, { side: record.side, formFactor, run: record.run }));
@@ -71,20 +61,15 @@ async function audit({ url, formFactor, moduleIds, config, probes = 'all', recor
 // 404 or a 500 — would fail every probe one by one, each reported as rules
 // nobody checked, and the audit would read as a page with a few gaps in it. It
 // is a failed load, and fails the run.
-async function reach(port, url, formFactor) {
-  const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
+async function reach(browser, url, formFactor) {
+  const { context, page } = await newPage(browser, formFactor);
   try {
-    const context = await browser.createBrowserContext();
-    const page = await context.newPage();
-    await emulate(page, formFactor);
     const response = await page.goto(url, { waitUntil: 'load', timeout: REACH_TIMEOUT_MS });
     const status = response?.status() ?? null;
     if (status != null && status >= 400) throw new Error(`the page answered ${status}: ${url}`);
-    const reached = { finalUrl: page.url(), status };
-    await context.close();
-    return reached;
+    return { finalUrl: page.url(), status };
   } finally {
-    await browser.disconnect();
+    await context.close().catch(() => {});
   }
 }
 
