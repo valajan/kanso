@@ -90,7 +90,7 @@ function renderSection(formFactor, sides, budget, { referenceLabel, referenceKin
   const currentScore = sides?.current ?? null;
 
   if (currentScore == null) {
-    return `### ${icon} ${label}\n\n_Lighthouse audit failed — no results to report._\n`;
+    return `### ${icon} ${label}\n\n_The load failed — no results to report._\n`;
   }
 
   const againstBaseline = referenceKind === 'baseline';
@@ -192,8 +192,6 @@ function hasFindings(modules) {
 // here without this file changing.
 const MODULE_ICONS = {
   accessibility: '♿',
-  seo: '🔍',
-  'best-practices': '🧰',
 };
 
 // Failing elements listed per rule. A rule broken on forty nodes is one problem

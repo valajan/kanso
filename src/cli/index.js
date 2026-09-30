@@ -22,15 +22,16 @@ const OPTIONS = {
   version: { type: 'boolean', short: 'v' },
 };
 
-const USAGE = `Kanso — frontend audits, on your machine
+const USAGE = `Kanso — deterministic probes through a web page, on your machine
 
   kanso audit [url | dir] [options]
   kanso discover [url | dir] [--write] [--max-states <n>]
   kanso discover [url | dir] --check
   kanso mcp
 
-Audits a page on mobile and desktop and judges it against your budgets, or
-against a baseline page when you name one. The page is a URL, or a directory
+Runs Kanso's probes through a page on mobile and desktop — into the states it
+declares and out of them — and judges what they find against your thresholds,
+or against a baseline page when you name one. The page is a URL, or a directory
 of built files that Kanso serves itself for the length of the audit. Name
 neither, and Kanso serves the project the way the serve: block of its
 .kanso.yml says. \`audit\` may be left out when the first argument is a URL.
@@ -63,9 +64,10 @@ Options
   -b, --baseline <url | dir>
                         page to compare against: production, the main branch's
                         preview, or a second local build
-  -r, --runs <n>        loads per page and form factor, 1-5. Lighthouse swings
-                        by 20-30% on TBT, so several runs and their median is
-                        what makes a small regression believable
+  -r, --runs <n>        loads per page and form factor, 1-5. A click timed once
+                        swings from one load to the next, so several runs and
+                        the median INP are what make a small regression
+                        believable
   -c, --config <path>   configuration file (default: .kanso.yml, if present)
       --fail-on <level> exit 1 from this level up: warn or fail (default: fail)
       --json            print the whole result as JSON, and nothing else
@@ -104,7 +106,7 @@ discover --check: 0 every state holds, 1 one does not, 2 it could not run
 // Parses the command line and runs the requested command, returning the
 // process exit code. Nothing here writes to the real stdio or reads the real
 // argv, so the CLI is exercised in the tests exactly as a user runs it.
-export async function main(argv, { io = process, cwd = process.cwd(), runLighthouse, discover, check } = {}) {
+export async function main(argv, { io = process, cwd = process.cwd(), runLoads, discover, check } = {}) {
   try {
     const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true });
 
@@ -161,7 +163,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
     }
     if (discoverOnly.length > 0) throw new UsageError(`--${discoverOnly[0]} is discover's, not ${head === 'mcp' ? 'mcp' : 'an audit'}'s`);
 
-    const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
+    const loads = runLoads ?? (await import('../runner/runner.js')).runLoads;
 
     if (head === 'mcp') {
       // Every option above belongs to one audit, and an MCP client passes them
@@ -172,7 +174,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
 
       const { runMcpServer } = await import('../mcp/index.js');
       // The server answers until the host closes stdin.
-      await runMcpServer({ input: io.stdin, output: io.stdout, cwd, runLighthouse: lighthouse });
+      await runMcpServer({ input: io.stdin, output: io.stdout, cwd, runLoads: loads });
       return EXIT.ok;
     }
 
@@ -190,7 +192,7 @@ export async function main(argv, { io = process, cwd = process.cwd(), runLightho
       record: values.record ?? null,
       cwd,
       io,
-      runLighthouse: lighthouse,
+      runLoads: loads,
     });
   } catch (err) {
     const usage = err instanceof UsageError || err?.code?.startsWith?.('ERR_PARSE_ARGS');

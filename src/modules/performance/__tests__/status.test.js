@@ -3,37 +3,39 @@ import assert from 'node:assert/strict';
 import { getMetric } from '../metrics.js';
 import { buildStatus, evaluateStatuses, metricsWithStatus } from '../status.js';
 
-const performance = getMetric('performance'); // higher is better, good 90, poor 49
-const lcp = getMetric('lcp');                 // lower is better,  good 2500, poor 4000
-
-test('buildStatus classifies a higher-is-better metric', () => {
-  assert.equal(buildStatus(95, null, performance), 'pass');
-  assert.equal(buildStatus(70, null, performance), 'warn');
-  assert.equal(buildStatus(40, null, performance), 'fail');
-});
+const inp = getMetric('inp'); // lower is better, good 200, poor 500
 
 test('buildStatus classifies a lower-is-better metric', () => {
-  assert.equal(buildStatus(2000, null, lcp), 'pass');
-  assert.equal(buildStatus(3000, null, lcp), 'warn');
-  assert.equal(buildStatus(5000, null, lcp), 'fail');
+  assert.equal(buildStatus(150, null, inp), 'pass');
+  assert.equal(buildStatus(300, null, inp), 'warn');
+  assert.equal(buildStatus(600, null, inp), 'fail');
+});
+
+// A higher-is-better metric reads the other way round, whatever it is.
+test('buildStatus classifies a higher-is-better metric', () => {
+  const score = { lowerIsBetter: false, good: 90, poor: 49 };
+  assert.equal(buildStatus(95, null, score), 'pass');
+  assert.equal(buildStatus(70, null, score), 'warn');
+  assert.equal(buildStatus(40, null, score), 'fail');
 });
 
 test('buildStatus uses an explicit budget as the fail threshold', () => {
-  // Without a budget, 75 sits in the warn zone; a budget of 80 makes it a fail.
-  assert.equal(buildStatus(75, null, performance), 'warn');
-  assert.equal(buildStatus(75, 80, performance), 'fail');
+  // Without a budget, 300 sits in the warn zone; a budget of 250 makes it a fail.
+  assert.equal(buildStatus(300, null, inp), 'warn');
+  assert.equal(buildStatus(300, 250, inp), 'fail');
 });
 
-test('evaluateStatuses returns a status for every metric', () => {
-  const statuses = evaluateStatuses(
-    { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 },
-    {}
-  );
-  assert.deepEqual(Object.keys(statuses), ['performance', 'lcp', 'tbt', 'cls', 'fcp']);
-  assert.ok(Object.values(statuses).every((s) => s === 'pass'));
+test('evaluateStatuses returns a status for every metric measured', () => {
+  assert.deepEqual(evaluateStatuses({ inp: 100 }, {}), { inp: 'pass' });
+});
+
+// INP where nothing was clicked: a number nobody measured passes nothing and
+// fails nothing.
+test('a metric with no value gets no status', () => {
+  assert.deepEqual(evaluateStatuses({ inp: null }, {}), {});
 });
 
 test('metricsWithStatus names the metrics that reached a level, in registry order', () => {
-  const statuses = { performance: 'fail', lcp: 'warn', tbt: 'pass', cls: 'fail', fcp: 'pass' };
-  assert.deepEqual(metricsWithStatus(statuses, 'fail'), ['performance', 'cls']);
+  assert.deepEqual(metricsWithStatus({ inp: 'fail' }, 'fail'), ['inp']);
+  assert.deepEqual(metricsWithStatus({ inp: 'fail' }, 'warn'), []);
 });

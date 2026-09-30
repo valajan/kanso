@@ -1,35 +1,30 @@
 import { combineLevels } from '../../core/levels.js';
-import { extractDiagnostics, pickDiagnostics } from './diagnostics.js';
 import { inpDiagnostics, inpProbe, slowestInteraction } from './inp.js';
 import { allBudgetsDefined, METRICS, roundScore } from './metrics.js';
 import { medianScores } from './median.js';
 import { effectiveBudgets, evaluateStatuses } from './status.js';
 
-// Performance: the five Lighthouse metrics (score, LCP, TBT, CLS, FCP), and
-// INP, which Kanso times itself on the clicks a project declares (inp.js) —
-// judged against per-repo budgets and compared to a baseline.
+// Performance: what the page costs a visitor who uses it — INP, which Kanso
+// times itself on the clicks a project declares (inp.js) — judged against
+// per-repo budgets and compared to a baseline. Nothing here is read from a
+// page load nobody touches: that is what Lighthouse measures, and Kanso leaves
+// it to Lighthouse.
 export default {
   id: 'performance',
   label: 'Performance',
-  categories: ['performance'],
   checkLabels: Object.fromEntries(METRICS.map((m) => [m.key, m.label])),
   probes: [inpProbe],
 
   // `inp` is null when nothing was timed: no state declared, or none reached.
-  extract(lhr, { probed } = {}) {
+  extract({ probed } = {}) {
     return {
-      performance: Math.round((lhr.categories.performance.score ?? 0) * 100),
-      lcp: lhr.audits['largest-contentful-paint'].numericValue ?? 0,
-      tbt: lhr.audits['total-blocking-time'].numericValue ?? 0,
-      cls: lhr.audits['cumulative-layout-shift'].numericValue ?? 0,
-      fcp: lhr.audits['first-contentful-paint'].numericValue ?? 0,
       inp: slowestInteraction(probed?.measures)?.latency ?? null,
-      diagnostics: { ...extractDiagnostics(lhr), inp: inpDiagnostics(probed) },
+      diagnostics: { inp: inpDiagnostics(probed) },
     };
   },
 
   // The measures are noisy, so repeated loads are folded into their median;
-  // the diagnostics come from the loads that produced those medians.
+  // the diagnostics come from the load that produced it.
   combine(samples) {
     const usable = samples.filter((sample) => sample != null);
     const medians = medianScores(usable);
@@ -44,17 +39,17 @@ export default {
 
   // Returns, beyond `levels`:
   // - budgets:       { [metric]: threshold }, what every level was read
-  //                  against — the repo's budget, or Lighthouse's "poor"
-  //                  boundary where it sets none. The same on both form
-  //                  factors, and there whether or not a baseline was loaded:
-  //                  a baseline gives Δ its meaning, never the verdict.
+  //                  against — the repo's budget, or the "poor" boundary
+  //                  where it sets none. The same on both form factors, and
+  //                  there whether or not a baseline was loaded: a baseline
+  //                  gives Δ its meaning, never the verdict.
   // - scores:        { [formFactor]: { current, reference } }
   // - referenceKind: 'baseline', or 'budgets' when no baseline was loaded and
   //                  the budgets stand in as the comparison column
-  // - diagnostics:   { [formFactor]: { current, baseline } }, what Lighthouse
-  //                  says about why the numbers are what they are — see
-  //                  diagnostics.js. The module's own detail: surfaces that
-  //                  know it render it, the others pass it through.
+  // - diagnostics:   { [formFactor]: { current, baseline } }, why the numbers
+  //                  are what they are: the slowest interaction and its parts
+  //                  (inp.js). The module's own detail: surfaces that know it
+  //                  render it, the others pass it through.
   evaluate({ formFactors, baselineAudited }, config) {
     const budget = config.budgets ?? {};
     const scores = {};
@@ -88,4 +83,19 @@ function split(data) {
   if (data == null) return { measures: null, diagnostics: null };
   const { diagnostics = null, ...measures } = data;
   return { measures, diagnostics };
+}
+
+// Which load's diagnostics to report when the page was loaded several times:
+// the one whose INP is nearest the median, so that the interaction named is
+// the one behind the number. An even count has no middle load: its median
+// sits halfway between two, and the first of them to have run is taken. With
+// no INP to be nearest to, what the first load says of why there is none:
+// nothing declared, or a state it could not reach.
+export function pickDiagnostics(samples, medians) {
+  let best = null;
+  for (const sample of samples) {
+    if (typeof sample?.inp !== 'number') continue;
+    if (best == null || Math.abs(sample.inp - medians.inp) < Math.abs(best.inp - medians.inp)) best = sample;
+  }
+  return { inp: (best ?? samples[0])?.diagnostics?.inp ?? null };
 }

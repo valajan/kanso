@@ -113,36 +113,20 @@ test('the module always wants the baseline, whatever the config says', () => {
   assert.equal(accessibility.needsBaseline({ fail_on: 'critical' }), true);
 });
 
-// What makes this module its own: it reads nothing from Lighthouse. The
-// category is gone from what Lighthouse is asked for, so a report still
-// carrying one — an older run, another module's load — is no longer a source
-// of findings, and everything comes from the probes.
-test('nothing is read from the Lighthouse report any more', () => {
-  const lighthouseStillHasIt = {
-    categories: { accessibility: { auditRefs: [{ id: 'color-contrast' }] } },
-    audits: { 'color-contrast': { score: 0, title: 't', details: { items: [], debugData: { type: 'debugdata', impact: 'serious' } } } },
-  };
-
-  assert.deepEqual(accessibility.extract(lighthouseStillHasIt), { findings: [] });
-  assert.deepEqual(accessibility.categories, [], 'the category is not asked for');
-});
-
 // --- what the probes add ------------------------------------------------------------
 
 const REFLOW = { rule: 'reflow-scroll', impact: 'serious', nodes: [{ selector: 'div.wide', snippet: '<div class="wide">', label: '', explanation: '400px wide', path: '1,HTML,1,BODY,0,DIV' }] };
 const REFLOW_FAILED = { probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], error: 'timed out after 30s' };
 
 test('every finding of the module comes from its probes, and a load without them has none', () => {
-  const report = { categories: {}, audits: {} };
-
-  const probed = accessibility.extract(report, { probed: { findings: [REFLOW], failures: [] } });
+  const probed = accessibility.extract({ probed: { findings: [REFLOW], failures: [] } });
   assert.deepEqual(probed, { findings: [REFLOW] });
 
-  const failed = accessibility.extract(report, { probed: { findings: [], failures: [REFLOW_FAILED] } });
+  const failed = accessibility.extract({ probed: { findings: [], failures: [REFLOW_FAILED] } });
   assert.deepEqual(failed, { findings: [], probeFailures: [REFLOW_FAILED] });
 
-  assert.deepEqual(accessibility.extract(report, { probed: null }), { findings: [] });
-  assert.deepEqual(accessibility.extract(report), { findings: [] });
+  assert.deepEqual(accessibility.extract({ probed: null }), { findings: [] });
+  assert.deepEqual(accessibility.extract(), { findings: [] });
 });
 
 test('a probe finding is judged like any other: new against a baseline without it, inherited against one with it', () => {

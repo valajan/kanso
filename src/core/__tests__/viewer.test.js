@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { Script } from 'node:vm';
 
 import { clearRecord, readJournals, writeRecord } from '../record.js';
-import { extractOf, momentsOf, renderViewer, viewerData } from '../viewer.js';
+import { momentsOf, renderViewer, viewerData } from '../viewer.js';
 
 // A record as a focus probe and axe leave one: a finding of the probe on the
-// drawer, one of axe on the page as it loads, and one of Lighthouse's own. The
+// drawer, one of axe on the page as it loads, and one of residues' the journal
+// kept nothing of — its load kept no journal. The
 // result's elements have no path, as findings.js folds them; the journal's
 // have theirs.
 const TRIGGER = { path: '1,HTML,1,BODY,1,MAIN,4,BUTTON', selector: 'body > main#page > button#drawer-open' };
@@ -29,9 +30,11 @@ const RESULT = {
       ],
       probeFailures: [{ probe: 'keyboard', rules: ['focus-trap'], error: 'timed out after 30s', at: 'drawer' }],
     },
-    seo: { findings: [{ rule: 'meta-description', title: 'No meta description', impact: 'minor', count: 1, formFactors: ['mobile'], nodes: [], state: null, level: 'warn' }] },
     performance: { levels: {} },
-    interactions: { findings: [], skipped: [{ probe: 'residues', rules: ['page-locked'], reason: 'no-states' }] },
+    interactions: {
+      findings: [{ rule: 'overlay-left', at: 'drawer', title: 'An overlay stays after the state closes', impact: 'serious', count: 1, formFactors: ['mobile'], nodes: [], state: null, level: 'fail' }],
+      skipped: [{ probe: 'leaks', rules: ['dom-leak'], reason: 'no-states' }],
+    },
   },
 };
 
@@ -74,10 +77,10 @@ test('the findings of every module make one list, each with a key and its module
   assert.deepEqual(findings.map(({ key, module, rule, at }) => [key, module, rule, at ?? null]), [
     ['f0', 'accessibility', 'focus-not-moved', 'drawer'],
     ['f1', 'accessibility', 'image-alt', null],
-    ['f2', 'seo', 'meta-description', null],
+    ['f2', 'interactions', 'overlay-left', 'drawer'],
   ]);
   assert.deepEqual(failures.map(({ module, probe, at }) => [module, probe, at]), [['accessibility', 'keyboard', 'drawer']]);
-  assert.deepEqual(skipped.map(({ module, probe }) => [module, probe]), [['interactions', 'residues']]);
+  assert.deepEqual(skipped.map(({ module, probe }) => [module, probe]), [['interactions', 'leaks']]);
   assert.equal(conclusion, 'fail');
 });
 
@@ -94,19 +97,9 @@ test('a finding as the page loads is joined to the page loaded, not to the state
   assert.deepEqual(momentsOf(logo, LOADS[0]).map((e) => [e.seq, e.kind]), [[2, 'loaded'], [4, 'finding']]);
 });
 
-test('a finding no probe made has no moment', () => {
-  const [, , description] = data().findings;
-  assert.deepEqual(momentsOf(description, LOADS[0]), []);
-});
-
-test('an extract carries its finding, its moments and their frames, and nothing else', () => {
-  const extract = extractOf(data(), 'f0');
-  assert.equal(extract.kind, 'extract');
-  assert.deepEqual(extract.findings.map((f) => f.rule), ['focus-not-moved']);
-  assert.deepEqual(extract.failures, []);
-  assert.deepEqual(extract.skipped, []);
-  assert.deepEqual(extract.loads.map((l) => [l.name, l.events.map((e) => e.seq)]), [['current.mobile.1.jsonl', [7, 8, 9, 10, 11]]]);
-  assert.deepEqual(Object.keys(extract.frames).sort(), ['frames/current.mobile.1/10.jpg', 'frames/current.mobile.1/7.jpg', 'frames/current.mobile.1/8.jpg']);
+test('a finding the journal kept nothing of has no moment', () => {
+  const [, , overlay] = data().findings;
+  assert.deepEqual(momentsOf(overlay, LOADS[0]), []);
 });
 
 test('the page holds its data whole, and nothing in it ends its script early', () => {
@@ -124,16 +117,6 @@ test('the page holds its data whole, and nothing in it ends its script early', (
   // The page's own script is JavaScript as it stands.
   const [, app] = /<script id="kanso-app">([\s\S]*?)<\/script>/.exec(html);
   assert.doesNotThrow(() => new Script(app));
-});
-
-// The page makes an extract with the same function it is rendered with: an
-// extract is a page like the record, with less in it.
-test('an extract is a page of its own, holding only its finding', () => {
-  const html = renderViewer(extractOf(data(), 'f0'));
-  const extract = dataIn(html);
-  assert.deepEqual(extract.findings.map((f) => f.key), ['f0']);
-  assert.match(html, /<title>Kanso · focus-not-moved @ drawer<\/title>/);
-  assert.doesNotMatch(html, /base64,2"/);
 });
 
 test('a record is written with its page, which inlines the journals and the frames on disk', () => {

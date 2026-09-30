@@ -25,7 +25,7 @@ import { load, openPage, settle } from './page.js';
 // every click as ./explore.js records it.
 export async function discover(url, { formFactors = ['mobile', 'desktop'], maxDepth = DEFAULTS.maxDepth, maxClicks = DEFAULTS.maxClicks, timeoutMs = DEFAULTS.timeoutMs, onProgress = () => {} } = {}) {
   // Built by hand rather than through chromeLauncher.launch(), for the reason
-  // src/lighthouse/runner.worker.js gives: a Chrome whose port never opened
+  // src/runner/runner.worker.js gives: a Chrome whose port never opened
   // is killed here all the same.
   const chrome = new chromeLauncher.Launcher({ chromeFlags: ['--headless=new', '--no-sandbox'] });
   let browser;

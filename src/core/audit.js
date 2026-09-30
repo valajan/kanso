@@ -7,12 +7,6 @@ import { clampRuns } from './runs.js';
 
 export const FORM_FACTORS = ['mobile', 'desktop'];
 
-// Where a runner puts the page's screenshot, beside what the modules made of
-// the load, when it was asked for one. A symbol, so that no module id can ever
-// be mistaken for it, and every runner that knows nothing of screenshots goes
-// on working.
-export const SCREENSHOT = Symbol('screenshot');
-
 // Audits one page with every module, optionally against a baseline page, and
 // returns the verdict. Nothing here knows about pull requests, forges or
 // servers: the PR report is one caller among others.
@@ -20,20 +14,15 @@ export const SCREENSHOT = Symbol('screenshot');
 // - url:           the page under audit
 // - baseline:      the page to compare against, or null
 // - config:        the resolved .kanso.yml
-// - runLighthouse: (url, { formFactor, runs, modules, config, screenshot }) →
-//                  { [moduleId]: data }, plus, under SCREENSHOT, the page as
-//                  its load ended — a JPEG data URI — when `screenshot` asked
-//                  for it. `config` is the same resolved file: the probes read
-//                  their own section of it, inside the worker
+// - runLoads:      (url, { formFactor, runs, modules, config, record }) →
+//                  { [moduleId]: data }. `config` is the same resolved file:
+//                  the probes read their own section of it, inside the worker
 // - modules:       defaults to every registered module
 // - alwaysCompare: load the baseline even for modules that could judge without
 //                  it. A baseline named in the configuration is a hint, and
 //                  skipping it saves half the audit; a baseline the caller
 //                  asked for by hand is an instruction, and the comparison is
 //                  what they came for, verdict or no verdict.
-// - screenshots:   also return what the page under audit looked like at the
-//                  end of its load, on each form factor — never the
-//                  baseline's. For a surface that can show an image.
 // - record:        a directory where each load keeps a journal of what its
 //                  probes did (src/probes/journal.js). Handed to the runner
 //                  as { dir, side }; the verdict does not depend on it.
@@ -49,9 +38,8 @@ export const SCREENSHOT = Symbol('screenshot');
 //
 // Resolves to { ok: true, conclusion, modules: { [id]: { conclusion, levels, skipped, ... } }, failures }
 // or { ok: false, conclusion: 'error', error, failures }, where each failure is
-// { side: 'current' | 'baseline', formFactor, url, error } — plus, when asked
-// for and the audit ran, `screenshots: { [formFactor]: dataUri | null }`.
-export async function audit({ url, baseline = null, config = {}, runLighthouse, modules = MODULES, alwaysCompare = false, screenshots = false, record = null }) {
+// { side: 'current' | 'baseline', formFactor, url, error }.
+export async function audit({ url, baseline = null, config = {}, runLoads, modules = MODULES, alwaysCompare = false, record = null }) {
   const runs = clampRuns(config.runs);
   // Each module is judged by its own section of the config and never sees the
   // rest of the file — see src/config/module-config.js.
@@ -66,12 +54,11 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
       ? FORM_FACTORS.map((formFactor) => ({ side: 'baseline', formFactor, url: baseline, modules: baselineModules }))
       : []),
   ];
-  const settled = await Promise.allSettled(loads.map((load) => runLighthouse(load.url, {
+  const settled = await Promise.allSettled(loads.map((load) => runLoads(load.url, {
     formFactor: load.formFactor,
     runs,
     modules: load.modules,
     config,
-    ...(screenshots && load.side === 'current' ? { screenshot: true } : {}),
     ...(record ? { record: { dir: record, side: load.side } } : {}),
   })));
 
@@ -105,9 +92,6 @@ export async function audit({ url, baseline = null, config = {}, runLighthouse, 
     conclusion: worstLevel(Object.values(results).map((r) => r.conclusion)),
     modules: results,
     failures,
-    ...(screenshots
-      ? { screenshots: Object.fromEntries(FORM_FACTORS.map((ff) => [ff, loaded[ff].current?.[SCREENSHOT] ?? null])) }
-      : {}),
   };
 }
 

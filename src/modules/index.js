@@ -1,26 +1,23 @@
 import accessibility from './accessibility/index.js';
-import bestPractices from './best-practices/index.js';
 import interactions from './interactions/index.js';
 import performance from './performance/index.js';
-import seo from './seo/index.js';
 
-// Audit modules: one per concern Kanso checks on a page. Adding one = a folder
+// Audit modules: one per concern Kanso's probes check. Adding one = a folder
 // under modules/ + one line in MODULES.
 //
 // A module is a plain object:
 //
 //   id          names the module in results and in its .kanso.yml section
 //   label       display name
-//   categories  the Lighthouse categories it reads
 //   checkLabels optional { [check]: label } for the names `levels` uses, when
 //               the check's own name does not read well in a report
 //
-//   probes      optional [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, states?, onlyInStates?, measures?, run(page, context) }]
-//               What the module checks on the page itself, for what Lighthouse
-//               does not look at: how it reflows at 320 CSS pixels, what a
-//               keyboard can reach. Each runs in the audit worker after
-//               Lighthouse, on the same Chrome, in a fresh page of its own —
-//               laid out as Lighthouse laid it out, unless it asks for another
+//   probes      [{ id, rules, formFactors?, viewport?, media?, beforeLoad?, states?, onlyInStates?, measures?, run(page, context) }]
+//               What the module checks on the page: the axe rules, how it
+//               reflows at 320 CSS pixels, what a keyboard can reach. Each
+//               runs in the audit worker, on the Chrome it launched, in a
+//               fresh page of its own — laid out on the form factor's
+//               screen (src/discover/screens.js), unless it asks for another
 //               `viewport` or emulated `media` features, with `beforeLoad` run
 //               in the page before any of its scripts — and resolves to
 //               findings. `rules` are the ones it can report: when it fails,
@@ -40,18 +37,16 @@ import seo from './seo/index.js';
 //               module's result as `skipped`, the rules it would have
 //               checked with it (src/probes/index.js, `skippedProbes`).
 //               `measures: true` makes it a probe that times rather than
-//               checks — INP: it runs on a CPU slowed as Lighthouse slows it,
+//               checks — INP: it runs on a CPU slowed as a phone is,
 //               on every load rather than the first, and what it resolves to
 //               reaches `extract` as `probed.measures`, each reading kept as
 //               it is. See src/probes/index.js.
 //
-//   extract(lhr, { artifacts, probed }) → sample
-//     Runs inside the audit worker, once per page load. `lhr` is the Lighthouse
-//     report; `artifacts` is what Lighthouse gathered from the page to run its
-//     audits, for the facts it holds and does not report — the page's meta
-//     tags, say. `probed` is what the module's probes made of the page,
-//     { findings, failures } — and `measures`, from a probe that times — or
-//     null when none ran on this load. The sample
+//   extract({ probed }) → sample
+//     Runs inside the audit worker, once per page load. `probed` is what the
+//     module's probes made of the page, { findings, failures } — and
+//     `measures`, from a probe that times — or null when none ran on this
+//     load. The sample
 //     crosses a thread boundary, so keep only what the module needs.
 //
 //   combine(samples) → data
@@ -83,8 +78,8 @@ import seo from './seo/index.js';
 //             deterministic, one load settles them, and they are rendered as a
 //             list, worst first. `impact` is on one scale for every module
 //             (impact.js), `nodes` are the elements it failed on (findings.js
-//             says what one carries), `detail` what Lighthouse says of the
-//             failure as a whole when it says more than the title.
+//             says what one carries), `detail` what is said of the failure
+//             as a whole when there is more to say than the title.
 //             `needsReview` is a rule that was raised rather than decided —
 //             axe saying it cannot tell — whose impact is capped so that a
 //             doubt fails no audit on its own. `at` is the declared state of
@@ -95,10 +90,9 @@ import seo from './seo/index.js';
 //             produced a result. A module reporting findings shares everything
 //             but its category and its impacts: see findings.js.
 //
-// Performance produces the first; accessibility, SEO and best practices the
-// second. A module that produces neither still reports through `levels`, which
+// Performance produces the first; accessibility and interactions the second. A module that produces neither still reports through `levels`, which
 // is the only part of the contract the core itself relies on.
-export const MODULES = [performance, accessibility, seo, bestPractices, interactions];
+export const MODULES = [performance, accessibility, interactions];
 
 const BY_ID = new Map(MODULES.map((m) => [m.id, m]));
 
@@ -109,8 +103,8 @@ export function getModule(id) {
 }
 
 // How a check is named in a report. A module's checks are its own vocabulary:
-// performance's are metric keys, and reading "LCP" beats reading "lcp"; the
-// others' are Lighthouse audit ids, which are already the name to read.
+// performance's are metric keys, and reading "INP" beats reading "inp"; the
+// others' are rule ids, which are already the name to read.
 export function checkLabel(moduleId, check) {
   return BY_ID.get(moduleId)?.checkLabels?.[check] ?? check;
 }

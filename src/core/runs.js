@@ -1,8 +1,8 @@
 // How many times a page is loaded before its measures are believed.
 //
-// One Lighthouse run swings by 20-30% on TBT, enough on its own to fail a good
-// change; several runs and their median is the remedy, and each one costs a
-// full page load. The ceiling is where that trade stops paying.
+// A click timed once swings from one load to the next, enough on its own to
+// fail a good change; several runs and their median is the remedy, and each
+// one costs the states timed again. The ceiling is where that trade stops paying.
 export const MAX_RUNS = 5;
 
 // A run count is a whole number of loads between 1 and MAX_RUNS, whatever a

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 
 // The processes Kanso starts and must not leave behind: the servers it serves
 // a project with (src/serve/command.js), the Chromes it loads pages in
-// (src/lighthouse/runner.worker.js, src/discover/index.js). Each is the leader
+// (src/runner/runner.worker.js, src/discover/index.js). Each is the leader
 // of a process group of its own — a shell and the server under it, a browser
 // and its helpers — and is stopped with its group.
 //

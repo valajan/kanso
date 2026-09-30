@@ -4,13 +4,13 @@ import { deepMerge, isPlainObject } from './merge.js';
 //
 //   performance:
 //     budgets:
-//       lcp: 2500
+//       inp: 300
 //   accessibility:
 //     fail_on: serious
 //
 // One section per module is what keeps a new concern from having to invent a
 // key nobody else has taken: `fail_on` means one thing under accessibility and
-// could mean another under SEO. The core resolves the section and hands it to
+// could mean another under a module yet to come. The core resolves the section and hands it to
 // the module, which never sees the rest of the file.
 //
 // Performance came first and its keys still live at the root, where every

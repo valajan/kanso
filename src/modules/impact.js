@@ -1,11 +1,9 @@
 // The severity scale of every module that reports findings, weakest first.
 //
-// It is axe-core's: Lighthouse carries it through for accessibility, where every
-// audit that failed reports the impact of its rule in `details.debugData.impact`.
-// SEO and best practices have no scale of their own — Lighthouse weighs their
-// rules for a score and ranks none of them — so each of those modules places its
-// rules on this one (their `rules.js`). One scale is what lets `fail_on` mean the
-// same thing in every section of .kanso.yml.
+// It is axe-core's: axe ranks each of its rules on it. Kanso's other probes
+// have no scale of their own, so each module places their rules on this one
+// (its `rules.js`). One scale is what lets `fail_on` mean the same thing in
+// every section of .kanso.yml.
 //
 // It is the only severity axis findings have. Performance compares a number to
 // a budget; a broken rule has no number, so `serious` is what stands in for

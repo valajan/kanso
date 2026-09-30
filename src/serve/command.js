@@ -61,7 +61,7 @@ export async function startCommand({ command, url, cwd, readyTimeoutMs = READY_T
   return { url, close: stop };
 }
 
-// Any HTTP answer at all means a server is up; what it answers is Lighthouse's
+// Any HTTP answer at all means a server is up; what it answers is the audit's
 // to judge.
 async function answers(url) {
   try {

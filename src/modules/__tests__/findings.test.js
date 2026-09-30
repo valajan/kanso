@@ -1,89 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  aggregate, compare, countLabel, elementHint, elementWhere, evaluateFindings, explanationLine, extractFindings,
-  extractInformative, MAX_NODES, sortFindings,
+  aggregate, compare, countLabel, elementHint, elementWhere, evaluateFindings, explanationLine, sortFindings,
 } from '../findings.js';
 
 const CONTRAST = 'Fix any of the following:\n  Element has insufficient color contrast of 4.27 (foreground color: #7a8088, background color: #1c1c1e, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1';
 
-// The shape Lighthouse returns for an axe rule: a score of 0 with the failing
-// elements in details.items, and the rule's impact in details.debugData.
-function lhr(rules) {
-  return {
-    categories: { accessibility: { auditRefs: Object.keys(rules).map((id) => ({ id })) } },
-    audits: Object.fromEntries(Object.entries(rules).map(([id, rule]) => [id, {
-      score: 'score' in rule ? rule.score : 0,
-      title: rule.title ?? `${id} is broken`,
-      details: {
-        items: (rule.selectors ?? []).map((selector, i) => ({ node: {
-          type: 'node',
-          selector,
-          snippet: `<p class="${selector}">`,
-          nodeLabel: `text ${i}`,
-          explanation: CONTRAST,
-          path: `1,HTML,1,BODY,${i},P`,
-        } })),
-        ...(rule.impact ? { debugData: { type: 'debugdata', impact: rule.impact } } : {}),
-      },
-    }])),
-  };
-}
-
-// Accessibility's reading of a finding: the impact axe gave its rule.
-function axe(report) {
-  return extractFindings(report, { category: 'accessibility', impactOf: (audit) => audit.details?.debugData?.impact ?? null });
-}
-
-test('extract keeps the rules the page failed, with their impact and elements', () => {
-  const findings = axe(lhr({
-    'color-contrast': { impact: 'serious', selectors: ['p.intro', 'a.cta'] },
-    'image-alt': { impact: 'critical', selectors: ['img.logo'] },
-    'html-has-lang': { score: 1, selectors: [] },
-    'video-caption': { score: null, selectors: [] },
+// A probe's finding of `color-contrast` on elements that share a selector,
+// each with its own text and DOM path.
+function contrast(count) {
+  const nodes = Array.from({ length: count }, (_, i) => ({
+    selector: 'span.label', snippet: '<span class="label">', label: `text ${i}`, explanation: '', path: `1,HTML,1,BODY,${i},SPAN`,
   }));
+  return [{ rule: 'color-contrast', title: 't', impact: 'serious', count, nodes }];
+}
 
-  assert.deepEqual(findings.map((f) => f.rule), ['color-contrast', 'image-alt']);
-  assert.equal(findings[0].impact, 'serious');
-  assert.equal(findings[0].count, 2);
-  assert.deepEqual(findings[0].nodes.map((n) => n.selector), ['p.intro', 'a.cta']);
-});
-
-// What an agent needs to fix a contrast failure without reloading the page: the
-// ratio and both colours, and the text to find the element by.
-test('extract keeps what axe says is wrong with each element, and its text', () => {
-  const [finding] = axe(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label'] } }));
-
-  assert.deepEqual(finding.nodes[0], {
-    selector: 'span.label',
-    snippet: '<p class="span.label">',
-    label: 'text 0',
-    explanation: CONTRAST,
-    path: '1,HTML,1,BODY,0,P',
-  });
-});
-
-// A rule with no impact reported is still a violation; it is judged as
-// `serious` rather than slipping under the default threshold (impact.js).
-test('extract survives a rule Lighthouse reported without an impact', () => {
-  const [finding] = axe(lhr({ 'aria-valid-attr': { selectors: ['div#app'] } }));
-  assert.equal(finding.impact, null);
-});
-
-test('extract keeps the whole element count but not every element', () => {
-  const selectors = Array.from({ length: MAX_NODES + 20 }, (_, i) => `p:nth-child(${i})`);
-  const [finding] = axe(lhr({ 'color-contrast': { impact: 'serious', selectors } }));
-
-  assert.equal(finding.count, MAX_NODES + 20);
-  assert.equal(finding.nodes.length, MAX_NODES);
-});
-
-// Lighthouse shortens selectors, so ten spans in ten cards share one. Keyed on
+// Selectors are shortened, so ten spans in ten cards share one. Keyed on
 // the selector, a page's 51 contrast failures once came out as 19.
 test('aggregate keeps every element, however many share a selector', () => {
-  const findings = axe(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label', 'span.label'] } }));
-
-  const [finding] = aggregate({ mobile: findings, desktop: null });
+  const [finding] = aggregate({ mobile: contrast(3), desktop: null });
 
   assert.deepEqual(finding.nodes.map((n) => n.label), ['text 0', 'text 1', 'text 2']);
 });
@@ -91,10 +26,7 @@ test('aggregate keeps every element, however many share a selector', () => {
 // The same element on both form factors is listed once, and the DOM path that
 // said so is not reported: it names nothing a reader can search for.
 test('aggregate lists an element failing on both form factors once', () => {
-  const mobile = axe(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label'] } }));
-  const desktop = axe(lhr({ 'color-contrast': { impact: 'serious', selectors: ['span.label', 'span.label', 'span.label'] } }));
-
-  const [finding] = aggregate({ mobile, desktop });
+  const [finding] = aggregate({ mobile: contrast(2), desktop: contrast(3) });
 
   assert.deepEqual(finding.nodes.map((n) => n.label), ['text 0', 'text 1', 'text 2']);
   assert.ok(finding.nodes.every((n) => !('path' in n)));
@@ -245,181 +177,13 @@ test('sortFindings puts what fails first, heaviest impact down', () => {
   assert.deepEqual(sorted.map((f) => f.rule), ['aria-roles', 'color-contrast', 'image-alt', 'label']);
 });
 
-// --- beyond axe: SEO and best practices ------------------------------------
-//
-// Their failures come as Lighthouse tables, not axe nodes: a node under any
-// heading, a URL, a place in a script, text columns. The shapes below are the
-// ones Lighthouse 13 produced on a real page.
-
-// A report whose `category` holds the given audits, each { score, headings, items, ... }.
-function report(category, audits) {
-  return {
-    categories: { [category]: { auditRefs: Object.keys(audits).map((id) => ({ id })) } },
-    audits: Object.fromEntries(Object.entries(audits).map(([id, { headings = [], items, ...audit }]) => [id, {
-      id, score: 0, scoreDisplayMode: 'binary', title: `${id} failed`, ...audit,
-      ...(items ? { details: { type: 'table', headings, items } } : {}),
-    }])),
-  };
-}
-
-// Every rule ranked `moderate`, whatever the category the report holds.
-const moderate = (lhr) => extractFindings(lhr, { category: Object.keys(lhr.categories)[0], impactOf: () => 'moderate' });
-
-const IMG = { type: 'node', selector: 'body > img', snippet: '<img src="/wide.png" width="100" height="100">', nodeLabel: 'body > img', path: '0,HTML,1,BODY,4,IMG' };
-
-test('a table item becomes an element: its node, its URL, and the columns Lighthouse shows, in its words', () => {
-  const [finding] = moderate(report('best-practices', {
-    'image-aspect-ratio': {
-      headings: [
-        { key: 'node', valueType: 'node', label: '' },
-        { key: 'url', valueType: 'url', label: 'URL' },
-        { key: 'displayedAspectRatio', valueType: 'text', label: 'Aspect Ratio (Displayed)' },
-        { key: 'actualAspectRatio', valueType: 'text', label: 'Aspect Ratio (Actual)' },
-      ],
-      items: [{
-        url: 'http://localhost:4173/wide.png', node: IMG,
-        displayedAspectRatio: '100 x 100\n        (1.00)', actualAspectRatio: '400 x 100\n        (4.00)', doRatiosMatch: false,
-      }],
-    },
-  }));
-
-  assert.equal(finding.impact, 'moderate');
-  assert.deepEqual(finding.nodes[0], {
-    selector: 'body > img',
-    snippet: '<img src="/wide.png" width="100" height="100">',
-    label: 'body > img',
-    explanation: 'Aspect Ratio (Displayed): 100 x 100 (1.00)\nAspect Ratio (Actual): 400 x 100 (4.00)',
-    path: '0,HTML,1,BODY,4,IMG',
-    url: 'http://localhost:4173/wide.png',
-  });
-});
-
-// What an agent needs to find a console error without reloading the page: the
-// message, and the script and line that logged it.
-test('a failure with no DOM element keeps the place it names', () => {
-  const [finding] = moderate(report('best-practices', {
-    'errors-in-console': {
-      headings: [
-        { key: 'sourceLocation', valueType: 'source-location', label: 'Source' },
-        { key: 'description', valueType: 'code', label: 'Description' },
-      ],
-      items: [
-        { source: 'console.error', description: 'boom', sourceLocation: { type: 'source-location', url: 'http://localhost:4173/', urlProvider: 'network', line: 13, column: 16 } },
-        { source: 'network', description: 'Failed to load resource: the server responded with a status of 404 (Not Found)', sourceLocation: { type: 'source-location', url: 'http://localhost:4173/favicon.ico', urlProvider: 'network', line: 0, column: 0 } },
-      ],
-    },
-  }));
-
-  assert.equal(finding.count, 2);
-  assert.deepEqual(finding.nodes.map(({ url, explanation, selector }) => ({ url, explanation, selector })), [
-    { url: 'http://localhost:4173/:14:16', explanation: 'Description: boom', selector: '' },
-    { url: 'http://localhost:4173/favicon.ico:1:0', explanation: 'Description: Failed to load resource: the server responded with a status of 404 (Not Found)', selector: '' },
-  ]);
-});
-
-test('a node is read wherever it sits, and sub-items are the reasons behind it', () => {
-  const [hreflang, crawlable] = moderate(report('seo', {
-    hreflang: {
-      headings: [{ key: 'source', valueType: 'code', subItemsHeading: { key: 'reason', valueType: 'text' }, label: '' }],
-      items: [{
-        source: { type: 'node', selector: 'head > link', snippet: '<link rel="alternate" hreflang="xx-nope" href="/fr" />', nodeLabel: 'head > link', path: '0,HTML,0,HEAD,2,LINK' },
-        subItems: { type: 'subitems', items: [{ reason: 'Unexpected language code' }, { reason: 'Relative href value' }] },
-      }],
-    },
-    // A noindex sent as a header is no element, and is said as Lighthouse says it.
-    'is-crawlable': {
-      headings: [{ key: 'source', valueType: 'code', label: 'Blocking Directive Source' }],
-      items: [{ source: 'X-Robots-Tag: noindex' }],
-    },
-  }));
-
-  assert.equal(hreflang.nodes[0].snippet, '<link rel="alternate" hreflang="xx-nope" href="/fr" />');
-  assert.equal(hreflang.nodes[0].explanation, 'Unexpected language code\nRelative href value');
-  assert.equal(crawlable.count, 1);
-  assert.equal(crawlable.nodes[0].explanation, 'Blocking Directive Source: X-Robots-Tag: noindex');
-});
-
-// axe nests the related nodes of a failure — the cells a header should cover —
-// as sub-items: they are not where the rule failed, and are not listed as if.
-test('the DOM nodes nested as sub-items are left out', () => {
-  const [finding] = axe({
-    categories: { accessibility: { auditRefs: [{ id: 'td-has-header' }] } },
-    audits: { 'td-has-header': { score: 0, title: 't', details: {
-      headings: [{ key: 'node', valueType: 'node', subItemsHeading: { key: 'relatedNode', valueType: 'node' }, label: 'Failing Elements' }],
-      items: [{ node: { type: 'node', selector: 'table', snippet: '<table>', nodeLabel: 'table', explanation: 'Fix all of the following:\n  Some non-empty data cells do not have table headers', path: '1,HTML' },
-        subItems: { type: 'subitems', items: [{ relatedNode: { type: 'node', selector: 'td', snippet: '<td>' } }] } }],
-      debugData: { type: 'debugdata', impact: 'critical' },
-    } } },
-  });
-
-  assert.equal(finding.nodes.length, 1);
-  assert.equal(finding.nodes[0].explanation, 'Fix all of the following:\n  Some non-empty data cells do not have table headers');
-});
-
-test('a rule that failed as a whole carries what Lighthouse said of it', () => {
-  const findings = moderate(report('best-practices', {
-    doctype: { explanation: 'Document must contain a doctype' },
-    'http-status-code': { displayValue: '404' },
-    'meta-description': {},
-    // With items listed, the display value only counts them again.
-    'link-text': {
-      displayValue: '1 link found',
-      headings: [{ key: 'href', valueType: 'url', label: 'Link destination' }, { key: 'text', valueType: 'text', label: 'Link Text' }],
-      items: [{ href: 'http://localhost:4173/more', text: 'click here' }],
-    },
-  }));
-
-  assert.deepEqual(findings.map((f) => [f.rule, f.count, f.detail]), [
-    ['doctype', 0, 'Document must contain a doctype'],
-    ['http-status-code', 0, '404'],
-    ['meta-description', 0, undefined],
-    ['link-text', 1, undefined],
-  ]);
-  assert.deepEqual(findings[3].nodes[0], { selector: '', snippet: '', label: '', explanation: 'Link Text: click here', path: '', url: 'http://localhost:4173/more' });
-});
-
-test('the informative audits of a group are kept as facts, one line per item, and only the ones that listed something', () => {
-  const lhr = report('best-practices', {
-    'csp-xss': {
-      score: 1, scoreDisplayMode: 'informative', title: 'Ensure CSP is effective against XSS attacks',
-      headings: [
-        { key: 'description', valueType: 'text', label: 'Description' },
-        { key: 'directive', valueType: 'code', label: 'Directive' },
-        { key: 'severity', valueType: 'text', label: 'Severity' },
-      ],
-      items: [
-        { severity: 'High', description: 'No CSP found in enforcement mode' },
-        { severity: 'Medium', description: 'Missing base-uri allows injected <base> tags', directive: 'base-uri' },
-      ],
-    },
-    'has-hsts': { score: 1, scoreDisplayMode: 'informative', items: [] },
-    // Informative, but filed under another group.
-    'js-libraries': {
-      score: 1, scoreDisplayMode: 'informative',
-      headings: [{ key: 'name', valueType: 'text', label: 'Name' }], items: [{ name: 'Vue' }],
-    },
-    // Scored, so a finding or nothing — never a note.
-    'is-on-https': { score: 0, items: [{ url: 'http://a/' }], headings: [{ key: 'url', valueType: 'url', label: 'URL' }] },
-  });
-  for (const ref of lhr.categories['best-practices'].auditRefs) {
-    ref.group = ref.id === 'js-libraries' ? 'best-practices-general' : 'best-practices-trust-safety';
-  }
-
-  assert.deepEqual(extractInformative(lhr, { category: 'best-practices', group: 'best-practices-trust-safety' }), [
-    { rule: 'csp-xss', title: 'Ensure CSP is effective against XSS attacks', items: [
-      'Description: No CSP found in enforcement mode; Severity: High',
-      'Description: Missing base-uri allows injected <base> tags; Directive: base-uri; Severity: Medium',
-    ] },
-  ]);
-});
-
-// Keyed on an empty selector, every console error of the second form factor
-// would read as one already seen.
+// Keyed on an empty selector, every error of the second form factor would read
+// as one already seen.
 test('aggregate tells apart failures that are no DOM element by what is said of them', () => {
   const error = (description) => ({ selector: '', snippet: '', label: '', explanation: description, path: '', url: 'http://localhost:4173/app.js:1:0' });
   const [finding] = aggregate({
-    mobile: [{ rule: 'errors-in-console', title: 't', impact: 'moderate', count: 1, nodes: [error('boom')] }],
-    desktop: [{ rule: 'errors-in-console', title: 't', impact: 'moderate', count: 2, nodes: [error('boom'), error('bang')] }],
+    mobile: [{ rule: 'close-error', title: 't', impact: 'moderate', count: 1, nodes: [error('boom')] }],
+    desktop: [{ rule: 'close-error', title: 't', impact: 'moderate', count: 2, nodes: [error('boom'), error('bang')] }],
   });
 
   assert.deepEqual(finding.nodes.map((n) => n.explanation), ['boom', 'bang']);
@@ -432,22 +196,21 @@ const loads = (current, baseline = null) => ({
 });
 const finding = (rule, impact, count = 1) => ({ rule, title: rule, impact, count, nodes: [] });
 
-// The noindex every preview host sends: true of the deployment, not of the code.
 test('an ignored rule is neither reported nor judged, on either page, and the report says it was ignored', () => {
   const result = evaluateFindings(
-    loads([finding('is-crawlable', 'critical'), finding('meta-description', 'moderate')], [finding('canonical', 'serious')]),
-    { ignore: ['is-crawlable', 'canonical'] },
+    loads([finding('region', 'critical'), finding('heading-order', 'moderate')], [finding('landmark-one-main', 'serious')]),
+    { ignore: ['region', 'landmark-one-main'] },
   );
 
-  assert.deepEqual(result.levels, { 'meta-description': 'warn' });
+  assert.deepEqual(result.levels, { 'heading-order': 'warn' });
   assert.deepEqual(result.fixed, [], 'an ignored rule is not "fixed" either');
-  assert.deepEqual(result.ignore, ['is-crawlable', 'canonical']);
+  assert.deepEqual(result.ignore, ['region', 'landmark-one-main']);
 });
 
 test('ignore takes one rule or a list, and nothing else', () => {
-  const page = loads([finding('is-crawlable', 'critical')]);
-  assert.deepEqual(evaluateFindings(page, { ignore: 'is-crawlable' }).levels, {});
-  assert.deepEqual(evaluateFindings(page, { ignore: { rule: 'is-crawlable' } }).ignore, []);
+  const page = loads([finding('region', 'critical')]);
+  assert.deepEqual(evaluateFindings(page, { ignore: 'region' }).levels, {});
+  assert.deepEqual(evaluateFindings(page, { ignore: { rule: 'region' } }).ignore, []);
   assert.deepEqual(evaluateFindings(page, {}).ignore, []);
 });
 

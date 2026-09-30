@@ -6,25 +6,17 @@
 # the values defined here, key by key at any depth, so a client can override a
 # single budget or a single module setting without restating the others.
 #
-# Each audit module reads the section carrying its name — `accessibility:`,
-# `seo:` and `best-practices:` below, and `performance:` if you prefer stating
-# the budgets there. Performance came first and its `budgets:` still live at the
-# root, where every .kanso.yml written so far keeps them; both forms work and
-# the section wins.
+# Each audit module reads the section carrying its name — `performance:`,
+# `accessibility:` and `interactions:`. Performance's `budgets:` also live at
+# the root, where every .kanso.yml written so far keeps them; both forms work
+# and the section wins.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Performance budgets — hard limits that block a merge if exceeded (❌).
-# Values between the Lighthouse "good" threshold and this budget trigger a warning (⚠️).
-# Defaults are set to Lighthouse "poor" zone boundaries so that green/orange/red
-# matches the Lighthouse colour scale out of the box. Override in .kanso.yml
-# to enforce stricter project-specific limits.
-# All time-based metrics are in milliseconds.
+# Values between the "good" threshold and this budget trigger a warning (⚠️).
+# The default is the Core Web Vitals "poor" boundary. Override in .kanso.yml
+# to enforce a stricter project-specific limit. In milliseconds.
 budgets:
-  performance: 49  # minimum Lighthouse score — below 50 is Lighthouse "poor"
-  lcp: 4000        # maximum LCP in ms — above 4000ms is Lighthouse "poor"
-  tbt: 600         # maximum TBT in ms — above 600ms is Lighthouse "poor"
-  cls: 0.25        # maximum CLS — above 0.25 is Lighthouse "poor"
-  fcp: 3000        # maximum FCP in ms — above 3000ms is Lighthouse "poor"
   inp: 500         # maximum INP in ms — above 500ms is "poor". Timed on the
                    # clicks `states:` declares (below): with none, not measured
 
@@ -49,32 +41,15 @@ budgets:
 # never held against the change: with a reference, Kanso judges what the change
 # did; without one — a local `kanso audit` with no --baseline — it judges the
 # page as it stands, and every finding counts.
+#
+# This section and interactions' take an `ignore:` list of rules the project
+# is not held to — neither reported nor judged, on either page:
+#
+#   accessibility:
+#     ignore: [region]
 accessibility:
   fail_on: serious
   tags: [wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22a, wcag22aa, best-practice]
-
-# SEO and Best Practices — the other two Lighthouse categories. They report
-# findings too, judged exactly like accessibility's, on the same impact scale:
-# Lighthouse ranks none of their rules, so Kanso does (src/modules/seo/rules.js,
-# src/modules/best-practices/rules.js). With `serious`, what fails is a page
-# search engines are told to leave out or a broken canonical, a page not served
-# over HTTPS or a field that refuses a paste; the rest warns.
-#
-# Any of the three sections takes an `ignore:` list of rules the project is not
-# held to. Preview hosts — Vercel, Netlify, Cloudflare Pages — send
-# `X-Robots-Tag: noindex` with every preview deployment, so a preview audited
-# against production, or against nothing, fails `is-crawlable` every time:
-#
-#   seo:
-#     ignore: [is-crawlable]
-#
-# A preview of the base branch carries the same header, which makes the finding
-# inherited and needs no ignore.
-seo:
-  fail_on: serious
-
-best-practices:
-  fail_on: serious
 
 # Interactions — what the states declared below leave behind when they close,
 # and what opening and closing them again and again keeps in memory. Findings
@@ -85,10 +60,11 @@ best-practices:
 interactions:
   fail_on: serious
 
-# Number of Lighthouse runs per target, per form factor; the per-metric median
-# is reported. A single run swings by 20-30% on TBT, which is enough on its own
-# to fail a good change. 3 is the usual remedy; the cost is 3x the audit time.
-# Max 5.
+# Number of loads per target, per form factor, for what the probes time: the
+# median INP is reported. A click timed once swings from one load to the next,
+# which is enough on its own to fail a good change. 3 is the usual remedy; the
+# cost is timing the states three times. Max 5. What the probes check rather
+# than time is settled on the first load.
 #
 # It counts page loads, and one load feeds every module, so it belongs to the
 # audit rather than to any module in it — hence the root, not a section.
@@ -120,9 +96,9 @@ runs: 1
 # whole each time. Declare here, by hand, only what it cannot find: both are
 # read, and where both reach the same state, the one written here wins.
 #
-# Performance times each click, on a CPU slowed as Lighthouse slows it, and
-# reports the slowest as the page's INP — Interaction to Next Paint, the Core
-# Web Vital Lighthouse cannot measure on a load nobody clicks during.
+# Performance times each click, on a CPU slowed as a phone is, and reports the
+# slowest as the page's INP — Interaction to Next Paint, the Core Web Vital no
+# page load measures, since nobody clicks during one.
 #
 # axe reads the page again in each — in the same page down a branch, in the
 # page loaded again for the next — and so do the 320 px reflow check (the

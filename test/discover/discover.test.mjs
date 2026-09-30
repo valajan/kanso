@@ -5,7 +5,6 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import * as chromeLauncher from 'chrome-launcher';
-import { screenEmulationMetrics, userAgents } from 'lighthouse/core/config/constants.js';
 import puppeteer from 'puppeteer-core';
 
 import { discover } from '../../src/discover/index.js';
@@ -510,14 +509,6 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     }
   });
 
-  // Lighthouse's emulation, as a report's configSettings carries it.
-  const SETTINGS = {
-    formFactor: 'desktop',
-    screenEmulation: screenEmulationMetrics.desktop,
-    emulatedUserAgent: userAgents.desktop,
-    throttling: { cpuSlowdownMultiplier: 1 },
-  };
-
   test('the states found are reached by Kanso\'s own probes, and a fault behind two clicks is reported there', async () => {
     const run = await explored('modal.html', 'desktop');
     // As `states:` would declare them: each from the state it was found in.
@@ -531,7 +522,7 @@ describe('exploring, then replaying', { concurrency: 4 }, () => {
     const details = `s${run.nodes.find((node) => node.name === 'What will you send me?').id}`;
 
     const { accessibility } = await runProbes({
-      port: chrome.port, url: urlOf('modal.html'), formFactor: 'desktop', settings: SETTINGS,
+      port: chrome.port, url: urlOf('modal.html'), formFactor: 'desktop',
       modules: [{ id: 'accessibility', probes: [axeProbe] }], config: { states },
     });
     assert.deepEqual(accessibility.failures, []);

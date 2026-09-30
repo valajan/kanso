@@ -4,12 +4,11 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { SCREENSHOT } from '../../core/audit.js';
 import { runMcpServer } from '../index.js';
 import { LATEST_PROTOCOL_VERSION } from '../protocol.js';
 
-const GOOD = { performance: 96, lcp: 1500, tbt: 80, cls: 0.01, fcp: 800 };
-const POOR = { performance: 40, lcp: 6000, tbt: 900, cls: 0.4, fcp: 4000 };
+const GOOD = { inp: 120 };
+const POOR = { inp: 900 };
 
 // --- the harness ------------------------------------------------------------
 
@@ -59,10 +58,10 @@ function emptyProject() {
 const noRunner = async () => assert.fail('must not audit');
 
 // Feeds the server a conversation and returns everything it said back.
-async function session(requests, { runLighthouse = noRunner, checkStates, cwd = emptyProject() } = {}) {
+async function session(requests, { runLoads = noRunner, checkStates, cwd = emptyProject() } = {}) {
   const input = new PassThrough();
   const output = collect();
-  const served = runMcpServer({ input, output, cwd, runLighthouse, checkStates });
+  const served = runMcpServer({ input, output, cwd, runLoads, checkStates });
 
   for (const request of requests) input.write(JSON.stringify(request) + '\n');
   input.end();
@@ -94,13 +93,12 @@ test('announces its protocol version, its capabilities and its tools', async () 
   assert.match(initialized.instructions, /baseline/);
 
   const tools = messages[1].result.tools;
-  assert.deepEqual(tools.map((tool) => tool.name), ['audit_page', 'check_states', 'list_modules']);
+  assert.deepEqual(tools.map((tool) => tool.name), ['audit_page', 'check_states']);
   assert.equal(tools[0].inputSchema.required, undefined, 'a project with a serve: block needs no url');
   // It may run the command a project serves itself with, which no read-only
   // hint should vouch for.
   assert.equal(tools[0].annotations.readOnlyHint, false);
   assert.equal(tools[1].annotations.readOnlyHint, false);
-  assert.equal(tools[2].annotations.readOnlyHint, true);
   assert.deepEqual(tools[1].inputSchema.required, undefined, 'the declared states are the default');
   assert.deepEqual(Object.keys(tools[1].inputSchema.properties), ['states', 'url']);
   assert.deepEqual(tools[1].inputSchema.properties.states.items.required, ['name', 'click']);
@@ -117,66 +115,10 @@ test('a protocol version Kanso does not know is answered with the one it speaks'
 
 // --- auditing ---------------------------------------------------------------
 
-// A JPEG data URI as Lighthouse's final screenshot carries one.
-const JPEG = (label) => `data:image/jpeg;base64,${Buffer.from(label).toString('base64')}`;
-
-// Answers like fakeRunner, with a screenshot when one is asked for — or, for a
-// form factor listed in `without`, none.
-function screenshotRunner(page, { without = [] } = {}) {
-  const run = fakeRunner({ [page]: { performance: GOOD } });
-  const wrapped = async (url, options) => {
-    const data = await run(url, options);
-    if (options.screenshot && !without.includes(options.formFactor)) data[SCREENSHOT] = JPEG(`${options.formFactor} pixels`);
-    return data;
-  };
-  wrapped.calls = run.calls;
-  return wrapped;
-}
-
-test('with screenshot, the page comes back as one image per form factor, after the facts and out of them', async () => {
-  const runLighthouse = screenshotRunner('http://localhost:4173/');
-
-  const [message] = await session([
-    call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'http://localhost:4173', screenshot: true }),
-  ], { runLighthouse });
-
-  const [facts, ...rest] = message.result.content;
-  assert.equal(JSON.parse(facts.text).conclusion, 'pass');
-  assert.equal(message.result.structuredContent.screenshots, undefined, 'images are not facts to read');
-  assert.doesNotMatch(facts.text, /base64/);
-  assert.deepEqual(rest, [
-    { type: 'text', text: 'The page on mobile, as its load ended:' },
-    { type: 'image', data: Buffer.from('mobile pixels').toString('base64'), mimeType: 'image/jpeg' },
-    { type: 'text', text: 'The page on desktop, as its load ended:' },
-    { type: 'image', data: Buffer.from('desktop pixels').toString('base64'), mimeType: 'image/jpeg' },
-  ]);
-  assert.deepEqual(
-    runLighthouse.calls.map((c) => [c.formFactor, c.screenshot ?? false]),
-    [['mobile', true], ['desktop', true], ['mobile', false], ['desktop', false]],
-    'the page under audit, never its baseline'
-  );
-});
-
-test('without screenshot, nothing but the facts; a load without one is said', async () => {
-  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], {
-    runLighthouse: screenshotRunner('http://localhost:4173/'),
-  });
-  assert.equal(plain.result.content.length, 1);
-
-  const [partial] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', screenshot: true })], {
-    runLighthouse: screenshotRunner('http://localhost:4173/', { without: ['desktop'] }),
-  });
-  assert.deepEqual(partial.result.content.slice(3), [{ type: 'text', text: 'No desktop screenshot: that load produced none.' }]);
-
-  const [wrong] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', screenshot: 'yes' })]);
-  assert.equal(wrong.error.code, -32602);
-  assert.match(wrong.error.message, /screenshot must be true or false/);
-});
-
 test('audit_page returns the verdict, in the text block and the structured one', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
 
-  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
 
   assert.equal(message.result.isError, false);
   const payload = message.result.structuredContent;
@@ -184,33 +126,33 @@ test('audit_page returns the verdict, in the text block and the structured one',
   assert.equal(payload.url, 'http://localhost:4173/');
   assert.equal(payload.baseline, null);
   assert.equal(payload.runs, 1);
-  assert.equal(payload.modules.performance.scores.mobile.current.lcp, 1500);
+  assert.equal(payload.modules.performance.scores.mobile.current.inp, 120);
   assert.deepEqual(JSON.parse(message.result.content[0].text), payload, 'the same facts, twice');
-  assert.deepEqual(runLighthouse.calls.map((c) => c.formFactor), ['mobile', 'desktop']);
+  assert.deepEqual(runLoads.calls.map((c) => c.formFactor), ['mobile', 'desktop']);
 });
 
 test('a page over budget is a verdict, not an error', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: POOR } });
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: POOR } });
 
-  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
 
   assert.equal(message.result.isError, false, 'the tool worked; the page is the problem');
   assert.equal(message.result.structuredContent.conclusion, 'fail');
-  assert.equal(message.result.structuredContent.modules.performance.levels.lcp, 'fail');
+  assert.equal(message.result.structuredContent.modules.performance.levels.inp, 'fail');
 });
 
 test('a baseline is audited too, and says what the change added', async () => {
   const inherited = findings(['color-contrast', 'serious', 3]);
-  const runLighthouse = fakeRunner({
+  const runLoads = fakeRunner({
     'http://localhost:4173/': { performance: GOOD, accessibility: findings(['color-contrast', 'serious', 3], ['image-alt', 'critical', 1]) },
     'https://example.com/': { performance: GOOD, accessibility: inherited },
   });
 
   const [message] = await session([
     call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'https://example.com' }),
-  ], { runLighthouse });
+  ], { runLoads });
 
-  assert.equal(runLighthouse.calls.length, 4, 'two pages, two form factors');
+  assert.equal(runLoads.calls.length, 4, 'two pages, two form factors');
   const { findings: judged } = message.result.structuredContent.modules.accessibility;
   assert.deepEqual(judged.map((f) => [f.rule, f.state, f.level]), [
     ['image-alt', 'new', 'fail'],
@@ -219,14 +161,14 @@ test('a baseline is audited too, and says what the change added', async () => {
   assert.equal(message.result.structuredContent.conclusion, 'fail');
 });
 
-// Handed five of fifty-one elements, an agent reloaded the page in Lighthouse
+// Handed five of fifty-one elements, an agent reloaded the page in another tool
 // for the rest. Every element goes out, with what is wrong with it.
 test('a finding lists every one of its elements, and what is wrong with each', async () => {
-  const runLighthouse = fakeRunner({
+  const runLoads = fakeRunner({
     'http://localhost:4173/': { performance: GOOD, accessibility: findings(['color-contrast', 'serious', 12]) },
   });
 
-  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
 
   const [finding] = message.result.structuredContent.modules.accessibility.findings;
   assert.equal(finding.count, 12);
@@ -237,21 +179,21 @@ test('a finding lists every one of its elements, and what is wrong with each', a
 test('runs comes from the call, then from the project configuration', async () => {
   const cwd = emptyProject();
   writeFileSync(join(cwd, '.kanso.yml'), 'runs: 2\n');
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
 
-  const [configured] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse, cwd });
+  const [configured] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads, cwd });
   assert.equal(configured.result.structuredContent.runs, 2);
-  assert.ok(runLighthouse.calls.every((c) => c.runs === 2));
+  assert.ok(runLoads.calls.every((c) => c.runs === 2));
 
-  const [asked] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', runs: 3 })], { runLighthouse, cwd });
+  const [asked] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', runs: 3 })], { runLoads, cwd });
   assert.equal(asked.result.structuredContent.runs, 3);
-  assert.ok(runLighthouse.calls.slice(2).every((c) => c.runs === 3));
+  assert.ok(runLoads.calls.slice(2).every((c) => c.runs === 3));
 });
 
 test('a page that never loaded is reported as the tool failing', async () => {
-  const runLighthouse = async () => { throw new Error('chrome not found'); };
+  const runLoads = async () => { throw new Error('chrome not found'); };
 
-  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  const [message] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
 
   assert.equal(message.result.isError, true);
   assert.equal(message.result.structuredContent.ok, false);
@@ -269,15 +211,15 @@ test('record hands each load the directory and writes the result beside the jour
   mkdirSync(dir);
   writeFileSync(join(dir, 'current.mobile.3.jsonl'), '{}\n');
   writeFileSync(join(dir, 'notes.txt'), 'mine');
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD }, 'https://example.com/': { performance: GOOD } });
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: GOOD }, 'https://example.com/': { performance: GOOD } });
 
   const [message] = await session([
     call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'https://example.com', record: 'rec' }),
-  ], { runLighthouse, cwd });
+  ], { runLoads, cwd });
 
   assert.equal(message.result.isError, false);
   assert.deepEqual(
-    runLighthouse.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
+    runLoads.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
     [
       `http://localhost:4173/ current ${dir}`, `http://localhost:4173/ current ${dir}`,
       `https://example.com/ baseline ${dir}`, `https://example.com/ baseline ${dir}`,
@@ -295,9 +237,9 @@ test('record hands each load the directory and writes the result beside the jour
 });
 
 test('without record, no load is asked to keep a journal; a call with a mistake leaves a record as it was', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
-  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
-  assert.ok(runLighthouse.calls.every((c) => c.record === undefined));
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const [plain] = await session([call(1, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
+  assert.ok(runLoads.calls.every((c) => c.record === undefined));
   assert.equal(plain.result.structuredContent.record, undefined);
 
   const cwd = emptyProject();
@@ -306,58 +248,6 @@ test('without record, no load is asked to keep a journal; a call with a mistake 
   const [wrong] = await session([call(1, 'audit_page', { url: 'http://localhost:4173', baseline: 'nope', record: 'rec' })], { cwd });
   assert.equal(wrong.error.code, -32602);
   assert.equal(readFileSync(join(cwd, 'rec', 'audit.json'), 'utf8'), '{}');
-});
-
-test('the project configuration is what list_modules reports', async () => {
-  const cwd = emptyProject();
-  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\naccessibility:\n  fail_on: critical\nseo:\n  ignore: [is-crawlable]\n');
-
-  const [message] = await session([call(1, 'list_modules', {})], { cwd });
-
-  const payload = message.result.structuredContent;
-  assert.match(payload.configSource, /\.kanso\.yml$/);
-  assert.deepEqual(payload.modules.map((mod) => mod.id), ['performance', 'accessibility', 'seo', 'best-practices', 'interactions']);
-  // Interactions goes into and out of each state, and reads nothing else.
-  assert.deepEqual(payload.modules[4].probes.map(({ id, transitions }) => [id, transitions]), [['residues', true], ['leaks', true]]);
-  assert.equal(payload.modules[0].config.budgets.lcp, 1000);
-  assert.equal(payload.modules[1].config.fail_on, 'critical');
-  // Accessibility asks Lighthouse for nothing: it runs axe itself.
-  assert.deepEqual(payload.modules[1].lighthouseCategories, []);
-  assert.deepEqual(payload.modules[1].probes.map(({ id, rules }) => [id, rules.length]), [
-    ['axe', 101], ['reflow', 2], ['keyboard', 3], ['motion', 1], ['focus', 7],
-  ]);
-  assert.deepEqual(payload.modules[1].probes.slice(1).map(({ rules }) => rules), [
-    ['reflow-scroll', 'reflow-clip'],
-    ['focus-trap', 'focus-visible', 'focus-obscured'],
-    ['reduced-motion'],
-    ['keyboard-inoperable', 'focus-lost', 'focus-not-moved', 'focus-escapes-modal', 'escape-not-closing', 'focus-not-returned', 'revealed-unreachable'],
-  ]);
-  assert.deepEqual(payload.modules[1].probes.filter((probe) => probe.transitions).map(({ id }) => id), ['focus']);
-  // Performance times INP itself, on the clicks the states make, and on
-  // nothing else.
-  assert.deepEqual(payload.modules[0].probes.map(({ id, rules, states }) => [id, rules, states]), [['inp', ['inp'], true]]);
-
-  // A check the project configures reports what this project's configuration
-  // makes of it, not what Kanso would check by default.
-  writeFileSync(join(cwd, '.kanso.yml'), 'accessibility:\n  tags: [wcag2a]\n');
-  const [narrowed] = await session([call(1, 'list_modules', {})], { cwd });
-  const axe = narrowed.result.structuredContent.modules[1].probes[0];
-  assert.equal(axe.id, 'axe');
-  assert.ok(axe.rules.length < 101 && axe.rules.length > 0);
-  assert.ok(!axe.rules.includes('region'));
-
-  // The states the project declares, and which checks go through them: axe,
-  // reflow and the keyboard walk read each, focus goes into and out of each.
-  assert.deepEqual(payload.states, []);
-  assert.deepEqual(payload.modules[1].probes.map(({ id, states, transitions }) => [id, states, transitions]), [
-    ['axe', true, false], ['reflow', true, false], ['keyboard', true, false], ['motion', false, false], ['focus', false, true],
-  ]);
-  writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    wait_for: "#menu"\n');
-  const [declared] = await session([call(1, 'list_modules', {})], { cwd });
-  assert.deepEqual(declared.result.structuredContent.states, [{ name: 'menu', click: '#open', waitFor: '#menu' }]);
-  // A section the project wrote part of keeps Kanso's defaults for the rest.
-  assert.deepEqual(payload.modules[2].config, { fail_on: 'serious', ignore: ['is-crawlable'] });
-  assert.deepEqual(payload.modules[3].config, { fail_on: 'serious' });
 });
 
 // --- serving the build ------------------------------------------------------
@@ -378,7 +268,7 @@ async function loading(url, { modules }) {
 }
 
 test('with no url, the project is served the way its serve: block says', async () => {
-  const [message] = await session([call(1, 'audit_page', {})], { runLighthouse: loading, cwd: builtProject() });
+  const [message] = await session([call(1, 'audit_page', {})], { runLoads: loading, cwd: builtProject() });
 
   assert.equal(message.result.isError, false);
   const payload = message.result.structuredContent;
@@ -390,7 +280,7 @@ test('with no url, the project is served the way its serve: block says', async (
 test('a directory named in the call is served too', async () => {
   const cwd = builtProject('');
 
-  const [message] = await session([call(1, 'audit_page', { url: 'dist' })], { runLighthouse: loading, cwd });
+  const [message] = await session([call(1, 'audit_page', { url: 'dist' })], { runLoads: loading, cwd });
 
   assert.deepEqual(message.result.structuredContent.served, { url: { dir: 'dist' } });
 });
@@ -404,26 +294,20 @@ test('a project Kanso could not serve is the tool failing, saying what to do', a
   assert.match(message.result.content[0].text, /there is no build directory to serve — build the project first/);
 });
 
-test('list_modules says how the project is served', async () => {
-  const [message] = await session([call(1, 'list_modules', {})], { cwd: builtProject() });
-
-  assert.deepEqual(message.result.structuredContent.serve, { dir: 'dist' });
-});
-
 // --- a call that takes a minute ---------------------------------------------
 
 test('progress is reported to a host that asked for it, and only then', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
+  const runLoads = fakeRunner({ 'http://localhost:4173/': { performance: GOOD } });
 
   const watched = await session([
     call(1, 'audit_page', { url: 'http://localhost:4173' }, { progressToken: 'tok' }),
-  ], { runLighthouse });
+  ], { runLoads });
 
   assert.equal(watched[0].method, 'notifications/progress');
   assert.deepEqual(watched[0].params, { progressToken: 'tok', progress: 0, message: 'auditing…' });
   assert.equal(watched[1].id, 1, 'then the answer');
 
-  const silent = await session([call(2, 'audit_page', { url: 'http://localhost:4173' })], { runLighthouse });
+  const silent = await session([call(2, 'audit_page', { url: 'http://localhost:4173' })], { runLoads });
   assert.deepEqual(silent.map((m) => m.id), [2]);
 });
 
@@ -571,7 +455,7 @@ test('a method Kanso does not have is an error, and ping is answered', async () 
 test('messages are read off the stream however they are chunked', async () => {
   const input = new PassThrough();
   const output = collect();
-  const served = runMcpServer({ input, output, cwd: emptyProject(), runLighthouse: noRunner });
+  const served = runMcpServer({ input, output, cwd: emptyProject(), runLoads: noRunner });
 
   const ping = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' });
   input.write(ping.slice(0, 12));

@@ -3,28 +3,28 @@ import puppeteer from 'puppeteer-core';
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates, pathTo, statesOn, walkOrder } from '../config/states.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
+import { SCREENS, viewport } from './screens.js';
 import { applyState, reach } from './states.js';
 import { transitionTools } from './transition.js';
 
-// Probes: what Kanso checks on a page itself, for what Lighthouse does not look
-// at — how the page reflows at 320 CSS pixels, what a keyboard can reach. A
-// module declares them (src/modules/index.js); this runs them, inside the audit
-// worker, on the Chrome Lighthouse has just finished with.
+// Probes: what Kanso checks on a page — the axe rules, how the page reflows at
+// 320 CSS pixels, what a keyboard can reach, what a state leaves behind. A
+// module declares them (src/modules/index.js); this runs them, inside the
+// audit worker, on the Chrome it launched.
 //
 // Each probe gets a page of its own, in a browser context of its own: a first
-// visit, as Lighthouse's is, with nothing another probe clicked, scrolled or
-// dismissed. Lighthouse's own tab is closed by then, and its throttling with
-// it; a probe that times nothing would only be made slower by a slowed CPU.
-// It sees the page as Lighthouse loaded it — same screen, same user agent —
-// unless it asks for another screen.
+// visit, with nothing another probe clicked, scrolled or dismissed. It sees
+// the page on the form factor's screen, with its user agent (./screens.js),
+// unless it asks for another screen. A probe that times nothing would only be
+// made slower by a slowed CPU, and gets the machine's.
 //
-// A probe that measures time — `measures: true`, INP — gets the slowed
-// CPU back: Lighthouse's multiplier, applied to its page alone, so that what
-// it times is a phone's time and not the machine's running the audit.
+// A probe that measures time — `measures: true`, INP — gets the slowed CPU:
+// the screen's multiplier, applied to its page alone, so that what it times
+// is a phone's time and not the machine's running the audit.
 //
 // A probe that throws or runs out of time costs its own rules, not the load:
-// what Lighthouse found stands, and the failure is reported, never read as
-// "nothing found".
+// what the other probes found stands, and the failure is reported, never read
+// as "nothing found".
 
 // How long one step of a probe may take: the load and its reading, or one
 // state reached and read.
@@ -42,7 +42,6 @@ const SETTLE_MS = 5_000;
 // what the probe would have checked, and so what nobody did.
 //
 // - port:       the debugging port of the Chrome to use
-// - settings:   the report's configSettings — how Lighthouse emulated the page
 // - config:     the resolved .kanso.yml. A probe is handed its module's own
 //               section of it, never the rest — the same rule the modules
 //               themselves are held to (src/config/module-config.js). What a
@@ -93,9 +92,9 @@ const SETTLE_MS = 5_000;
 //
 // With `measuresOnly`, only the probes that measure run: the others check
 // what does not vary from one load to the next and ran on the first
-// (src/lighthouse/runner.js), while a measure is taken on every load, to be
-// folded into a median like Lighthouse's.
-export async function runProbes({ port, url, formFactor, settings, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
+// (src/runner/runner.js), while a measure is taken on every load, to be
+// folded into a median.
+export async function runProbes({ port, url, formFactor, modules, config = {}, measuresOnly = false, timeoutMs = PROBE_TIMEOUT_MS, journal = NO_JOURNAL }) {
   // The states on this screen: a drawer only a phone's layout has is not
   // looked for on a desktop, where it would read as one out of reach.
   const declared = statesOn(parseStates(config.states), formFactor);
@@ -142,7 +141,7 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
       log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
       try {
         const run = probe.transitions ? runTransitions : runProbe;
-        const { findings, unchecked } = await run(browser, probe, { url, formFactor, settings, config, states: statesOf(probe), timeoutMs, log });
+        const { findings, unchecked } = await run(browser, probe, { url, formFactor, config, states: statesOf(probe), timeoutMs, log });
         results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
         if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
         log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
@@ -168,14 +167,14 @@ export async function runProbes({ port, url, formFactor, settings, modules, conf
 // its own. Resolves to the findings, and to `unchecked` — [{ at, error }] —
 // for each state that could not be reached, and each reached through one.
 // Rejects when the page could not be read as it loaded.
-async function runProbe(browser, probe, { url, formFactor, settings, config, states = [], timeoutMs, log = NO_JOURNAL }) {
+async function runProbe(browser, probe, { url, formFactor, config, states = [], timeoutMs, log = NO_JOURNAL }) {
   const contexts = [];
   const open = async (at) => {
     // The page a branch leaves behind is not gone back to.
     await Promise.all(contexts.splice(0).map((context) => context.close().catch(() => {})));
     const context = await browser.createBrowserContext();
     contexts.push(context);
-    return loadPage(context, probe, { url, settings, timeoutMs, log: at });
+    return loadPage(context, probe, { url, formFactor, timeoutMs, log: at });
   };
   const step = (work) => withTimeout(work, timeoutMs);
   try {
@@ -250,7 +249,7 @@ async function runProbe(browser, probe, { url, formFactor, settings, config, sta
 // to the findings, each carrying its state, and to `unchecked` — [{ at, error
 // }] — for each state whose check failed, or that is reached through one the
 // way could not get past.
-async function runTransitions(browser, probe, { url, formFactor, settings, config, states, timeoutMs, log = NO_JOURNAL }) {
+async function runTransitions(browser, probe, { url, formFactor, config, states, timeoutMs, log = NO_JOURNAL }) {
   const findings = [];
   const unchecked = [];
   // The states the way could not get past, by name, with why.
@@ -265,7 +264,7 @@ async function runTransitions(browser, probe, { url, formFactor, settings, confi
     }
     const context = await browser.createBrowserContext();
     try {
-      const page = await withTimeout(() => loadPage(context, probe, { url, settings, timeoutMs, log: at }), timeoutMs);
+      const page = await withTimeout(() => loadPage(context, probe, { url, formFactor, timeoutMs, log: at }), timeoutMs);
       try {
         await withTimeout(() => reach(page, path, { waitMs: timeoutMs / 3, log: at }), timeoutMs);
       } catch (error) {
@@ -292,19 +291,19 @@ async function runTransitions(browser, probe, { url, formFactor, settings, confi
   return { findings, unchecked };
 }
 
-// A page for `probe`, loaded as Lighthouse loaded it — same screen, same user
-// agent — unless the probe asks otherwise: another viewport, media features, a
+// A page for `probe`, on the form factor's screen with its user agent, unless
+// the probe asks otherwise: another viewport, media features, a
 // slowed CPU, a script of its own before the page's.
-async function loadPage(context, probe, { url, settings, timeoutMs, log }) {
+async function loadPage(context, probe, { url, formFactor, timeoutMs, log }) {
   const page = await context.newPage();
   // Scrollbars laid over the page, as on a phone or a Mac: a classic one
   // would take 15 px off the width a probe asked for.
   const session = await page.createCDPSession();
   await session.send('Emulation.setScrollbarsHidden', { hidden: true });
-  await page.setViewport({ ...screen(settings), ...probe.viewport });
-  if (typeof settings?.emulatedUserAgent === 'string') await page.setUserAgent(settings.emulatedUserAgent);
+  await page.setViewport({ ...viewport(formFactor), ...probe.viewport });
+  await page.setUserAgent(SCREENS[formFactor].userAgent);
   if (probe.media) await page.emulateMediaFeatures(probe.media);
-  if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: cpuSlowdown(settings) });
+  if (probe.measures) await session.send('Emulation.setCPUThrottlingRate', { rate: SCREENS[formFactor].cpuSlowdown });
   if (probe.beforeLoad) await page.evaluateOnNewDocument(probe.beforeLoad);
   await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
   await page.waitForNetworkIdle({ idleTime: 500, timeout: SETTLE_MS }).catch(() => {});
@@ -400,27 +399,6 @@ export function skippedProbes(mod, config = {}) {
 // and a surface listing what Kanso checks reads it the same way too.
 export function probeRules(probe, config) {
   return typeof probe.rules === 'function' ? probe.rules(config) : probe.rules;
-}
-
-// Lighthouse's screen emulation, as puppeteer takes a viewport.
-function screen(settings) {
-  const emulation = settings?.screenEmulation ?? {};
-  const mobile = emulation.mobile ?? settings?.formFactor !== 'desktop';
-  return {
-    width: emulation.width ?? (mobile ? 412 : 1350),
-    height: emulation.height ?? (mobile ? 823 : 940),
-    deviceScaleFactor: emulation.deviceScaleFactor ?? 1,
-    isMobile: mobile,
-    hasTouch: mobile,
-  };
-}
-
-// How much slower than the machine at hand Lighthouse took the page's device
-// to be: 4 on mobile, 1 on desktop by default. Lighthouse applies it to a
-// simulation; a probe gets it as DevTools applies it, to the real CPU.
-function cpuSlowdown(settings) {
-  const rate = settings?.throttling?.cpuSlowdownMultiplier;
-  return Number.isFinite(rate) && rate >= 1 ? rate : 1;
 }
 
 function message(err) {

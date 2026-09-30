@@ -1,8 +1,9 @@
 # Kanso
 
-Kanso loads a page in Chrome, measures what it costs, checks what it breaks, and
-returns a verdict: `pass`, `warn` or `fail`. Performance, accessibility, SEO and
-best practices today, in a single page load; on mobile **and** desktop; against
+Kanso runs deterministic probes through a web page in Chrome — into the menus,
+dialogs and panels it opens, and out of them — and returns a verdict: `pass`,
+`warn` or `fail`. Accessibility, the keyboard, what a state leaves behind when it
+closes, and how long a click takes to answer; on mobile **and** desktop; against
 your own thresholds — and it can judge one version of a page against another.
 
 Three ways to run it, from the simplest to the most integrated: **locally**
@@ -13,7 +14,7 @@ and **in CI** to stop a regression before it merges.
 
 ## 1. Requirements
 
-- **Node 22.19 or later** (`node -v`) — Lighthouse 13's floor
+- **Node 22.19 or later** (`node -v`)
 - **Google Chrome** installed — Kanso drives it, it does not ship it
 
 Nothing else: no account, no API key, no server.
@@ -56,17 +57,13 @@ kanso audit http://localhost:3000
 
 ```
 Kanso · dist
-against the configured budgets · mobile + desktop · 1 run per page · 9s
+against the configured budgets · mobile + desktop · 1 run per page · 21s
 
 Performance  pass
 
 mobile
-               budget  current        Δ
-  Performance      49       99      +50  pass
-  LCP          4000ms   2121ms  -1879ms  pass
-  TBT           600ms      0ms   -600ms  pass
-  CLS            0.25     0.00    -0.25  pass
-  FCP          3000ms   1371ms  -1629ms  pass
+       budget  current       Δ
+  INP   500ms    136ms  -364ms  pass
 
 desktop
   …
@@ -87,17 +84,9 @@ Accessibility  fail
 
   failing from serious up
 
-SEO  pass
+Interactions  pass
 
   no findings
-
-  failing from serious up
-
-Best Practices  warn
-
-  errors-in-console  moderate  1 item  warn
-      Description: Failed to load resource: the server responded with a status of 404 (Not Found)
-      http://127.0.0.1:52817/favicon.ico:1:0
 
   failing from serious up
 
@@ -105,46 +94,32 @@ fail · image-alt, color-contrast
 ```
 
 **Always audit a production build.** A dev server ships unbundled modules, with
-no minification and no cache: the numbers it produces describe nothing your
-visitors will ever see. And Kanso builds nothing: after a change, build again,
+no minification and no cache: what it answers describes nothing your visitors
+will ever see. And Kanso builds nothing: after a change, build again,
 or the audit measures the build before it.
 
-Kanso returns two kinds of result. Performance gives you **measures** — six
-numbers, read against your budgets:
+Kanso returns two kinds of result. Performance gives you a **measure**, read
+against its budget: **INP**, how long the page takes to show it heard a click —
+good below 200 ms, poor above 500 ms.
 
-| | What it is | Good below |
-|---|---|---|
-| **Performance** | the overall Lighthouse score | (above 90) |
-| **LCP** | when the largest visible element shows up | 2,500 ms |
-| **TBT** | how long the page ignores clicks | 200 ms |
-| **CLS** | how much the layout jumps around | 0.1 |
-| **FCP** | when the first pixel of content appears | 1,800 ms |
-| **INP** | how long the page takes to show it heard a click | 200 ms |
-
-INP is the Core Web Vital Lighthouse cannot measure: it times clicks, and
-nobody clicks during a page load — Lighthouse puts TBT in its place. Kanso
-clicks, on the `states:` you declare (section 3), on a CPU slowed as Lighthouse
-slows it, and reports the slowest as the page's INP. Declare no state and INP
-is **not measured**: the table says so, and judges nothing — never a green
-0 ms.
-
-When one of them does not pass, Kanso prints what Lighthouse found behind it:
+INP is the Core Web Vital no page load measures: it times clicks, and nobody
+clicks during a load. Kanso clicks, on the `states:` you declare (below), on a
+CPU slowed four times on mobile as a phone's is taken to be, and reports the
+slowest as the page's INP. Declare no state and INP is **not measured**: the
+table says so, and judges nothing — never a green 0 ms. When it does not pass,
+Kanso names the click and where its time went:
 
 ```
-  LCP element      body > img  <img src="/hero.png" width="1600" height="900">
-  LCP, observed    32ms = 2ms to first byte + 4ms load delay + 7ms load duration + 19ms render delay
-  render-blocking  http://localhost:4173/assets/index.css  152ms
-  layout shifts    main  0.365  Unsized image element: body > img  <img src="/hero.png" …>
   INP interaction  click  header > button#open  "Menu"  @ menu
   INP, parts       640ms = 12ms input delay + 600ms processing + 28ms presentation
 ```
 
-Those timings come from the page load as it happened, while the table's numbers
-are Lighthouse's simulation of a slower device: read them as where the time
-goes, not as the metric itself. INP's parts are the exception: they are the
-click as it was timed, and add up to the number in the table.
+What a page costs as it loads — LCP, CLS and the rest — is Lighthouse's to
+measure, and Lighthouse CI already gates it well: Kanso does not load the page
+for it.
 
-Accessibility gives you **findings**: a rule broken, on named elements. No
+Accessibility and interactions give you **findings**: a rule broken, on named
+elements. No
 average, no median — a rule is violated or it is not. Kanso runs axe-core on
 the page itself, a hundred rules covering WCAG A and AA in all three versions
 plus axe's structural best practices, and each finding carries the impact axe
@@ -177,9 +152,9 @@ accessibility:
 ```
 
 axe reads the page at one size, once, without touching it. What only shows at
-another size, or under a keyboard, Kanso checks itself, each in a page of its
-own after Lighthouse is done — about a second per audit — and reports under
-accessibility, on the same scale:
+another size, or under a keyboard, Kanso's other probes check, each in a page
+of its own — about a second per audit — and report under accessibility, on the
+same scale:
 
 | Rule | What it means | Impact |
 |---|---|---|
@@ -288,36 +263,15 @@ ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next
 slide looks the same to it. If a check cannot run on a page, the report says so
 and lists the rules it left unchecked, rather than showing a clean section.
 
-SEO and best practices give you findings too, read and judged exactly the same
-way. Lighthouse ranks none of their rules, so Kanso places each one on the same
-impact scale — which is what lets one `fail_on` mean the same thing everywhere:
+**Interactions** opens and closes each declared state and reports what it
+leaves behind — a page left locked, covered, or hidden from a screen reader; a
+scroll position or an address lost; a trigger still saying it is expanded; an
+error thrown on closing; a page that scrolls behind a modal dialog — and,
+opening and closing each eight times, DOM nodes or listeners that keep growing.
+Nothing is checked there without a declared state.
 
-| | Fails by default (`serious` and up) | Warns |
-|---|---|---|
-| **SEO** | the page tells search engines not to index it; an invalid canonical | no canonical at all, no meta description, links a crawler cannot follow, an invalid `hreflang` or `robots.txt`, vague link text, missing Open Graph tags |
-| **Best practices** | not served over HTTPS; a field that refuses a paste | console errors, deprecated APIs, no doctype or charset, permission prompts on load, badly sized images |
-
-The full ranking, with the reason for each rule, is in
-`src/modules/seo/rules.js` and `src/modules/best-practices/rules.js`. A missing
-`<title>` and an image without `alt` are SEO rules as well as accessibility
-ones; Kanso reports them once, under accessibility.
-
-Not every failure is an element: a console error is printed with the script and
-line that logged it, a missing doctype with what Lighthouse says of it.
-
-Two SEO rules are Kanso's own, from the same page load: Lighthouse judges a
-canonical that is there but says nothing of a **missing** one, and ignores Open
-Graph tags — a page with neither scores 100. Kanso reports `canonical-missing`
-when the page names no canonical URL, in its head or in a `Link` header, and
-`open-graph` when a link preview would lack its title, its text or its image —
-or when `og:image` is a relative URL, which the sites fetching it cannot
-resolve. Both warn by default.
-
-Best practices also reports, without judging it, what Lighthouse says of the
-security headers the page was served with — CSP, HSTS, COOP, frame control,
-Trusted Types — which it lists without scoring. They are in `--json` and in what
-the MCP server returns: a local static server sends none of those headers, so
-they mean something on a deployed URL, not on `localhost`.
+Not every failure is an element: an error thrown as a state closes is printed
+with the script and line that threw it.
 
 ## 4. Compare two versions
 
@@ -331,17 +285,13 @@ kanso audit dist --baseline https://example.com
 
 ```
 Kanso · dist
-against ../main/dist · mobile + desktop · 1 run per page · 18s
+against ../main/dist · mobile + desktop · 1 run per page · 38s
 
 Performance  warn
 
 mobile
-               budget  baseline  current       Δ
-  Performance      49        96       91      -5  pass
-  LCP          4000ms    2100ms   2680ms  +580ms  warn
-  TBT           600ms      90ms    210ms  +120ms  warn
-  CLS            0.25      0.02     0.02   +0.00  pass
-  FCP          3000ms    1310ms   1400ms   +90ms  pass
+       budget  baseline  current       Δ
+  INP   500ms     136ms    248ms  +112ms  warn
 
 desktop
   …
@@ -379,29 +329,22 @@ violations; everybody reads the two their branch just added.
 Create a `.kanso.yml` at the root of your web project:
 
 ```yaml
-# Past these values the verdict is `fail`.
+# Past this value the verdict is `fail`.
 budgets:
-  performance: 90    # minimum score
-  lcp: 2500          # ms
-  tbt: 200           # ms
-  cls: 0.1
-  fcp: 1800          # ms
   inp: 200           # ms — timed on the states declared below
 
-# Accessibility, SEO, best practices: the impact from which a finding fails
-# the audit. minor | moderate | serious | critical
+# Accessibility, interactions: the impact from which a finding fails the
+# audit. minor | moderate | serious | critical
 accessibility:
   fail_on: serious
   # Which axe rules run. The default covers WCAG A and AA in all three
   # versions, plus axe's structural best practices.
   tags: [wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22a, wcag22aa, best-practice]
-seo:
-  fail_on: serious
-  ignore: [is-crawlable]   # rules this project is not held to — see below
-best-practices:
+  ignore: [region]         # rules this project is not held to — see below
+interactions:
   fail_on: moderate
 
-# Page loads per page and per form factor; the median is kept.
+# Page loads per page and per form factor; the median INP is kept.
 # It counts page loads, and one load feeds every module — which is why it stays
 # at the root of the file rather than under one of them.
 runs: 3
@@ -411,7 +354,7 @@ runs: 3
 serve:
   dir: dist
 
-# The states of the page axe, reflow and the Tab walk read beyond the one it loads in — see section 3.
+# The states of the page the probes go through beyond the one it loads in — see section 3.
 states:
   - name: menu
     click: "[aria-label='Menu']"
@@ -421,16 +364,12 @@ Each module reads the section carrying its name. Performance's `budgets:` live
 at the root, where every `.kanso.yml` written so far keeps them;
 `performance: { budgets: ... }` works too, and wins.
 
-`ignore:` takes the rules a project has decided not to be held to, in any of the
-three findings sections; an ignored rule is neither reported nor judged, and the
-report says it was left out. The case it exists for: Vercel, Netlify and
-Cloudflare Pages send `X-Robots-Tag: noindex` with every preview deployment, so a
-preview audited against production — or against nothing — fails `is-crawlable`
-on every pull request. A preview of the base branch carries the same header,
-which makes the finding inherited and needs no ignore.
+`ignore:` takes the rules a project has decided not to be held to, in either
+findings section; an ignored rule is neither reported nor judged, and the report
+says it was left out.
 
 Kanso reads the file from the directory you run the command in. Missing values
-fall back to the defaults, which are Lighthouse's "poor" boundaries —
+fall back to the defaults — INP's "poor" boundary, `serious` for findings —
 deliberately lax, so nothing is red by surprise on day one.
 
 **`serve:` tells Kanso how to serve the project**, so that `kanso audit`, your
@@ -502,7 +441,7 @@ goes to the job summary, and the job fails on a regression:
 |---|---|
 | `url` | a URL or a build directory; defaults to `serve:` |
 | `baseline` | a URL or a build directory to compare against |
-| `runs` | page loads per page and form factor, median kept |
+| `runs` | page loads per page and form factor, median INP kept |
 | `fail-on` | `fail` (default) or `warn` |
 | `config` | another configuration file |
 | `working-directory` | the project, in a monorepo |
@@ -555,16 +494,16 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs`, `screenshot` and `record` | the whole verdict, as JSON — and with `screenshot: true`, the page as its load ended, on mobile and desktop, as two images; with `record: <dir>`, a journal of what the checks did on each load kept in that directory, whose path the result gives |
-| `list_modules` | none | what Kanso checks, what this project judges it against, and how it is served |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `record` | the whole verdict, as JSON — and with `record: <dir>`, a journal of what the checks did on each load kept in that directory, whose path the result gives |
+| `check_states` | optional `states` (else the declared ones) and `url` | for each state, whether it was reached and what it changed, revealed or duplicated — see section 3 |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
 project — so the agent is held to the same numbers you are.
 
 Three things worth knowing before you wire it up:
 
-**Serve the build, or let Kanso.** An agent auditing `npm run dev` measures the
-dev server: unbundled modules, no minification, numbers that mean nothing. With
+**Serve the build, or let Kanso.** An agent auditing `npm run dev` checks the
+dev server: unbundled modules, no minification, timings that mean nothing. With
 a `serve:` block in `.kanso.yml`, `audit_page` needs no URL at all — Kanso
 serves the project the way the file says, and the agent never has to work out
 how. Kanso still builds nothing: the agent builds after a change, or it measures
@@ -577,35 +516,30 @@ flagged read-only to the host.
 *is* the model, and it has the diff it just wrote in front of it — more context
 than any report could reconstruct.
 
-**Screenshots are opt-in.** They are small — the last frame of Lighthouse's
-trace, a few hundred pixels wide, about 20 KB each — but an image still costs
-the agent context, so it asks for them when how the page looks is the question.
-
-**A call takes 10 to 60 seconds** — one page load per form factor, times `runs`,
-doubled when you pass a `baseline`. Kanso sends progress notifications while it
+**A call takes a few seconds to a few minutes** — about 15 s per declared state
+on the screen with more, doubled when you pass a `baseline`. Kanso sends progress notifications while it
 works, which is what stops a host giving up mid-audit; if yours times out anyway,
 raise its limit (`MCP_TOOL_TIMEOUT` in Claude Code) or leave `runs` at 1.
 
-## 8. When the numbers move between runs
+## 8. When the INP moves between runs
 
-That is normal, and it is the classic trap: a single Lighthouse load swings by
-20–30% on TBT depending on what your machine is doing at that moment. Enough to
-fail a good change on its own.
+That is normal: a click timed once swings with whatever your machine is doing
+at that moment. Enough to fail a good change on its own.
 
-The remedy is `runs: 3` in `.kanso.yml` (or `--runs 3`): Kanso loads the page
-three times and keeps the median of each metric. It triples the audit, and it
-makes a small regression believable.
+The remedy is `runs: 3` in `.kanso.yml` (or `--runs 3`): Kanso times the states
+three times and keeps the median. What the probes check rather than time is
+settled on the first load, so only the timing is repeated.
 
 Close whatever is running in the background during an audit — a build, another
-Chrome: they fight over the same CPU as the page being measured.
+Chrome: they fight over the same CPU as the page being timed.
 
 ## 9. When it does not work
 
 | Symptom | Usual cause |
 |---|---|
-| `error · CHROME_INTERSTITIAL_ERROR` | nothing is serving that port, or the server returns an error |
+| `error · net::ERR_CONNECTION_REFUSED` | nothing is serving that port |
+| `error · the page answered 404` | the server answers, with an error |
 | `error · ...ChromeLauncher...` | Chrome is missing, or not where Kanso looks for it |
-| Excellent scores, visibly slow page | you audited the dev server, not the build |
 | `configuration file not found` | the path given to `--config` does not exist |
 | `there is no dist directory to serve` | the project has not been built yet |
 | `something already answers at …` | a server is already running where `serve.url` points: stop it, or audit that URL directly |
@@ -619,9 +553,9 @@ or runners: the CLI, the MCP server and the GitHub Action are three surfaces
 onto the same core.
 
 Each concern Kanso checks is a module under `src/modules/` — performance,
-accessibility, SEO and best practices today — and every module extracts what it
-needs from **the same page load**, so another concern costs a Lighthouse
-category, not another audit.
+accessibility and interactions today — declaring the probes it runs, and every
+module's probes run on **the same Chrome**, so another concern costs its
+probes, not another audit.
 
 Adding one is a folder plus one line in `src/modules/index.js`.
 [`CLAUDE.md`](CLAUDE.md) documents the architecture in full.
@@ -635,7 +569,7 @@ kanso audit dist                         # audit a build, served by Kanso
 kanso audit <url>                        # audit a page already served
 kanso audit                              # audit what serve: in .kanso.yml says
 kanso audit <url> --baseline <url>       # compare against another version
-kanso audit <url> --runs 3               # 3 loads, median kept
+kanso audit <url> --runs 3               # INP timed 3 times, median kept
 kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
