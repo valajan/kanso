@@ -236,10 +236,10 @@ test('an audit through the states is timed by the screen with the more of them',
     { name: 'd', form_factor: 'mobile', click: '#d', states: [{ name: 'e', click: '#e' }] },
   ];
   // Mobile goes through a, b, d and e; desktop through a, b and c.
-  assert.equal(auditSeconds(states), 15 + 15 * 4);
-  assert.equal(auditSeconds([]), 15);
+  assert.equal(auditSeconds(states), 5 + 17 * 4);
+  assert.equal(auditSeconds([]), 5);
   // The project's own states are gone through too.
-  assert.equal(auditSeconds(states, [{ name: 'f', formFactor: 'desktop' }, { name: 'g', formFactor: null }]), 15 + 15 * 5);
+  assert.equal(auditSeconds(states, [{ name: 'f', formFactor: 'desktop' }, { name: 'g', formFactor: null }]), 5 + 17 * 5);
 });
 
 // ── writing them ──

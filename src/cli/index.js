@@ -83,7 +83,7 @@ Options for discover
       --depth <n>       clicks deep, 1-3 (default: 2)
       --max-clicks <n>  clicks per screen before stopping (default: 60)
       --max-states <n>  states written, at most, top-level ones first
-                        (default: 20). An audit takes about 15 s per state
+                        (default: 20). An audit takes about 17 s per state
       --form-factor <mobile | desktop>
                         explore one screen only (default: both)
       --json            print what was found as JSON
