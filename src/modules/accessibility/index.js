@@ -14,15 +14,9 @@ import { reflow } from './reflow.js';
 // reporting findings is in ../findings.js; what is its own is that its impacts
 // come from axe, which ranks its own rules.
 //
-// It is also the first module that owes Lighthouse nothing. It used to read
-// Lighthouse's accessibility category, which is axe-core run through a window
-// its gatherer holds shut: sixty-seven rules of a hundred, no configuration,
-// and every result axe could not settle thrown away. axe.js now runs axe on
-// the page itself, and the category is gone from what Lighthouse is asked for.
-//
 // axe reads the page at one size and never touches it. What only shows at
-// another size, or under a keyboard, Kanso's own probes check — each in a page
-// of its own, after Lighthouse — and report as findings of this module, on the
+// another size, or under a keyboard, Kanso's other probes check — each in a
+// page of its own — and report as findings of this module, on the
 // same scale (rules.js): reflow.js lays the page out 320 CSS pixels wide,
 // keyboard.js goes through it with the Tab key, motion.js watches it under
 // `prefers-reduced-motion: reduce`, and focus.js goes into and out of each
@@ -31,12 +25,9 @@ import { reflow } from './reflow.js';
 export default {
   id: 'accessibility',
   label: 'Accessibility',
-  // Nothing of this module is read from a Lighthouse report any more. The
-  // other three still ask for theirs, and one load serves them all.
-  categories: [],
   probes: [axeProbe, reflow, keyboard, motion, focus],
 
-  extract(lhr, { probed } = {}) {
+  extract({ probed } = {}) {
     return withProbed({ findings: [] }, probed);
   },
 

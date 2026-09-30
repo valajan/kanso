@@ -1,9 +1,9 @@
 import { METRICS } from './metrics.js';
 
-// Classifies a single metric value against its budget and Lighthouse thresholds:
-// - 'fail' = exceeds the budget (if set) or the Lighthouse "poor" threshold → block merge
-// - 'warn' = in the Lighthouse "needs improvement" zone (between good and the fail threshold)
-// - 'pass' = in the Lighthouse "good" zone
+// Classifies a single metric value against its budget and its thresholds:
+// - 'fail' = exceeds the budget (if set) or the "poor" threshold → block merge
+// - 'warn' = in the "needs improvement" zone (between good and the fail threshold)
+// - 'pass' = in the "good" zone
 export function buildStatus(value, budget, { lowerIsBetter, good, poor }) {
   const failThreshold = budget ?? poor;
   if (lowerIsBetter ? value > failThreshold : value < failThreshold) return 'fail';
@@ -11,7 +11,7 @@ export function buildStatus(value, budget, { lowerIsBetter, good, poor }) {
   return 'pass';
 }
 
-// The value past which a metric fails: the repo's budget, or Lighthouse's
+// The value past which a metric fails: the repo's budget, or the metric's
 // "poor" boundary when it sets none. What a report shows as the budget, since
 // it is what the verdict was read against.
 export function failThreshold(metric, budget = {}) {
@@ -19,7 +19,7 @@ export function failThreshold(metric, budget = {}) {
 }
 
 // Every metric's fail threshold, { [metricKey]: value }: the budgets as the
-// verdict read them, including the ones the repo left to Lighthouse.
+// verdict read them, including the ones the repo left to the defaults.
 export function effectiveBudgets(budget = {}) {
   return Object.fromEntries(METRICS.map((metric) => [metric.key, failThreshold(metric, budget)]));
 }

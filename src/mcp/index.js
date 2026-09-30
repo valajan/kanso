@@ -4,7 +4,7 @@ import { createTools } from './tools.js';
 
 // Handed to the host's model, as a hint about what this server is for. Short on
 // purpose: it is prompt, and every line of it is paid for on every turn.
-const INSTRUCTIONS = `Kanso audits a web page in Chrome and returns a verdict — pass, warn or fail — on how fast it is, what it breaks for assistive technology, and what search engines and browsers make of it.
+const INSTRUCTIONS = `Kanso runs deterministic probes through a web page in Chrome — into the states it opens and out of them — and returns a verdict — pass, warn or fail — on what they found: what the page breaks for assistive technology and the keyboard, what opening and closing its states leaves behind, and how long a click takes to answer.
 
 Use it to check a frontend change rather than describe one: build, then audit the build — the URL serving it, its directory, or no url at all when the project's .kanso.yml says how to serve it. Auditing a dev server measures the dev server, not the page a user gets.
 
@@ -20,14 +20,14 @@ A call takes 10 to 60 seconds per run and reports progress while it works.`;
 //
 // `input`/`output` are the process's own streams in production and fakes in the
 // tests, which is what lets the protocol be exercised without a subprocess.
-export async function runMcpServer({ input = process.stdin, output = process.stdout, cwd = process.cwd(), runLighthouse, checkStates } = {}) {
-  const lighthouse = runLighthouse ?? (await import('../lighthouse/runner.js')).runLighthouse;
+export async function runMcpServer({ input = process.stdin, output = process.stdout, cwd = process.cwd(), runLoads, checkStates } = {}) {
+  const loads = runLoads ?? (await import('../runner/runner.js')).runLoads;
   const stream = protectStdout(output);
 
   const dispatch = createDispatcher({
     serverInfo: { name: 'kanso', title: 'Kanso', version: version() },
     instructions: INSTRUCTIONS,
-    tools: createTools({ cwd, runLighthouse: lighthouse, checkStates }),
+    tools: createTools({ cwd, runLoads: loads, checkStates }),
   });
 
   await serve({ input, output: stream, dispatch });

@@ -3,12 +3,9 @@ name: Action
 # The GitHub Action at the root of this repository, run the way a client repo
 # runs it, on a real runner: its install, the runner's Chrome, a build served
 # from a directory, the job summary and the outputs. Once on a page that
-# passes, served as test/action/.kanso.yml says; once under a budget no page
-# meets, which must fail the step — and keep its journal all the same, since a
-# failed audit is when one is wanted.
-#
-# What it proves is the plumbing, not the runner's speed, so the passing case
-# is judged on what the page decides — see the budgets in test/action/.kanso.yml.
+# passes, served as test/action/.kanso.yml says; once on a page missing its
+# main landmark, under a config that fails it, which must fail the step — and
+# keep its journal all the same, since a failed audit is when one is wanted.
 
 on:
   pull_request:
@@ -58,15 +55,15 @@ jobs:
         with:
           working-directory: test/action
 
-      - name: Audit under a budget no page meets
+      - name: Audit a page that fails
         id: failing
         continue-on-error: true
         uses: ./
         with:
           working-directory: test/action
-          url: site
+          url: broken
           baseline: site
-          config: impossible.yml
+          config: strict.yml
           record: true
           record-name: kanso-record-failing
 
@@ -83,23 +80,16 @@ jobs:
           PASSING_RECORD: ${{ steps.passing.outputs.record }}
         run: |
           set -x
-          # The page is clean, so its verdict cannot be a failure. It can be a
-          # warning: Lighthouse's warn zone is its own and no budget widens it,
-          # so a contended runner turns a 0ms TBT into hundreds and warns on a
-          # page nothing is wrong with. Widening the budgets in
-          # test/action/.kanso.yml keeps that out of the verdict; this keeps it
-          # out of the assertion.
-          case "$PASSING" in
-            pass | warn) ;;
-            *) echo "the passing page concluded $PASSING"; exit 1 ;;
-          esac
+          # The page is clean: nothing any probe finds on it.
+          test "$PASSING" = pass
           grep -q '^🔗 `site`$' "$PASSING_REPORT"
           test "$FAILING" = fail
           test "$FAILING_OUTCOME" = failure
-          grep -q '^🔗 `site` against `site`$' "$FAILING_REPORT"
-          # The page matches its baseline; the budget beside it is why it fails.
-          grep -qE '^\| Performance \| 101 \| [0-9]+ \| [0-9]+ \| [+-][0-9]+ \| ❌ \|$' "$FAILING_REPORT"
-          node -e 'const r = require(process.argv[1]); if (r.modules.performance.levels.performance !== "fail") process.exit(1)' "$FAILING_RESULT"
+          grep -q '^🔗 `broken` against `site`$' "$FAILING_REPORT"
+          # The main landmark the change took away: new, and failed by the
+          # threshold strict.yml sets.
+          grep -q 'landmark-one-main' "$FAILING_REPORT"
+          node -e 'const r = require(process.argv[1]); if (r.modules.accessibility.levels["landmark-one-main"] !== "fail") process.exit(1)' "$FAILING_RESULT"
           # The failing audit kept its journal: one per load, both pages and
           # both form factors, the result beside them — and uploaded it though
           # the step failed. The passing one was not asked to.

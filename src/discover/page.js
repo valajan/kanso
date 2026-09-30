@@ -1,6 +1,6 @@
 import { diff, fingerprint, volatileLines } from './fingerprint.js';
 import { guardPage, verdict, writeKey } from './guards.js';
-import { emulate } from './screens.js';
+import { emulate } from '../probes/screens.js';
 import { selectorFor } from './selectors.js';
 import { markLoaded, snapshot } from './snapshot.js';
 

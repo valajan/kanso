@@ -11,14 +11,13 @@ import { DIALOG_STATE, FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs
 
 // Acceptance suite: Kanso, end to end, against the real kanso-landing build.
 //
-// What is real: the Nuxt build of the landing page, headless Chrome and
-// Lighthouse, the .kanso.yml budgets, and the command a developer or a runner
-// types. Nothing is stood in — the CLI serves both builds itself, on loopback,
+// What is real: the Nuxt build of the landing page, headless Chrome, the
+// .kanso.yml budgets, and the command a developer or a runner types. Nothing is stood in — the CLI serves both builds itself, on loopback,
 // which is exactly what the GitHub Action does in a client's runner.
 //
 // Each audit is a known-answer test: the landing page as shipped must pass, and
-// each deliberately regressed variant must fail on exactly the metric it
-// regresses. Every step is compared against the unchanged build, the way a
+// each deliberately regressed variant must fail on exactly the metric or the
+// rule it regresses. Every step is compared against the unchanged build, the way a
 // change is compared against its base — that comparison is what lets the report
 // tell a finding this change introduced from one the page already carried.
 //
@@ -27,28 +26,20 @@ import { DIALOG_STATE, FIXTURES, materialize, PRESS_STATE } from './fixtures.mjs
 // Environment:
 //   KANSO_LANDING_DIR            path to kanso-landing  (default ../kanso-landing)
 //   KANSO_ACCEPTANCE_SKIP_BUILD  1 to reuse an existing dist/ instead of building
-//   KANSO_ACCEPTANCE_RUNS        Lighthouse runs, median kept, for the steps that
-//                                judge a load metric (default 3); the others run once
 //   KANSO_ACCEPTANCE_STEPS       fixtures to audit, comma-separated (default all) —
 //                                what lets CI give each step a job of its own
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const KANSO = join(REPO_ROOT, 'bin/kanso.js');
 const LANDING_DIR = resolve(REPO_ROOT, process.env.KANSO_LANDING_DIR ?? '../kanso-landing');
-const RUNS = Number(process.env.KANSO_ACCEPTANCE_RUNS ?? 3);
 
 // One step per change. `fails` lists the metrics that must come out as `fail`,
 // `findings` the findings, as `module: rule`, that must be held against the
 // change; empty lists mean nothing may fail — the false-positive check.
 //
-// `load` marks the steps that judge LCP, TBT or CLS: a single load swings too
-// much for them, so they take the median of RUNS. The others are settled by
-// one load — a rule is broken or it is not, and an 800 ms click is 800 ms on
-// any run — and they are also the steps that make the suite long.
+// Each step is settled by one load: a rule is broken or it is not, and an
+// 800 ms click is 800 ms on any run.
 const STEPS = [
-  { fixture: 'baseline', label: 'the landing page as shipped passes', fails: [], load: true },
-  { fixture: 'tbt', label: 'a main-thread busy loop fails on TBT', fails: ['tbt'], load: true },
-  { fixture: 'cls', label: 'a late-inserted block fails on CLS', fails: ['cls'], load: true },
-  { fixture: 'lcp', label: 'an unoptimized hero image fails on LCP', fails: ['lcp'], load: true },
+  { fixture: 'baseline', label: 'the landing page as shipped passes', fails: [] },
   { fixture: 'inp', label: 'a click held 800 ms fails on INP', fails: ['inp'] },
   { fixture: 'reflow', label: 'a block wider than a phone fails on reflow', fails: [], findings: ['accessibility: reflow-scroll'] },
   { fixture: 'focus', label: 'a dialog that leaves focus behind it fails on focus', fails: [], findings: ['accessibility: focus-not-moved'] },
@@ -59,9 +50,9 @@ const SELECTED = selectSteps(process.env.KANSO_ACCEPTANCE_STEPS);
 
 const AUDIT_TIMEOUT_MS = 15 * 60_000;
 
-// Which step regressed TBT, so the Markdown assertions at the end can read the
+// Which step regressed INP, so the Markdown assertions at the end can read the
 // report it wrote: one audit, checked twice.
-const REPORT_STEP = STEPS.findIndex((step) => step.fails.includes('tbt'));
+const REPORT_STEP = STEPS.findIndex((step) => step.fails.includes('inp'));
 
 let workDir;
 let configPath;
@@ -84,13 +75,13 @@ before(async () => {
 
   workDir = await mkdtemp(join(tmpdir(), 'kanso-acceptance-'));
 
-  // The repo's own budgets, at the run count the suite asks for. The reference
+  // The repo's own budgets, one load per page. The reference
   // is always the unchanged build beside it, never a deployment: the suite
   // reaches out to nothing. The states declared are the click on the button
   // every fixture carries, which is what INP is timed on, and the dialog every
   // fixture carries, which the probes go into and out of.
   const repoConfig = yaml.load(await readFile(join(LANDING_DIR, '.kanso.yml'), 'utf8').catch(() => '')) ?? {};
-  const testConfig = { ...repoConfig, runs: RUNS, states: [PRESS_STATE, DIALOG_STATE] };
+  const testConfig = { ...repoConfig, runs: 1, states: [PRESS_STATE, DIALOG_STATE] };
   configPath = join(workDir, 'kanso.yml');
   await writeFile(configPath, yaml.dump(testConfig));
 
@@ -115,7 +106,7 @@ for (const [index, step] of STEPS.entries()) {
       KANSO, 'audit', step.fixture,
       '--baseline', 'baseline',
       '--config', configPath,
-      '--runs', String(step.load ? RUNS : 1),
+      '--runs', '1',
       '--fail-on', 'fail',
       '--out', `${outDir}/report.md`,
       '--out', `${outDir}/result.json`,
@@ -187,17 +178,17 @@ for (const [index, step] of STEPS.entries()) {
 // --- the report a job summary shows ---------------------------------------------
 
 // `--out report.md` is what the GitHub Action pipes into the job summary, so the
-// Markdown is checked against a real audit rather than a synthetic one: the TBT
+// Markdown is checked against a real audit rather than a synthetic one: the INP
 // step above, read a second time.
-test('the regressed step wrote a report naming both sides and the failing metric', { skip: !SELECTED.includes(STEPS[REPORT_STEP]) && 'the TBT step was not selected' }, async () => {
+test('the regressed step wrote a report naming both sides and the failing metric', { skip: !SELECTED.includes(STEPS[REPORT_STEP]) && 'the INP step was not selected' }, async () => {
   const step = STEPS[REPORT_STEP];
   const report = await readFile(join(workDir, `out/${REPORT_STEP}-${step.fixture}`, 'report.md'), 'utf8');
 
   assert.match(report, /^## Kanso \| Audit Report$/m);
-  assert.match(report, /🔗 `tbt` against `baseline`/);
+  assert.match(report, /🔗 `inp` against `baseline`/);
   // Budget, baseline, current, Δ: the budget is what the ❌ was read against.
   assert.match(report, /\| Metric \| budget \| baseline \| current \| Δ \| \|/);
-  assert.match(report, /\| TBT \| \d+ms \| \d+ms \| \d+ms \| \+\d+ms \| ❌ \|/);
+  assert.match(report, /\| INP \| \d+ms \| \d+ms \| \d+ms \| \+\d+ms \| ❌ \|/);
   assert.match(report, /### 📱 Mobile/);
   assert.match(report, /### 💻 Desktop/);
 });
@@ -233,11 +224,7 @@ function describeScores(result) {
       lines.push(`  ${formFactor.padEnd(7)} audit failed`);
       continue;
     }
-    lines.push(
-      `  ${formFactor.padEnd(7)} perf ${Math.round(s.performance)} · LCP ${Math.round(s.lcp)}ms · ` +
-        `TBT ${Math.round(s.tbt)}ms · CLS ${s.cls.toFixed(3)} · FCP ${Math.round(s.fcp)}ms · ` +
-        `INP ${s.inp == null ? '—' : `${Math.round(s.inp)}ms`}`
-    );
+    lines.push(`  ${formFactor.padEnd(7)} INP ${s.inp == null ? '—' : `${Math.round(s.inp)}ms`}`);
   }
   const levels = Object.entries(result.modules?.performance?.levels ?? {}).map(([m, l]) => `${m}:${l}`).join(' ');
   if (levels) lines.push(`  levels ${levels}`);

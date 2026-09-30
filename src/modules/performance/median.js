@@ -1,11 +1,9 @@
 // Per-metric median of several score objects.
 //
-// A single Lighthouse run is noisy — TBT in particular swings 20-30% between
-// identical runs on shared CPU — which is enough to trip a 10% regression
-// threshold on its own and spend an LLM call analysing nothing. Taking the
-// median of an odd number of runs is the standard remedy (it is what Lighthouse
-// CI does by default); the median is used rather than the mean so one outlier
-// run cannot drag the result.
+// A single timing is noisy — a click timed on a shared CPU swings from one
+// load to the next — which is enough to fail a good change on its own. Taking
+// the median of an odd number of runs is the standard remedy; the median is
+// used rather than the mean so one outlier run cannot drag the result.
 export function medianScores(scores) {
   const usable = scores.filter((s) => s != null);
   if (usable.length === 0) return null;

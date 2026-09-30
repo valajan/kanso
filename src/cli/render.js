@@ -102,46 +102,17 @@ function renderScores(moduleResult, config, c) {
   return lines;
 }
 
-// How Lighthouse names the parts of an LCP, in the words of a sentence.
-const LCP_SUBPARTS = {
-  timeToFirstByte: 'to first byte',
-  resourceLoadDelay: 'load delay',
-  resourceLoadDuration: 'load duration',
-  elementRenderDelay: 'render delay',
-};
-
-// Why a metric that did not pass is what it is, from Lighthouse's diagnostics
-// — src/modules/performance/diagnostics.js. A metric that passed needs no
-// explaining, and gets none.
+// Why a metric that did not pass is what it is — src/modules/performance/inp.js.
+// A metric that passed needs no explaining, and gets none.
 function diagnosticRows(diagnostics, statuses) {
-  if (!diagnostics) return [];
-  const { lcp, renderBlocking = [], cls, inp } = diagnostics;
-  const rows = [];
-  const row = (label, text) => rows.push([{ text: label, color: 'dim' }, { text }]);
-
-  if (statuses.lcp !== 'pass' && lcp) {
-    if (lcp.element) row('LCP element', describe(lcp.element));
-    const parts = Object.entries(lcp.subparts).map(([part, ms]) => `${ms}ms ${LCP_SUBPARTS[part] ?? part}`);
-    row('LCP, observed', `${lcp.observedMs}ms = ${parts.join(' + ')}`);
-  }
-  // A stylesheet the first render waits for delays the LCP as much as the FCP.
-  if (statuses.lcp !== 'pass' || statuses.fcp !== 'pass') {
-    renderBlocking.forEach(({ url, wastedMs }, i) => row(i === 0 ? 'render-blocking' : '', `${url}  ${wastedMs ?? '?'}ms`));
-  }
-  if (statuses.cls !== 'pass' && cls) {
-    cls.shifts.forEach((shift, i) => row(i === 0 ? 'layout shifts' : '', [
-      shift.element ? describe(shift.element) : '?',
-      shift.score.toFixed(3),
-      ...shift.causes.map(({ cause, element, url }) => [cause, element ? describe(element) : url].filter(Boolean).join(': ')),
-    ].join('  ')));
-  }
-  if (statuses.inp != null && statuses.inp !== 'pass' && inp?.interaction) {
-    const { type, target, at, latency, inputDelay, processing, presentation } = inp.interaction;
-    row('INP interaction', [type, target ? describe(target) : null, at ? `@ ${at}` : null].filter(Boolean).join('  '));
-    row('INP, parts', `${latency}ms = ${inputDelay}ms input delay + ${processing}ms processing + ${presentation}ms presentation`);
-  }
-
-  return rows;
+  const interaction = diagnostics?.inp?.interaction;
+  if (statuses.inp == null || statuses.inp === 'pass' || !interaction) return [];
+  const { type, target, at, latency, inputDelay, processing, presentation } = interaction;
+  const row = (label, text) => [{ text: label, color: 'dim' }, { text }];
+  return [
+    row('INP interaction', [type, target ? describe(target) : null, at ? `@ ${at}` : null].filter(Boolean).join('  ')),
+    row('INP, parts', `${latency}ms = ${inputDelay}ms input delay + ${processing}ms processing + ${presentation}ms presentation`),
+  ];
 }
 
 // Why there is no INP, or only part of one — a state that could not be

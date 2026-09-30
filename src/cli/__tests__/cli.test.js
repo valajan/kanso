@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { main } from '../index.js';
 
-const GOOD = { performance: 96, lcp: 1500, tbt: 80, cls: 0.01, fcp: 800 };
-const POOR = { performance: 40, lcp: 6000, tbt: 900, cls: 0.4, fcp: 4000 };
-const MEH  = { performance: 80, lcp: 3000, tbt: 300, cls: 0.15, fcp: 2000 };
+const GOOD = { inp: 120 };
+const POOR = { inp: 900 };
+const MEH  = { inp: 300 };
 
 // Collects what the command wrote, without a TTY — so no colours and no
 // progress ticker, and the assertions read as the text a user sees.
@@ -37,76 +37,58 @@ function emptyProject() {
   return mkdtempSync(join(tmpdir(), 'kanso-cli-'));
 }
 
-async function run(argv, { runLighthouse, cwd = emptyProject() } = {}) {
+async function run(argv, { runLoads, cwd = emptyProject() } = {}) {
   const io = fakeIo();
-  const code = await main(argv, { io, cwd, runLighthouse });
+  const code = await main(argv, { io, cwd, runLoads });
   return { code, ...io };
 }
 
 test('audits a URL and reports both form factors', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD });
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.equal(code, 0);
   assert.match(out, /mobile/);
   assert.match(out, /desktop/);
-  assert.match(out, /LCP\s+4000ms\s+1500ms/);
+  assert.match(out, /INP\s+500ms\s+120ms/);
   assert.match(out, /pass · everything within budget/);
-  assert.equal(runLighthouse.calls.length, 2);
+  assert.equal(runLoads.calls.length, 2);
 });
 
 test('the audit command is implied when the first argument is a URL', async () => {
-  const { code } = await run(['http://localhost:3000'], { runLighthouse: fakeRunner({ 'http://localhost:3000/': GOOD }) });
+  const { code } = await run(['http://localhost:3000'], { runLoads: fakeRunner({ 'http://localhost:3000/': GOOD }) });
 
   assert.equal(code, 0);
 });
 
 test('a page over budget exits 1, naming what failed', async () => {
   const { code, out } = await run(['audit', 'http://localhost:3000'], {
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': POOR }),
+    runLoads: fakeRunner({ 'http://localhost:3000/': POOR }),
   });
 
   assert.equal(code, 1);
-  assert.match(out, /fail · Performance, LCP, TBT, CLS, FCP/);
+  assert.match(out, /fail · INP/);
 });
 
-// What Lighthouse found behind a metric, as the performance module reports it.
-const DIAGNOSTICS = {
-  lcp: {
-    element: { selector: 'body > img', snippet: '<img src="/hero.png">', label: 'body > img' },
-    observedMs: 32,
-    subparts: { timeToFirstByte: 2, resourceLoadDelay: 4, resourceLoadDuration: 7, elementRenderDelay: 19 },
-  },
-  renderBlocking: [{ url: 'http://localhost:3000/style.css', totalBytes: 314, wastedMs: 152 }],
-  cls: { score: 0.365, shifts: [{
-    element: { selector: 'main', snippet: '<main>', label: '' },
-    score: 0.365,
-    causes: [{ cause: 'Web font', url: 'http://localhost:3000/font.woff2' }],
-  }] },
-};
-
-test('a metric that did not pass is explained, and one that passed is not', async () => {
+// Why an INP is what it is, said only when it did not pass: a metric that
+// passed needs no explaining.
+test('an INP that passed is not explained', async () => {
+  const interaction = {
+    type: 'click', at: 'menu', latency: 120, inputDelay: 2, processing: 100, presentation: 18,
+    target: { selector: 'header > button#open', snippet: '<button id="open">', label: 'Menu' },
+  };
   const { out } = await run(['audit', 'http://localhost:3000'], {
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...POOR, diagnostics: DIAGNOSTICS } }),
+    runLoads: fakeRunner({ 'http://localhost:3000/': { ...GOOD, diagnostics: { inp: { interaction, count: 1, failures: [] } } } }),
   });
-
-  assert.match(out, /LCP element\s+body > img {2}<img src="\/hero\.png">/);
-  assert.match(out, /LCP, observed\s+32ms = 2ms to first byte \+ 4ms load delay \+ 7ms load duration \+ 19ms render delay/);
-  assert.match(out, /render-blocking\s+http:\/\/localhost:3000\/style\.css {2}152ms/);
-  assert.match(out, /layout shifts\s+main {2}0\.365 {2}Web font: http:\/\/localhost:3000\/font\.woff2/);
-
-  const { out: clean } = await run(['audit', 'http://localhost:3000'], {
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...GOOD, diagnostics: DIAGNOSTICS } }),
-  });
-  assert.doesNotMatch(clean, /LCP element|render-blocking|layout shifts/);
+  assert.doesNotMatch(out, /INP interaction|INP, parts/);
 });
 
 // INP is timed on the clicks the project declares. Without any, the table
 // says it was not measured — a dash and no level, never a green 0ms.
 test('an INP nobody measured says so, and why', async () => {
   const { code, out } = await run(['audit', 'http://localhost:3000'], {
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': { ...GOOD, inp: null, diagnostics: { inp: null } } }),
+    runLoads: fakeRunner({ 'http://localhost:3000/': { ...GOOD, inp: null, diagnostics: { inp: null } } }),
   });
 
   assert.equal(code, 0);
@@ -119,18 +101,17 @@ test('an INP nobody measured says so, and why', async () => {
 test('a probe skipped for want of a state is said, with the rules nobody checked', async () => {
   const quiet = { ...GOOD, inp: null, diagnostics: { inp: null } };
   const clean = { findings: [] };
-  const runLighthouse = async () => ({ performance: quiet, accessibility: clean, seo: clean, 'best-practices': clean, interactions: clean });
+  const runLoads = async () => ({ performance: quiet, accessibility: clean, interactions: clean });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.equal(code, 0);
   assert.match(out, /Accessibility {2}pass\n\n {2}no findings\n\n {2}failing from serious up\n\n {2}- focus skipped: no states declared in \.kanso\.yml, so nothing was opened or clicked: 7 rules not checked \(have your coding agent propose states with check_states, or run kanso discover --write\)\n/);
   assert.match(out, /- residues, leaks skipped: .*: 10 rules not checked/);
-  assert.doesNotMatch(out, /SEO[^]*skipped[^]*Interactions/, 'a module with nothing to skip says nothing');
 
   const cwd = emptyProject();
   writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n    form_factor: desktop\n');
-  const { out: declared } = await run(['audit', 'http://localhost:3000'], { runLighthouse, cwd });
+  const { out: declared } = await run(['audit', 'http://localhost:3000'], { runLoads, cwd });
   assert.doesNotMatch(declared, /skipped/, 'a state on one screen is a state declared');
 });
 
@@ -143,7 +124,7 @@ test('an INP over budget names the click, and where its time went', async () => 
   writeFileSync(join(cwd, '.kanso.yml'), 'states:\n  - name: menu\n    click: "#open"\n  - name: signup\n    click: "#signup"\n');
   const { code, out } = await run(['audit', 'http://localhost:3000'], {
     cwd,
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': {
+    runLoads: fakeRunner({ 'http://localhost:3000/': {
       ...GOOD, inp: 640,
       diagnostics: { inp: { interaction, count: 2, failures: [{ at: 'signup', error: 'nothing visible to click at #signup' }] } },
     } }),
@@ -159,10 +140,10 @@ test('an INP over budget names the click, and where its time went', async () => 
 });
 
 test('a warning passes by default, and fails on --fail-on warn', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': MEH });
+  const runLoads = fakeRunner({ 'http://localhost:3000/': MEH });
 
-  const lenient = await run(['audit', 'http://localhost:3000'], { runLighthouse });
-  const strict = await run(['audit', 'http://localhost:3000', '--fail-on', 'warn'], { runLighthouse });
+  const lenient = await run(['audit', 'http://localhost:3000'], { runLoads });
+  const strict = await run(['audit', 'http://localhost:3000', '--fail-on', 'warn'], { runLoads });
 
   assert.equal(lenient.code, 0);
   assert.match(lenient.out, /warn · /);
@@ -170,59 +151,57 @@ test('a warning passes by default, and fails on --fail-on warn', async () => {
 });
 
 test('a baseline is audited too, and becomes the comparison column', async () => {
-  const runLighthouse = fakeRunner({
+  const runLoads = fakeRunner({
     'http://localhost:3000/': GOOD,
     'https://example.com/': POOR,
   });
 
   const { code, out } = await run(
     ['audit', 'http://localhost:3000', '--baseline', 'https://example.com'],
-    { runLighthouse }
+    { runLoads }
   );
 
   assert.equal(code, 0);
-  assert.equal(runLighthouse.calls.length, 4);
+  assert.equal(runLoads.calls.length, 4);
   assert.match(out, /against https:\/\/example\.com\//);
   assert.match(out, /budget\s+baseline\s+current/);
-  assert.match(out, /LCP\s+4000ms\s+6000ms\s+1500ms\s+-4500ms/);
+  assert.match(out, /INP\s+500ms\s+900ms\s+120ms\s+-780ms/);
 });
 
 // The verdict comes from the budget, the Δ from the baseline: a page no worse
 // than its baseline still fails a budget both miss, and the line says which.
 test('a metric equal to its baseline that fails its budget shows the budget it fails', async () => {
   const cwd = emptyProject();
-  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  lcp: 1000\n');
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
+  writeFileSync(join(cwd, '.kanso.yml'), 'budgets:\n  inp: 100\n');
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLighthouse, cwd });
+  const { code, out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLoads, cwd });
 
   assert.equal(code, 1);
-  assert.match(out, /LCP\s+1000ms\s+1500ms\s+1500ms\s+\+0ms\s+fail/);
-  // A metric the file sets no budget for keeps Kanso's default, shown as such.
-  assert.match(out, /TBT\s+600ms\s+80ms\s+80ms\s+\+0ms\s+pass/);
+  assert.match(out, /INP\s+100ms\s+120ms\s+120ms\s+\+0ms\s+fail/);
 });
 
 test('--json prints the result and nothing else', async () => {
   const { code, out } = await run(['audit', 'http://localhost:3000', '--json'], {
-    runLighthouse: fakeRunner({ 'http://localhost:3000/': POOR }),
+    runLoads: fakeRunner({ 'http://localhost:3000/': POOR }),
   });
 
   assert.equal(code, 1);
   const parsed = JSON.parse(out);
   assert.equal(parsed.url, 'http://localhost:3000/');
   assert.equal(parsed.conclusion, 'fail');
-  assert.equal(parsed.modules.performance.scores.mobile.current.lcp, 6000);
+  assert.equal(parsed.modules.performance.scores.mobile.current.inp, 900);
 });
 
 test('a .kanso.yml in the project is picked up', async () => {
   const cwd = emptyProject();
-  writeFileSync(join(cwd, '.kanso.yml'), 'runs: 3\nbudgets:\n  lcp: 1000\n');
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD });
+  writeFileSync(join(cwd, '.kanso.yml'), 'runs: 3\nbudgets:\n  inp: 100\n');
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD });
 
-  const { code, out, err } = await run(['audit', 'http://localhost:3000'], { runLighthouse, cwd });
+  const { code, out, err } = await run(['audit', 'http://localhost:3000'], { runLoads, cwd });
 
-  assert.equal(code, 1, 'LCP 1500ms is over the 1000ms budget the file sets');
-  assert.ok(runLighthouse.calls.every((c) => c.runs === 3));
+  assert.equal(code, 1, 'INP 120ms is over the 100ms budget the file sets');
+  assert.ok(runLoads.calls.every((c) => c.runs === 3));
   assert.match(out, /3 runs per page/);
   assert.match(err, /\.kanso\.yml/);
 });
@@ -230,16 +209,16 @@ test('a .kanso.yml in the project is picked up', async () => {
 test('--runs overrides the configured run count', async () => {
   const cwd = emptyProject();
   writeFileSync(join(cwd, '.kanso.yml'), 'runs: 3\n');
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD });
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD });
 
-  await run(['audit', 'http://localhost:3000', '--runs', '2'], { runLighthouse, cwd });
+  await run(['audit', 'http://localhost:3000', '--runs', '2'], { runLoads, cwd });
 
-  assert.ok(runLighthouse.calls.every((c) => c.runs === 2));
+  assert.ok(runLoads.calls.every((c) => c.runs === 2));
 });
 
 test('an audit that could not run exits 2 with the reason', async () => {
   const { code, out } = await run(['audit', 'http://localhost:3000'], {
-    runLighthouse: async () => { throw new Error('chrome not found'); },
+    runLoads: async () => { throw new Error('chrome not found'); },
   });
 
   assert.equal(code, 2);
@@ -247,12 +226,12 @@ test('an audit that could not run exits 2 with the reason', async () => {
 });
 
 test('one form factor failing still reports the other', async () => {
-  const runLighthouse = async (url, { formFactor }) => {
+  const runLoads = async (url, { formFactor }) => {
     if (formFactor === 'desktop') throw new Error('desktop died');
     return { performance: GOOD };
   };
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.equal(code, 0);
   assert.match(out, /the desktop page load failed: desktop died/);
@@ -278,11 +257,11 @@ function auditingBoth(byUrl) {
 }
 
 test('a finding over the impact threshold fails the audit and names the elements', async () => {
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: findings(['image-alt', 'critical', 2]) },
   });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.equal(code, 1);
   assert.match(out, /Accessibility\s+fail/);
@@ -296,14 +275,14 @@ test('a finding over the impact threshold fails the audit and names the elements
 // what the change added is held against it.
 test('a finding the baseline already has does not fail the audit', async () => {
   const inherited = findings(['color-contrast', 'serious', 3]);
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: inherited },
     'https://example.com/': { performance: GOOD, accessibility: inherited },
   });
 
   const { code, out } = await run(
     ['audit', 'http://localhost:3000', '--baseline', 'https://example.com'],
-    { runLighthouse }
+    { runLoads }
   );
 
   assert.equal(code, 0);
@@ -312,12 +291,12 @@ test('a finding the baseline already has does not fail the audit', async () => {
 });
 
 test('a change that fixed every finding says so, with nothing already there to count', async () => {
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: findings() },
     'https://example.com/': { performance: GOOD, accessibility: findings(['color-contrast', 'serious', 3]) },
   });
 
-  const { out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLighthouse });
+  const { out } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com'], { runLoads });
 
   assert.match(out, /Accessibility\s+pass\s+no findings\s+failing from serious up · 1 fixed\n/);
 });
@@ -326,7 +305,7 @@ test('a change that fixed every finding says so, with nothing already there to c
 // from one element to the next, so each gets its own.
 test('what is wrong is printed once for the rule, or under each element when it differs', async () => {
   const node = (selector, explanation, label = '') => ({ selector, snippet: '<p>', label, explanation });
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: { findings: [
       { rule: 'image-alt', impact: 'critical', count: 2, title: 't', nodes: [
         node('img.logo', 'Fix any of the following:\n  Element does not have an alt attribute\n  Element has no title attribute'),
@@ -339,7 +318,7 @@ test('what is wrong is printed once for the rule, or under each element when it 
     ] } },
   });
 
-  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   const lines = out.split('\n').map((line) => line.trim());
   const alt = lines.indexOf('Element does not have an alt attribute; Element has no title attribute');
@@ -354,77 +333,54 @@ test('what is wrong is printed once for the rule, or under each element when it 
 });
 
 test('a page breaking no rule says so', async () => {
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': { performance: GOOD, accessibility: findings() },
   });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.equal(code, 0);
   assert.match(out, /Accessibility\s+pass/);
   assert.match(out, /no findings/);
 });
 
-// SEO and best practices print through the same findings list; what they add
-// is failures that are no DOM element, and rules a project chose to ignore.
-test('a failure with no element is printed by what it names, or what Lighthouse says of it', async () => {
+// A failure that is no DOM element — an error as a state closed — is printed
+// by the place it names; a rule the project chose to ignore is said.
+test('a failure with no element is printed by what it names', async () => {
   const cwd = emptyProject();
-  writeFileSync(join(cwd, '.kanso.yml'), 'seo:\n  ignore: [is-crawlable]\n');
-  const runLighthouse = auditingBoth({
+  writeFileSync(join(cwd, '.kanso.yml'), 'accessibility:\n  ignore: [region]\n');
+  const runLoads = auditingBoth({
     'http://localhost:3000/': {
       performance: GOOD,
-      seo: { findings: [{ rule: 'is-crawlable', impact: 'critical', count: 1, title: 't', nodes: [] }] },
-      'best-practices': { findings: [
-        { rule: 'doctype', impact: 'moderate', count: 0, title: 't', nodes: [], detail: 'Document must contain a doctype' },
-        { rule: 'errors-in-console', impact: 'moderate', count: 1, title: 't', nodes: [
-          { selector: '', snippet: '', label: '', explanation: 'Description: boom', url: 'http://localhost:3000/app.js:14:16' },
+      accessibility: { findings: [{ rule: 'region', impact: 'moderate', count: 1, title: 't', nodes: [] }] },
+      interactions: { findings: [
+        { rule: 'close-error', at: 'menu', impact: 'moderate', count: 1, title: 't', nodes: [
+          { selector: '', snippet: '', label: '', explanation: 'TypeError: boom', url: 'http://localhost:3000/app.js:14:16' },
         ] },
       ] },
     },
   });
 
-  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLighthouse, cwd });
+  const { code, out } = await run(['audit', 'http://localhost:3000'], { runLoads, cwd });
 
   assert.equal(code, 0, 'nothing here reaches serious');
-  assert.match(out, /SEO\s+pass\s+no findings\s+failing from serious up · ignoring is-crawlable/);
-  assert.match(out, /Best Practices\s+warn/);
-  const lines = out.split('\n').map((line) => line.trim());
-  const doctype = lines.findIndex((line) => line.startsWith('doctype'));
-  assert.match(lines[doctype], /^doctype\s+moderate\s+warn$/, 'a rule broken as a whole has no element count');
-  assert.equal(lines[doctype + 1], 'Document must contain a doctype');
-  assert.match(out, /errors-in-console\s+moderate\s+1 item\s+warn/);
-  assert.match(out, /Description: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
-});
-
-// A tag the page lacks is nowhere: it is printed by its explanation alone,
-// rather than under an empty place.
-test('a missing tag is printed by what is missing', async () => {
-  const runLighthouse = auditingBoth({
-    'http://localhost:3000/': {
-      performance: GOOD,
-      seo: { findings: [{ rule: 'open-graph', impact: 'minor', count: 2, title: 't', nodes: [
-        { selector: '', snippet: '', label: '', explanation: 'og:description is missing' },
-        { selector: 'head > meta', snippet: '<meta property="og:image" content="/og.png">', label: '', explanation: 'og:image is not an absolute URL: /og.png' },
-      ] }] },
-    },
-  });
-
-  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
-
-  assert.match(out, /open-graph\s+minor\s+2 items\s+warn\n\s+og:description is missing\n\s+head > meta  <meta property="og:image" content="\/og\.png">\n\s+og:image is not an absolute URL: \/og\.png\n/);
+  assert.match(out, /Accessibility\s+pass\s+no findings\s+failing from serious up · ignoring region/);
+  assert.match(out, /Interactions\s+warn/);
+  assert.match(out, /close-error @ menu\s+moderate\s+1 item\s+warn/);
+  assert.match(out, /TypeError: boom\n\s+http:\/\/localhost:3000\/app\.js:14:16/);
 });
 
 // A probe that did not run found nothing because it looked at nothing: the
 // section says so, rather than reading as a clean page.
 test('a probe that did not run is said, with the rules it left unchecked', async () => {
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': {
       performance: GOOD,
       accessibility: { findings: [], probeFailures: [{ probe: 'reflow', rules: ['reflow-scroll', 'reflow-clip'], error: 'timed out after 30s' }] },
     },
   });
 
-  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.match(out, /no findings\n\n\s+failing from serious up\n\s+! reflow did not run on the mobile page \(timed out after 30s\): reflow-scroll, reflow-clip unchecked\n/);
 });
@@ -433,7 +389,7 @@ test('a probe that did not run is said, with the rules it left unchecked', async
 // reached says so, and counts what went unchecked there rather than naming a
 // hundred rules.
 test('a finding made in a declared state says where, and a state not reached says so', async () => {
-  const runLighthouse = auditingBoth({
+  const runLoads = auditingBoth({
     'http://localhost:3000/': {
       performance: GOOD,
       accessibility: {
@@ -443,7 +399,7 @@ test('a finding made in a declared state says where, and a state not reached say
     },
   });
 
-  const { out } = await run(['audit', 'http://localhost:3000'], { runLighthouse });
+  const { out } = await run(['audit', 'http://localhost:3000'], { runLoads });
 
   assert.match(out, /button-name @ menu\s+critical\s+1 element\s+fail\n/);
   assert.match(out, /! signup could not be reached on the mobile page \(not reached: menu could not be\): 100 rules unchecked there\n/);
@@ -475,25 +431,25 @@ function loadingRunner(score = GOOD) {
 
 test('a directory is served for the audit, named in the report, and stopped after', async () => {
   const cwd = builtProject();
-  const runLighthouse = loadingRunner();
+  const runLoads = loadingRunner();
 
-  const { code, out } = await run(['audit', 'dist'], { runLighthouse, cwd });
+  const { code, out } = await run(['audit', 'dist'], { runLoads, cwd });
 
   assert.equal(code, 0);
-  assert.equal(runLighthouse.loaded.length, 2);
-  assert.ok(runLighthouse.loaded.every(({ url, body }) => url.startsWith('http://127.0.0.1:') && body === '<p>the build</p>'));
+  assert.equal(runLoads.loaded.length, 2);
+  assert.ok(runLoads.loaded.every(({ url, body }) => url.startsWith('http://127.0.0.1:') && body === '<p>the build</p>'));
   assert.match(out, /Kanso · dist\n/, 'the directory, not the port it happened to get');
-  await assert.rejects(fetch(runLighthouse.loaded[0].url), 'nothing is left serving once the audit is done');
+  await assert.rejects(fetch(runLoads.loaded[0].url), 'nothing is left serving once the audit is done');
 });
 
 test('with no page named, the serve: block of .kanso.yml says what to audit', async () => {
   const cwd = builtProject('serve:\n  dir: dist\n');
-  const runLighthouse = loadingRunner();
+  const runLoads = loadingRunner();
 
-  const { code, out } = await run(['audit', '--json'], { runLighthouse, cwd });
+  const { code, out } = await run(['audit', '--json'], { runLoads, cwd });
 
   assert.equal(code, 0);
-  assert.ok(runLighthouse.loaded.every(({ body }) => body === '<p>the build</p>'));
+  assert.ok(runLoads.loaded.every(({ body }) => body === '<p>the build</p>'));
   const result = JSON.parse(out);
   assert.deepEqual(result.served, { url: { dir: 'dist' } });
   assert.match(result.url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
@@ -504,13 +460,13 @@ test('a baseline directory is served alongside, and becomes the comparison', asy
   mkdirSync(join(cwd, 'base'));
   writeFileSync(join(cwd, 'base', 'index.html'), '<p>before</p>');
   const scores = { '<p>the build</p>': GOOD, '<p>before</p>': POOR };
-  const runLighthouse = async (url) => ({ performance: scores[await (await fetch(url)).text()] });
+  const runLoads = async (url) => ({ performance: scores[await (await fetch(url)).text()] });
 
-  const { code, out } = await run(['audit', 'dist', '--baseline', 'base'], { runLighthouse, cwd });
+  const { code, out } = await run(['audit', 'dist', '--baseline', 'base'], { runLoads, cwd });
 
   assert.equal(code, 0);
   assert.match(out, /against base · /);
-  assert.match(out, /LCP\s+4000ms\s+6000ms\s+1500ms\s+-4500ms/);
+  assert.match(out, /INP\s+500ms\s+900ms\s+120ms\s+-780ms/);
 });
 
 test('a serve: block Kanso cannot serve is why the audit did not run', async () => {
@@ -519,7 +475,7 @@ test('a serve: block Kanso cannot serve is why the audit did not run', async () 
     ['serve:\n  url: http://localhost:4173\n', /serve.url needs serve.command/],
   ];
   for (const [kansoYml, expected] of cases) {
-    const { code, err } = await run(['audit'], { runLighthouse: async () => assert.fail('must not audit'), cwd: builtProject(kansoYml) });
+    const { code, err } = await run(['audit'], { runLoads: async () => assert.fail('must not audit'), cwd: builtProject(kansoYml) });
     assert.equal(code, 2, kansoYml);
     assert.match(err, expected);
     assert.doesNotMatch(err, /--help/, 'a configuration mistake is not an invocation mistake');
@@ -528,19 +484,19 @@ test('a serve: block Kanso cannot serve is why the audit did not run', async () 
 
 test('--out writes the Markdown report and the JSON, next to what the terminal shows', async () => {
   const cwd = emptyProject();
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': POOR });
+  const runLoads = fakeRunner({ 'http://localhost:3000/': POOR });
 
   const { code, out } = await run(
     ['audit', 'http://localhost:3000', '--out', 'report.md', '-o', 'kanso/result.json'],
-    { runLighthouse, cwd },
+    { runLoads, cwd },
   );
 
   assert.equal(code, 1);
-  assert.match(out, /fail · Performance/);
+  assert.match(out, /fail · INP/);
   const markdown = readFileSync(join(cwd, 'report.md'), 'utf8');
   assert.match(markdown, /^## Kanso \| Audit Report\n\n🔗 `http:\/\/localhost:3000\/`\n/);
   assert.match(markdown, /\| Metric \| budget \| current \| Δ \| \|/);
-  assert.match(markdown, /\| LCP \| 4000ms \| 6000ms \| \+2000ms \| ❌ \|/);
+  assert.match(markdown, /\| INP \| 500ms \| 900ms \| \+400ms \| ❌ \|/);
   assert.doesNotMatch(markdown, /kanso:report/, 'the marker belongs to the PR comment');
   const json = JSON.parse(readFileSync(join(cwd, 'kanso', 'result.json'), 'utf8'));
   assert.equal(json.conclusion, 'fail');
@@ -550,7 +506,7 @@ test('--out still says what happened when the page never loaded', async () => {
   const cwd = emptyProject();
 
   const { code } = await run(['audit', 'http://localhost:3000', '--out', 'report.md'], {
-    runLighthouse: async () => { throw new Error('CHROME_INTERSTITIAL_ERROR'); }, cwd,
+    runLoads: async () => { throw new Error('CHROME_INTERSTITIAL_ERROR'); }, cwd,
   });
 
   assert.equal(code, 2);
@@ -578,8 +534,8 @@ test('a mistake in the command line exits 2 and points at the help', async () =>
   ];
 
   for (const [argv, expected] of cases) {
-    const runLighthouse = async () => assert.fail(`must not audit for ${argv.join(' ')}`);
-    const { code, err } = await run(argv, { runLighthouse });
+    const runLoads = async () => assert.fail(`must not audit for ${argv.join(' ')}`);
+    const { code, err } = await run(argv, { runLoads });
     assert.equal(code, 2, argv.join(' '));
     assert.match(err, expected, argv.join(' '));
   }
@@ -595,13 +551,13 @@ test('--record hands each load the directory and writes the result and its page 
   mkdirSync(dir);
   writeFileSync(join(dir, 'current.mobile.3.jsonl'), '{}\n');
   writeFileSync(join(dir, 'notes.txt'), 'mine');
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD, 'https://example.com/': GOOD });
 
-  const { code, err } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com', '--record', 'rec'], { runLighthouse, cwd });
+  const { code, err } = await run(['audit', 'http://localhost:3000', '--baseline', 'https://example.com', '--record', 'rec'], { runLoads, cwd });
 
   assert.equal(code, 0);
   assert.deepEqual(
-    runLighthouse.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
+    runLoads.calls.map((c) => `${c.url} ${c.record.side} ${c.record.dir}`).sort(),
     [
       `http://localhost:3000/ current ${dir}`, `http://localhost:3000/ current ${dir}`,
       `https://example.com/ baseline ${dir}`, `https://example.com/ baseline ${dir}`,
@@ -615,9 +571,9 @@ test('--record hands each load the directory and writes the result and its page 
 });
 
 test('without --record, no load is asked to keep a journal', async () => {
-  const runLighthouse = fakeRunner({ 'http://localhost:3000/': GOOD });
-  await run(['audit', 'http://localhost:3000'], { runLighthouse });
-  assert.ok(runLighthouse.calls.every((c) => c.record === undefined));
+  const runLoads = fakeRunner({ 'http://localhost:3000/': GOOD });
+  await run(['audit', 'http://localhost:3000'], { runLoads });
+  assert.ok(runLoads.calls.every((c) => c.record === undefined));
 });
 
 // The MCP server is the third surface onto the same audit, and the command
@@ -626,20 +582,20 @@ test('kanso mcp serves the audit on stdin and stdout', async () => {
   const io = fakeIo();
   io.stdin = new PassThrough();
 
-  const served = main(['mcp'], { io, cwd: emptyProject(), runLighthouse: async () => assert.fail('must not audit') });
+  const served = main(['mcp'], { io, cwd: emptyProject(), runLoads: async () => assert.fail('must not audit') });
   io.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n');
   io.stdin.end();
 
   assert.equal(await served, 0);
   const [message] = io.out.trim().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'check_states', 'list_modules']);
+  assert.deepEqual(message.result.tools.map((tool) => tool.name), ['audit_page', 'check_states']);
 });
 
 test('--help and --version are answered without auditing', async () => {
-  const runLighthouse = async () => assert.fail('must not audit');
+  const runLoads = async () => assert.fail('must not audit');
 
-  const help = await run(['--help'], { runLighthouse });
-  const version = await run(['--version'], { runLighthouse });
+  const help = await run(['--help'], { runLoads });
+  const version = await run(['--version'], { runLoads });
 
   assert.equal(help.code, 0);
   assert.match(help.out, /kanso audit \[url \| dir\]/);

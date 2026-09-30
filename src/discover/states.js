@@ -257,9 +257,12 @@ export const MAX_STATES = 20;
 //     with more states sets the time. The model says 465 s — the gap is the
 //     state that could not be reached, which a discover that replayed every
 //     state it kept does not foresee.
-// Hence 15 s, plus 15 s per state on the screen with more. A slower page
+// Hence 15 s, plus 15 s per state on the screen with more. Lighthouse's load
+// has left the audit since, and the base is some 8 s lighter: kept as it was
+// until a real audit calibrates it again — an order of magnitude errs better
+// long than short. A slower page
 // costs more per state — each probe loads it again — and so does a baseline:
-// four loads on three Chromes (LIGHTHOUSE_CONCURRENCY) take about twice as
+// four loads on three Chromes (KANSO_CONCURRENCY) take about twice as
 // long as two.
 const AUDIT_BASE_S = 15;
 const AUDIT_PER_STATE_S = 15;

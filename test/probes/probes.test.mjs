@@ -30,13 +30,6 @@ import { serveDirectory } from '../../src/serve/static.js';
 //
 //   npm run test:probes        (needs Chrome, ~20 s)
 
-// Lighthouse's mobile emulation, as a report's configSettings carries it.
-const MOBILE = {
-  formFactor: 'mobile',
-  screenEmulation: { mobile: true, width: 412, height: 823, deviceScaleFactor: 1.75, disabled: false },
-  throttling: { cpuSlowdownMultiplier: 4 },
-};
-
 let chrome;
 let site;
 
@@ -51,8 +44,8 @@ after(async () => {
   await site?.close();
 });
 
-function probe(page, { modules = [accessibility], formFactor = 'mobile', settings = MOBILE, config, measuresOnly, timeoutMs, journal } = {}) {
-  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, settings, modules, config, measuresOnly, timeoutMs, journal });
+function probe(page, { modules = [accessibility], formFactor = 'mobile', config, measuresOnly, timeoutMs, journal } = {}) {
+  return runProbes({ port: chrome.port, url: new URL(page, site.url).href, formFactor, modules, config, measuresOnly, timeoutMs, journal });
 }
 
 // The accessibility module with one of its probes: each page is written for
@@ -137,7 +130,7 @@ test('a rule axe cannot settle is reported as a doubt, and cannot fail an audit 
 test('the rules the probe answers for follow the tags the project asked for', async () => {
   const dead = `http://127.0.0.1:${await closedPort()}/`;
   const run = (config) => runProbes({
-    port: chrome.port, url: dead, formFactor: 'mobile', settings: MOBILE,
+    port: chrome.port, url: dead, formFactor: 'mobile',
     modules: [{ id: 'accessibility', probes: [axeProbe] }], config,
   });
 
@@ -243,7 +236,7 @@ test('the journal follows a probe through its states, and keeps what it found wh
 
 test('a page that never loads reached none of its states either', async () => {
   const { accessibility: result } = await runProbes({
-    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', settings: MOBILE,
+    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile',
     modules: only(axeProbe), config: { states: [MENU, SIGNUP] },
   });
   assert.deepEqual(result.failures.map(({ at }) => at ?? null), [null, 'menu', 'signup']);
@@ -834,17 +827,16 @@ test('each declared click is timed, and the slowest names what it landed on and 
 
 // Timed on the machine running the audit, a click says nothing of a phone.
 // The same work is done on both loads; the mobile one does it on a CPU slowed
-// as Lighthouse says, the desktop one on the CPU as it is.
-test('the CPU is slowed as Lighthouse slows it, for the probe that times', async () => {
+// four times, as a phone's is taken to be, the desktop one on the CPU as it is.
+test('the CPU is slowed on the phone, for the probe that times', async () => {
   const states = [{ name: 'work', click: '#work', wait_for: '#done:not([hidden])' }];
-  const time = async (multiplier) => {
-    const settings = { ...MOBILE, throttling: { cpuSlowdownMultiplier: multiplier } };
-    const { performance: result } = await probe('inp-work.html', { modules: [performance], settings, config: { states } });
+  const time = async (formFactor) => {
+    const { performance: result } = await probe('inp-work.html', { modules: [performance], formFactor, config: { states } });
     return result.measures[0].processing;
   };
 
-  const fast = await time(1);
-  const slowed = await time(4);
+  const fast = await time('desktop');
+  const slowed = await time('mobile');
   assert.ok(slowed > fast * 2, `slowed ${slowed}ms, against ${fast}ms`);
 });
 
@@ -924,7 +916,7 @@ test('a probe that throws or never ends costs its own rules, and the others stil
 
 test('a page that never answers fails every probe, with what went wrong', async () => {
   const { accessibility: result } = await runProbes({
-    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', settings: MOBILE, modules: [accessibility],
+    port: chrome.port, url: `http://127.0.0.1:${await closedPort()}/`, formFactor: 'mobile', modules: [accessibility],
   });
 
   assert.equal(result.findings.length, 0);

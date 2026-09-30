@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanso Action self-test, broken</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 40rem; padding: 2rem 1rem; color: #1a1a1a; background: #fff; }
+  </style>
+</head>
+<body>
+  <!-- No main landmark, and content outside any: two moderate axe findings
+       (landmark-one-main, region), which strict.yml fails and the defaults
+       only warn of. -->
+  <h1>Kanso Action self-test, broken</h1>
+  <p>This page is what the GitHub Action audits to fail: the same page as the other, with its main landmark taken away.</p>
+</body>
+</html>

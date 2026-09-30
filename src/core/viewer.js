@@ -10,19 +10,15 @@
 // shows is inside it — the journals, the result, the frames as data URIs.
 // Kanso hosts nothing, and this is no exception.
 //
-// A finding can be exported from it as a page of its own, holding that
-// finding's moments and frames and nothing else — what one attaches to an
-// issue. The page makes it in the browser, from its own style, its own script
-// and the part of its data the finding needs: which is why what joins a
-// finding to its moments is written here as plain functions, sent into the
-// page as source (as src/probes/dom.js sends what runs in a page under audit),
-// and run by the tests in Node as they are.
+// What joins a finding to its moments is written here as plain functions,
+// sent into the page as source (as src/probes/dom.js sends what runs in a page
+// under audit), and run by the tests in Node as they are.
 
 // The data a page shows: the findings of the result, one list for every
 // module; the probes that failed, and the ones left out for want of a state;
 // each load's journal; the frames by the path the events name them with.
 //
-//   { kind: 'record' | 'extract', url, baseline, conclusion,
+//   { url, baseline, conclusion,
 //     findings: [{ key, module, ...finding }], failures: [{ module, probe, at?, error }],
 //     skipped: [{ module, probe, rules, reason }],
 //     loads: [{ name, side, formFactor, run, events }], frames: { [file]: dataUri } }
@@ -33,7 +29,6 @@ export function viewerData({ result, loads = [], frames = {} }) {
   const failures = modules.flatMap(([module, { probeFailures }]) => (probeFailures ?? []).map((failure) => ({ module, ...failure })));
   const skipped = modules.flatMap(([module, { skipped }]) => (skipped ?? []).map((skip) => ({ module, ...skip })));
   return {
-    kind: 'record',
     url: result?.url ?? null,
     baseline: result?.baseline ?? null,
     conclusion: result?.conclusion ?? null,
@@ -48,6 +43,35 @@ export function viewerData({ result, loads = [], frames = {} }) {
 // The page, with `data` inside it.
 export function renderViewer(data) {
   return pageHtml({ css: CSS, script: SCRIPT, data });
+}
+
+// JSON that can sit inside a <script> element: no `<` in it, so neither a
+// closing tag nor a comment opener can end the element early.
+function jsonIn(data) {
+  return JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
+// The whole page, from its style, its script and its data. The script tags
+// are spelled in two halves, so that this file never holds one whole.
+function pageHtml({ css, script, data }) {
+  const close = (tag) => '<' + '/' + tag + '>';
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>Kanso record' + close('title'),
+    '<style id="kanso-style">' + css + close('style'),
+    close('head'),
+    '<body>',
+    '<main id="kanso"><p class="muted">This page needs JavaScript to show the record.' + close('p') + close('main'),
+    '<' + 'script type="application/json" id="kanso-data">' + jsonIn(data) + close('script'),
+    '<' + 'script id="kanso-app">' + script + close('script'),
+    close('body'),
+    close('html'),
+    '',
+  ].join('\n');
 }
 
 // --- sent into the page ---------------------------------------------------------
@@ -68,7 +92,8 @@ export function renderViewer(data) {
 // result's elements have lost theirs — folded across form factors
 // (src/modules/findings.js) — and are the same one by their selector.
 //
-// A finding no probe made — one of Lighthouse's own audits — has no moment.
+// A finding no journal holds a moment of — made on a load that kept none —
+// has none.
 export function momentsOf(finding, load) {
   if (load.side !== 'current' || !(finding.formFactors ?? []).includes(load.formFactor)) return [];
   const at = finding.at ?? null;
@@ -88,65 +113,12 @@ export function momentsOf(finding, load) {
   });
 }
 
-// `data` cut down to one finding: its moments in each load that has any, the
-// frames they show, and nothing else of the record.
-export function extractOf(data, key) {
-  const finding = data.findings.find((candidate) => candidate.key === key);
-  const loads = data.loads
-    .map((load) => ({ ...load, events: momentsOf(finding, load) }))
-    .filter((load) => load.events.length > 0);
-  const frames = {};
-  for (const load of loads) {
-    for (const event of load.events) {
-      if (event.frame && data.frames[event.frame.file]) frames[event.frame.file] = data.frames[event.frame.file];
-    }
-  }
-  return { ...data, kind: 'extract', findings: [finding], failures: [], skipped: [], loads, frames };
-}
-
-// JSON that can sit inside a <script> element: no `<` in it, so neither a
-// closing tag nor a comment opener can end the element early.
-export function jsonIn(data) {
-  return JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-}
-
-export function esc(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-}
-
-// The whole page, from its style, its script and its data. The script tags
-// are spelled in two halves: this function travels inside a <script> too.
-export function pageHtml({ css, script, data }) {
-  const close = (tag) => '<' + '/' + tag + '>';
-  const title = data.kind === 'extract'
-    ? `Kanso · ${data.findings[0].rule}${data.findings[0].at ? ' @ ' + data.findings[0].at : ''}`
-    : 'Kanso record';
-  return [
-    '<!doctype html>',
-    '<html lang="en">',
-    '<head>',
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<title>' + esc(title) + close('title'),
-    '<style id="kanso-style">' + css + close('style'),
-    close('head'),
-    '<body>',
-    '<main id="kanso"><p class="muted">This page needs JavaScript to show the record.' + close('p') + close('main'),
-    '<' + 'script type="application/json" id="kanso-data">' + jsonIn(data) + close('script'),
-    '<' + 'script id="kanso-app">' + script + close('script'),
-    close('body'),
-    close('html'),
-    '',
-  ].join('\n');
-}
-
 // What an event says, in a line.
 export function describeEvent(event) {
   const where = (element) => (element ? element.selector : 'nowhere');
   switch (event.kind) {
     case 'load': return `${event.side} page, ${event.formFactor}, run ${event.run} — ${event.url}`;
-    case 'lighthouse-start': return `Lighthouse: ${(event.categories ?? []).join(', ') || 'no category'}`;
-    case 'lighthouse-end': return `Lighthouse done — ${event.finalUrl ?? ''}`;
+    case 'reached': return `the page answered${event.status ? ` ${event.status}` : ''} — ${event.finalUrl ?? ''}`;
     case 'probe-start': return `${event.module} probe starts${event.states?.length ? ` — states: ${event.states.join(', ')}` : ''}`;
     case 'loaded': return `page loaded, ${event.viewport?.width ?? '?'}×${event.viewport?.height ?? '?'}${event.media ? ' — ' + event.media.map((m) => `${m.name}: ${m.value}`).join(', ') : ''}`;
     case 'state-reached': return `state reached — clicked ${event.click}${event.waitFor ? `, ${event.waitFor} showed` : ''} (${event.ms} ms)`;
@@ -169,7 +141,7 @@ export function describeEvent(event) {
   }
 }
 
-// The page itself: reads its data, draws it, and makes the extracts.
+// The page itself: reads its data and draws it.
 function main(data) {
   const root = document.getElementById('kanso');
   const h = (tag, attrs = {}, ...children) => {
@@ -240,7 +212,7 @@ function main(data) {
   let selected = null;
 
   const header = h('header', {},
-    h('h1', {}, data.kind === 'extract' ? 'Kanso — one finding' : 'Kanso record'),
+    h('h1', {}, 'Kanso record'),
     h('p', { class: 'target' }, h('span', { class: 'muted' }, 'page '), h('code', {}, data.url ?? '?'),
       data.baseline ? [h('span', { class: 'muted' }, ' against '), h('code', {}, data.baseline)] : null,
       data.conclusion ? [' ', chip(data.conclusion, data.conclusion)] : null));
@@ -273,13 +245,10 @@ function main(data) {
       finding.detail ? h('p', { class: 'muted' }, finding.detail) : null,
       h('ul', { class: 'nodes' }, (finding.nodes ?? []).map((node) => h('li', {}, h('code', {}, node.selector ?? node.url ?? '?'), node.label ? h('span', { class: 'muted' }, ` “${node.label}”`) : null, node.explanation ? h('div', {}, node.explanation) : null))),
     ];
-    if (data.kind !== 'extract') {
-      parts.push(h('p', {}, h('button', { type: 'button', class: 'export', onclick: () => exportFinding(finding) }, 'Export this finding as a page')));
-    }
     const loads = data.loads.map((load) => ({ load, moments: momentsOf(finding, load) })).filter(({ moments }) => moments.length > 0);
     parts.push(h('h3', {}, 'How it was found'));
     if (loads.length === 0) {
-      parts.push(h('p', { class: 'muted' }, 'No journal moment for it: it comes from one of Lighthouse’s own audits, not from a probe of Kanso’s.'));
+      parts.push(h('p', { class: 'muted' }, 'No journal moment for it: the load that found it kept none.'));
     }
     for (const { load, moments } of loads) {
       parts.push(h('h4', {}, loadName(load)), sequence(moments, load, hits));
@@ -287,22 +256,8 @@ function main(data) {
     return parts;
   }
 
-  function exportFinding(finding) {
-    const html = pageHtml({
-      css: document.getElementById('kanso-style').textContent,
-      script: document.getElementById('kanso-app').textContent,
-      data: extractOf(data, finding.key),
-    });
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    const a = h('a', { href: url, download: `kanso-${finding.rule}${finding.at ? '@' + finding.at : ''}.html` });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  }
-
   // Each load's events, in order — drawn when opened, the frames with them.
-  const timeline = h('section', { class: 'timeline' }, h('h2', {}, data.kind === 'extract' ? 'The moments, load by load' : 'Every load, event by event'));
+  const timeline = h('section', { class: 'timeline' }, h('h2', {}, 'Every load, event by event'));
   for (const load of data.loads) {
     const frames = load.events.filter((event) => event.frame).length;
     const box = h('details', {}, h('summary', {}, loadName(load), h('span', { class: 'muted' }, ` — ${load.events.length} events, ${frames} frame${frames === 1 ? '' : 's'}`)));
@@ -364,13 +319,12 @@ code { font: .85em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-
 .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .finding { width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; }
 .finding[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-.finding:focus-visible, .export:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.finding:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; overflow-wrap: anywhere; }
 .detail { min-width: 0; }
 .detail > h2 { margin-top: 0; }
 .nodes { padding-left: 1.2rem; }
 .nodes li { margin-bottom: .35rem; }
-.export { font: inherit; color: var(--accent); background: none; border: 1px solid var(--accent); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .sequence { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .line { flex: 1 1 100%; margin: 0; font-size: .85rem; overflow-wrap: anywhere; }
 .finding-line strong { color: var(--fail); }
@@ -392,11 +346,7 @@ details > .sequence { margin-top: 8px; }
 `;
 
 const SCRIPT = [
-  `const esc = ${esc};`,
-  `const jsonIn = ${jsonIn};`,
-  `const pageHtml = ${pageHtml};`,
   `const describeEvent = ${describeEvent};`,
   `const momentsOf = ${momentsOf};`,
-  `const extractOf = ${extractOf};`,
   `(${main})(JSON.parse(document.getElementById('kanso-data').textContent));`,
 ].join('\n');

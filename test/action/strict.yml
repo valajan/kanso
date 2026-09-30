@@ -1,0 +1,5 @@
+# Fails what the defaults only warn of: a moderate finding, such as the main
+# landmark the page in broken/ lacks — which is what the self-test checks the
+# Action does with a failure, and that it reads the config it is handed.
+accessibility:
+  fail_on: moderate

@@ -1,5 +1,5 @@
 name: 'Kanso audit'
-description: 'Audit a web page in the runner — performance, accessibility, SEO, best practices — and fail the job on a regression. Nothing to host.'
+description: 'Run Kanso''s probes through a web page in the runner — accessibility, keyboard, interactions, INP, in the states it opens — and fail the job on a regression. Nothing to host.'
 author: 'Kanso'
 branding:
   icon: 'activity'
@@ -27,7 +27,7 @@ inputs:
       every finding the page already has counts against it.
     required: false
   runs:
-    description: 'Page loads per page and form factor, 1-5, median kept. Defaults to .kanso.yml.'
+    description: 'Page loads per page and form factor, 1-5, median INP kept. Defaults to .kanso.yml.'
     required: false
   fail-on:
     description: 'Fail the job from this verdict up: warn or fail.'
@@ -78,7 +78,7 @@ runs:
     - name: Install Kanso
       shell: bash
       run: |
-        # Lighthouse 13 sets the floor, not Kanso.
+        # Kanso's floor, as package.json's engines says it.
         node -e '
           const [major, minor] = process.versions.node.split(".").map(Number);
           if (major < 22 || (major === 22 && minor < 19)) {

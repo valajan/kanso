@@ -4,8 +4,7 @@ import { residues } from './residues.js';
 
 // Interactions: what the page does when it is used, rather than what it is —
 // the states the project declares opened and closed, and what they leave
-// behind. Nothing here is read from Lighthouse, and nothing runs without a
-// declared state: both probes go into and out of each (src/probes/transition.js).
+// behind. Nothing here runs without a declared state: both probes go into and out of each (src/probes/transition.js).
 //
 // residues.js closes each state once and compares the page with what it was:
 // a page locked, an overlay or a hidden page left, a scroll position or an
@@ -18,10 +17,9 @@ import { residues } from './residues.js';
 export default {
   id: 'interactions',
   label: 'Interactions',
-  categories: [],
   probes: [residues, leaks],
 
-  extract(lhr, { probed } = {}) {
+  extract({ probed } = {}) {
     return withProbed({ findings: [] }, probed);
   },
 

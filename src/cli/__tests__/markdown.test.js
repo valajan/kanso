@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatReport } from '../markdown.js';
 
-const mobileScore  = { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 };
-const desktopScore = { performance: 98, lcp: 1500, tbt: 50,  cls: 0.02, fcp: 900 };
+const mobileScore  = { inp: 150 };
+const desktopScore = { inp: 80 };
 
 const noReference = {
   mobile:  { current: mobileScore,  reference: null },
@@ -23,30 +23,28 @@ test('renders Mobile and Desktop sections side by side', () => {
   const body = report(noReference);
   assert.ok(body.includes('### 📱 Mobile'));
   assert.ok(body.includes('### 💻 Desktop'));
-  // mobile perf cell: Lighthouse's "poor" boundary as the budget, no reference
-  assert.ok(body.includes('| Performance | 49 | — | 95 |'));
-  // desktop perf cell
-  assert.ok(body.includes('| Performance | 49 | — | 98 |'));
+  // the "poor" boundary as the budget, no reference
+  assert.ok(body.includes('| INP | 500ms | — | 150ms |'));
+  assert.ok(body.includes('| INP | 500ms | — | 80ms |'));
 });
 
 test('renders deltas and a pass icon when the page improves on its baseline', () => {
   const scores = {
-    mobile:  { current: mobileScore,  reference: { performance: 90, lcp: 2500, tbt: 150, cls: 0.08, fcp: 1500 } },
+    mobile:  { current: mobileScore,  reference: { inp: 200 } },
     desktop: { current: desktopScore, reference: null },
   };
   const body = report(scores);
   assert.ok(body.includes('| Metric | budget | baseline | current | Δ | |'));
-  assert.ok(body.includes('| Performance | 49 | 90 | 95 | +5 | ✅ |'));
-  assert.ok(body.includes('| LCP | 4000ms | 2500ms | 2000ms | -500ms | ✅ |'));
+  assert.ok(body.includes('| INP | 500ms | 200ms | 150ms | -50ms | ✅ |'));
 });
 
 test('marks a metric outside its budget as failed', () => {
   const scores = {
-    mobile:  { current: { ...mobileScore, lcp: 5000 }, reference: { performance: 95, lcp: 2000, tbt: 100, cls: 0.05, fcp: 1200 } },
+    mobile:  { current: { inp: 600 }, reference: mobileScore },
     desktop: { current: desktopScore, reference: null },
   };
-  const body = report(scores, { budget: { lcp: 4000 } });
-  assert.ok(body.includes('| LCP | 4000ms | 2000ms | 5000ms | +3000ms | ❌ |'));
+  const body = report(scores, { budget: { inp: 400 } });
+  assert.ok(body.includes('| INP | 400ms | 150ms | 600ms | +450ms | ❌ |'));
 });
 
 // The icon is read against the budget, the Δ against the baseline: a page
@@ -57,20 +55,20 @@ test('a metric equal to its baseline that fails its budget shows the budget it f
     mobile:  { current: mobileScore,  reference: mobileScore },
     desktop: { current: desktopScore, reference: desktopScore },
   };
-  const body = report(scores, { budget: { performance: 101 } });
-  assert.ok(body.includes('| Performance | 101 | 95 | 95 | +0 | ❌ |'));
+  const body = report(scores, { budget: { inp: 100 } });
+  assert.ok(body.includes('| INP | 100ms | 150ms | 150ms | +0ms | ❌ |'));
 });
 
 test('against budgets alone, the budget is the reference column and Δ the distance to it', () => {
-  const body = report(noReference, { budget: { lcp: 3000 }, referenceLabel: 'budget', referenceKind: 'budgets' });
+  const body = report(noReference, { budget: { inp: 300 }, referenceLabel: 'budget', referenceKind: 'budgets' });
   assert.ok(body.includes('| Metric | budget | current | Δ | |'));
-  assert.ok(body.includes('| LCP | 3000ms | 2000ms | -1000ms | ✅ |'));
+  assert.ok(body.includes('| INP | 300ms | 150ms | -150ms | ✅ |'));
 });
 
 test('reports a failed audit for a missing form factor', () => {
   const body = report({ mobile: { current: mobileScore, reference: null }, desktop: { current: null, reference: null } });
   assert.ok(body.includes('### 💻 Desktop'));
-  assert.ok(body.includes('Lighthouse audit failed'));
+  assert.ok(body.includes('The load failed'));
 });
 
 // --- findings sections ------------------------------------------------------
@@ -153,10 +151,12 @@ test('an emptied section says what was fixed', () => {
 
 test('the verdict names metrics as the tables do', () => {
   const failing = {
-    mobile:  { current: { ...mobileScore, performance: 40, lcp: 5000, tbt: 300 }, reference: null },
+    mobile:  { current: { inp: 600 }, reference: null },
     desktop: { current: desktopScore, reference: null },
   };
-  assert.ok(report(failing).includes('> ❌ Performance, LCP failed · ⚠️ TBT warning'));
+  assert.ok(report(failing).includes('> ❌ INP failed'));
+  const warning = { mobile: { current: { inp: 300 }, reference: null }, desktop: { current: desktopScore, reference: null } };
+  assert.ok(report(warning).includes('> ⚠️ INP warning'));
 });
 
 test('a module that found nothing says so, and the ones that ran nothing say nothing', () => {
@@ -167,42 +167,21 @@ test('a module that found nothing says so, and the ones that ran nothing say not
   assert.ok(!absent.includes('### ♿ Accessibility'));
 });
 
-// SEO and best practices report through the same section as accessibility,
-// and their failures are not all DOM elements: a console error is a script and
-// a line, a missing doctype is nothing at all.
-test('a failure with no DOM element is shown by what it names, or by what Lighthouse says of it', () => {
+// A failure that is no DOM element — an error as a state closed — is shown by
+// the place it names.
+test('a failure with no DOM element is shown by what it names', () => {
   const body = report(noReference, {
     modules: {
-      'best-practices': { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
-        { rule: 'doctype', title: 'Page lacks the HTML doctype', impact: 'moderate', count: 0, state: null, level: 'warn', nodes: [], detail: 'Document must contain a doctype' },
-        { rule: 'errors-in-console', title: 'Browser errors were logged to the console', impact: 'moderate', count: 1, state: null, level: 'warn', nodes: [
-          { selector: '', snippet: '', label: '', explanation: 'Description: Failed to load resource: 404', url: 'http://localhost:4173/favicon.ico:1:0' },
+      interactions: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
+        { rule: 'close-error', at: 'menu', title: 'An error is thrown as the state closes', impact: 'moderate', count: 1, state: null, level: 'warn', nodes: [
+          { selector: '', snippet: '', label: '', explanation: 'TypeError: boom', url: 'http://localhost:4173/app.js:14:16' },
         ] },
       ] },
     },
   });
 
-  assert.ok(body.includes('### 🧰 Best Practices'));
-  assert.ok(body.includes('| `doctype` | moderate |  | — | ⚠️ |'), 'a rule broken as a whole has no element count');
-  assert.ok(body.includes('| `errors-in-console` | moderate | 1 item | — | ⚠️ |'));
-  assert.ok(body.includes('**`doctype`** — Page lacks the HTML doctype\nDocument must contain a doctype'));
-  assert.ok(body.includes('Description: Failed to load resource: 404\n- `http://localhost:4173/favicon.ico:1:0`'));
-});
-
-test('a missing tag is listed by what is missing, with no empty place before it', () => {
-  const body = report(noReference, {
-    modules: {
-      seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [
-        { rule: 'open-graph', title: 'Open Graph tags are missing or unusable', impact: 'minor', count: 2, state: null, level: 'warn', nodes: [
-          { selector: '', snippet: '', label: '', explanation: 'og:description is missing' },
-          { selector: 'head > meta', snippet: '<meta property="og:image" content="/og.png">', label: '', explanation: 'og:image is not an absolute URL: /og.png' },
-        ] },
-      ] },
-    },
-  });
-
-  assert.ok(body.includes('| `open-graph` | minor | 2 items | — | ⚠️ |'));
-  assert.ok(body.includes('**`open-graph`** — Open Graph tags are missing or unusable\n- og:description is missing\n- `head > meta` `<meta property="og:image" content="/og.png">` — og:image is not an absolute URL: /og.png'));
+  assert.ok(body.includes('| `close-error` @ `menu` | moderate | 1 item | — | ⚠️ |'));
+  assert.ok(body.includes('TypeError: boom\n- `http://localhost:4173/app.js:14:16`'));
 });
 
 test('a probe that did not run is said under its section, with the rules it left unchecked', () => {
@@ -215,11 +194,11 @@ test('a probe that did not run is said under its section, with the rules it left
 
 test('each module reporting findings gets its own section, and says what it ignored', () => {
   const body = report(noReference, {
-    modules: { seo: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [], ignore: ['is-crawlable'] } },
+    modules: { interactions: { levels: {}, fixed: [], comparedToBaseline: false, failOn: 'serious', findings: [], ignore: ['dom-leak'] } },
   });
 
-  assert.ok(body.includes('### 🔍 SEO'));
-  assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up · ignoring `is-crawlable`_'), 'what was not looked at is said');
+  assert.ok(body.includes('### 🔎 Interactions'));
+  assert.ok(body.includes('_No findings — every rule checked passed._\n\n_failing from `serious` up · ignoring `dom-leak`_'), 'what was not looked at is said');
 });
 
 // A rule broken in a state the project declares says which, in the table and
@@ -249,7 +228,8 @@ test('a state that could not be reached is said, with how many rules went unchec
 // INP is only measured on declared clicks: without any, its row has no value
 // and no icon, and a line under the tables says why — once.
 test('an INP nobody measured has no icon, and the report says why', () => {
-  const body = report(noReference, { modules: { performance: { skipped: [{ probe: 'inp', rules: ['inp'], reason: 'no-states' }] } } });
+  const unmeasured = { mobile: { current: { inp: null }, reference: null }, desktop: { current: { inp: null }, reference: null } };
+  const body = report(unmeasured, { modules: { performance: { skipped: [{ probe: 'inp', rules: ['inp'], reason: 'no-states' }] } } });
   assert.ok(body.includes('| INP | 500ms | — | — | — |  |'));
   assert.equal(body.match(/_⏭️ `inp` skipped: no `states:` declared in `\.kanso\.yml`, so nothing was opened or clicked: `INP` not checked\. Have your coding agent propose them with `check_states`, or run `kanso discover --write`._/g).length, 1);
 });
@@ -277,8 +257,8 @@ test('a state the INP could not reach is said under its table, apart from it', (
     desktop: { current: { inp: { interaction: null, count: 1, failures: [] } } },
   };
   const scores = {
-    mobile: { current: { ...mobileScore, inp: 120 }, reference: null },
-    desktop: { current: { ...desktopScore, inp: 80 }, reference: null },
+    mobile: { current: { inp: 120 }, reference: null },
+    desktop: { current: { inp: 80 }, reference: null },
   };
   const body = report(scores, { diagnostics, referenceKind: 'budgets', referenceLabel: 'budget' });
 

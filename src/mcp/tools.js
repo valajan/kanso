@@ -1,13 +1,10 @@
 import { dirname, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
-import { moduleConfig } from '../config/module-config.js';
 import { InvalidStates, parseStates, statesOn } from '../config/states.js';
-import { probeRules } from '../probes/index.js';
 import { audit } from '../core/audit.js';
 import { clearRecord, writeRecord } from '../core/record.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
-import { MODULES } from '../modules/index.js';
 import { ServeError, siteFromArgument, siteFromConfig, withSites } from '../serve/index.js';
 import { InvalidParams } from './protocol.js';
 
@@ -18,7 +15,7 @@ import { InvalidParams } from './protocol.js';
 // written here would only be one it has to read around.
 
 // Nothing is sampled on the way out. An agent handed five of a rule's
-// fifty-one elements reloaded the page in Lighthouse for the other forty-six,
+// fifty-one elements reloaded the page in another tool for the other forty-six,
 // and read them outside Kanso's judgement — no threshold, no new or inherited.
 // The whole result costs less context than that detour.
 
@@ -29,44 +26,35 @@ const PROGRESS_INTERVAL_MS = 2000;
 
 // The tools, bound to the directory the server was started in — which is the
 // project whose .kanso.yml judges these audits.
-export function createTools({ cwd = process.cwd(), runLighthouse, checkStates, now = Date.now } = {}) {
-  return [auditPage({ cwd, runLighthouse, now }), checkStatesTool({ cwd, checkStates, now }), listModules({ cwd })];
+export function createTools({ cwd = process.cwd(), runLoads, checkStates, now = Date.now } = {}) {
+  return [auditPage({ cwd, runLoads, now }), checkStatesTool({ cwd, checkStates, now })];
 }
 
-function auditPage({ cwd, runLighthouse, now }) {
+function auditPage({ cwd, runLoads, now }) {
   return {
     name: 'audit_page',
     title: 'Audit a page',
     description:
-      'Loads a URL in Chrome on mobile and desktop, measures it and checks it, and returns the verdict: '
-      + 'pass, warn or fail, with every metric and every accessibility, SEO and best-practices finding behind '
-      + 'it — each failing element with its selector, its opening tag, its text and what is wrong with it '
-      + '(for a contrast failure, the ratio and both colours); a failure that is no DOM element, such as a '
-      + 'console error, carries the URL and line it names. '
-      + 'Each performance metric is judged against its budget, given in `budgets`; a baseline is what it is '
-      + 'compared to, never what it is judged by — a page equal to its baseline fails a budget both miss. '
-      + 'Performance carries Lighthouse\'s diagnostics too: the LCP element and where its time went, the '
-      + 'requests that blocked the first render, the elements that shifted and why. Their timings come from '
-      + 'the unthrottled load, so they tell proportions, not the simulated metrics. '
-      + 'INP, which Lighthouse cannot measure on a load, is timed by Kanso on the clicks the project\'s states '
-      + 'make (see below), on a CPU slowed as Lighthouse slows it: the slowest is the INP, and its diagnostics '
-      + 'name that click — its element, its state, and its input delay, processing and presentation. With no '
-      + 'state declared, inp is null: not measured, never judged. '
-      + 'Beyond Lighthouse, Kanso checks the page itself, and reports it as accessibility findings: laid out '
-      + '320 CSS pixels wide (WCAG 1.4.10), whether it scrolls sideways (reflow-scroll) or cuts text off '
-      + '(reflow-clip), and which element does it; gone through with the Tab key, whether focus gets trapped '
-      + '(focus-trap), shows no sign or lands out of sight (focus-visible), or ends up behind a banner or a '
-      + 'sticky bar (focus-obscured); loaded and scrolled through under prefers-reduced-motion: reduce, what '
-      + 'still moves (reduced-motion). SEO also reports a page naming no canonical URL and missing Open '
-      + 'Graph tags. A check that could not run is listed under probeFailures with the rules it left unchecked: '
-      + 'nothing found there is not a clean page. A check that needs a declared state, when the project declares '
-      + 'none, does not run: each module lists it under skipped — { probe, rules, reason: "no-states" } — and its '
-      + 'rules were not checked, not passed; check_states verifies the states you propose, and kanso discover --write '
-      + 'finds some by clicking through the page. '
-      + 'When the project declares states — in its .kanso.yml, or in .kanso/states.yml, which kanso discover writes (list_modules shows them) — a menu opened, a dialog '
-      + 'shown, each reached by a click from the page as it loads or from the state it is listed under — axe, the 320 px reflow and the Tab walk read the page again in each, and a finding '
-      + 'made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that could '
-      + 'not be reached is a probeFailure carrying `at`, and so is every state reached through it. '
+      'Runs Kanso\'s probes through a page in Chrome, on mobile and desktop, and returns the verdict: '
+      + 'pass, warn or fail, with every finding behind it — each failing element with its selector, its '
+      + 'opening tag, its text and what is wrong with it (for a contrast failure, the ratio and both '
+      + 'colours) — and every measure. '
+      + 'Accessibility: axe\'s WCAG A/AA and best-practice rules; what axe cannot settle is marked needsReview. '
+      + 'Laid out 320 CSS pixels wide (WCAG 1.4.10), whether it scrolls sideways (reflow-scroll) or cuts text '
+      + 'off (reflow-clip), and which element does it; gone through with the Tab key, whether focus gets '
+      + 'trapped (focus-trap), shows no sign or lands out of sight (focus-visible), or ends up behind a banner '
+      + 'or a sticky bar (focus-obscured); loaded and scrolled through under prefers-reduced-motion: reduce, '
+      + 'what still moves (reduced-motion). '
+      + 'A check that could not run is listed under probeFailures with the rules it left unchecked: nothing '
+      + 'found there is not a clean page. A check that needs a declared state, when the project declares none, '
+      + 'does not run: each module lists it under skipped — { probe, rules, reason: "no-states" } — and its '
+      + 'rules were not checked, not passed; check_states verifies the states you propose, and kanso discover '
+      + '--write finds some by clicking through the page. '
+      + 'When the project declares states — in its .kanso.yml, or in .kanso/states.yml, which kanso discover '
+      + 'writes — a menu opened, a dialog shown, each reached by a click from the page as it loads or from the '
+      + 'state it is listed under — axe, the 320 px reflow and the Tab walk read the page again in each, and a '
+      + 'finding made there carries `at`, the name of the state; its level is keyed `rule@state`. A state that '
+      + 'could not be reached is a probeFailure carrying `at`, and so is every state reached through it. '
       + 'Each state is also opened from the keyboard and closed with Escape, in a page of its own, and '
       + 'what focus does on the way is checked: a trigger no key opens (keyboard-inoperable), focus left '
       + 'nowhere (focus-lost), a modal dialog focus stays behind (focus-not-moved) or Tab gets out of '
@@ -79,12 +67,13 @@ function auditPage({ cwd, runLighthouse, now }) {
       + '(expanded-left), an error on closing (close-error), a page that scrolls behind a modal dialog '
       + '(scroll-not-locked) — and, opening and closing each eight times, DOM nodes or listeners that keep '
       + 'growing (dom-leak, listener-leak). '
-      + 'Best practices also carries, unjudged, what Lighthouse says of the security headers the page was '
-      + 'served with (CSP, HSTS, COOP, frame control): a local static server sends none of the headers a host '
-      + 'would, so their absence there says nothing about production. '
+      + 'Performance: INP, timed on the clicks the states make, on a CPU slowed as a phone is: the slowest '
+      + 'is the INP, judged against its budget (given in `budgets`), and its diagnostics name that click — '
+      + 'its element, its state, and its input delay, processing and presentation. With no state declared, '
+      + 'inp is null: not measured, never judged. '
       + 'Point it at a build, never at a dev server — the numbers of an unbundled page mean nothing: a URL '
       + '(a preview server, a container, a deployment), or a directory of built files, which Kanso serves '
-      + 'itself. Leave the url out when the project\'s .kanso.yml has a serve: block (list_modules shows it): '
+      + 'itself. Leave the url out when the project\'s .kanso.yml has a serve: block: '
       + 'Kanso then serves the project as it says, starting and stopping its preview command if it names one. '
       + 'Kanso serves what is on disk and builds nothing, so build after a change, or the audit measures the '
       + 'build before it. '
@@ -112,13 +101,6 @@ function auditPage({ cwd, runLighthouse, now }) {
             'A second page to compare against, URL or directory: the same build before the change, the main '
             + 'branch, or production.',
         },
-        screenshot: {
-          type: 'boolean',
-          description:
-            'Also return the page as its load ended, on mobile and on desktop: two images, after the result. '
-            + 'They cost context — ask for them when how the page looks is the question: an element that '
-            + 'overlaps another, a hero that renders blank, a layout that breaks. Defaults to false.',
-        },
         record: {
           type: 'string',
           description:
@@ -133,9 +115,9 @@ function auditPage({ cwd, runLighthouse, now }) {
           minimum: 1,
           maximum: MAX_RUNS,
           description:
-            `Page loads per page and form factor, 1 to ${MAX_RUNS}, median kept. One Lighthouse load swings by `
-            + '20-30% on TBT, so 3 is what makes a small regression believable — at three times the wait. '
-            + 'Defaults to the project configuration.',
+            `Page loads per page and form factor, 1 to ${MAX_RUNS}, the median INP kept. A click timed once `
+            + 'swings from one load to the next, so 3 is what makes a small regression believable — at the cost '
+            + 'of timing the states three times. Defaults to the project configuration.',
         },
       },
       additionalProperties: false,
@@ -151,7 +133,6 @@ function auditPage({ cwd, runLighthouse, now }) {
     async run(args, { progress }) {
       const named = args.url == null ? null : site(args.url, 'url', cwd);
       const reference = args.baseline == null ? null : site(args.baseline, 'baseline', cwd);
-      if (args.screenshot != null && typeof args.screenshot !== 'boolean') throw new InvalidParams('screenshot must be true or false');
       const recordDir = args.record == null ? null : recordArg(args.record, cwd);
 
       const { config, source } = loadLocalConfig({ cwd });
@@ -180,8 +161,7 @@ function auditPage({ cwd, runLighthouse, now }) {
           // A baseline the caller named is always audited, as on the command
           // line: the comparison is what they asked for, budgets or no budgets.
           result: await audit({
-            url, baseline, config, runLighthouse, alwaysCompare: true,
-            screenshots: args.screenshot === true, record: recordDir,
+            url, baseline, config, runLoads, alwaysCompare: true, record: recordDir,
           }),
         }));
       } catch (err) {
@@ -191,13 +171,12 @@ function auditPage({ cwd, runLighthouse, now }) {
       }
 
       const { result, ...sites } = report;
-      const { screenshots, ...audited } = result;
       const payload = {
         ...sites,
         runs: config.runs,
         configSource: source,
         elapsedMs: now() - started,
-        ...audited,
+        ...result,
       };
       // The record holds the result as the call returned it, and the page that
       // shows it; the result says where the record is — the one thing
@@ -209,14 +188,12 @@ function auditPage({ cwd, runLighthouse, now }) {
 
       // The same facts twice, on purpose: hosts that read structured output
       // get the object, the others get it serialized in the text block, and
-      // neither ends up with a summary of the other. The screenshots are
-      // images, not facts to read: they follow as image blocks, each named,
-      // and stay out of both.
+      // neither ends up with a summary of the other.
       return {
-        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }, ...images(screenshots)],
+        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
         structuredContent: payload,
         // A page that never loaded is the tool failing, not a verdict on the
-        // page — and the model is told so rather than reading four green rows.
+        // page — and the model is told so rather than reading a clean page.
         isError: !result.ok,
       };
     },
@@ -268,7 +245,7 @@ function checkStatesTool({ cwd, checkStates, now }) {
       + 'or closeBroken is above zero — a summary that is not ok is a list of states to fix, not a failed call. '
       + 'Once the states check out, write them yourself into .kanso.yml under states: — or keep them in '
       + '.kanso/states.yml, which kanso discover --write rewrites whole — and audit_page goes through them. '
-      + 'Without `states`, it checks the ones the project already declares (list_modules shows them): to see '
+      + 'Without `states`, it checks the ones the project already declares, in .kanso.yml and .kanso/states.yml: to see '
       + 'whether they still hold after a change. With none declared, there is nothing to check. '
       + 'Point it at a build, as audit_page: a URL or a directory of built files, or nothing when .kanso.yml has '
       + 'a serve: block. Takes about 5 seconds per state and per screen, the two screens going side by side, so '
@@ -394,59 +371,6 @@ function checkStatesTool({ cwd, checkStates, now }) {
   };
 }
 
-function listModules({ cwd }) {
-  return {
-    name: 'list_modules',
-    title: 'List audit modules',
-    description:
-      'What Kanso checks on a page, and what it will judge it against: one module per concern — performance '
-      + 'measures against budgets; accessibility, SEO and best-practices findings against an impact threshold, '
-      + 'minus the rules the project ignores — each with the configuration resolved for this project; and how '
-      + 'the project is served when audit_page is given no url, if it says. Call it to know what a verdict '
-      + 'rests on before reading one.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, openWorldHint: false },
-
-    async run() {
-      const { config, source } = loadLocalConfig({ cwd });
-      const payload = {
-        configSource: source,
-        // As the file says it, paths relative to the file: what audit_page
-        // serves when it is given no url, or null when the project says nothing.
-        serve: config.serve ?? null,
-        runs: clampRuns(config.runs),
-        // The states of the page the project declares beyond the one it loads
-        // in, in the order they are reached — [] when it declares none.
-        states: parseStates(config.states),
-        modules: MODULES.map((mod) => ({
-          id: mod.id,
-          label: mod.label,
-          lighthouseCategories: mod.categories,
-          // What the module checks on the page itself, beyond Lighthouse, and
-          // the rules each check can report — which, for a check the project
-          // configures, is what this project's configuration makes of it.
-          // `states` says whether a check reads the page again in each of
-          // them, `transitions` whether it goes into and out of each.
-          probes: (mod.probes ?? []).map((probe) => ({
-            id: probe.id,
-            rules: probeRules(probe, moduleConfig(config, mod.id)),
-            states: probe.states === true,
-            transitions: probe.transitions === true,
-          })),
-          // Each module sees only the section carrying its id, so this is the
-          // whole of what judges it — see src/config/module-config.js.
-          config: moduleConfig(config, mod.id),
-        })),
-      };
-
-      return {
-        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
-        structuredContent: payload,
-      };
-    },
-  };
-}
-
 // A project Kanso could not serve is the tool failing, like a page that never
 // loaded — and the message says what to fix. Anything else is not Kanso's to
 // explain here.
@@ -464,20 +388,6 @@ function site(value, label, cwd) {
     if (err instanceof InvalidTarget) throw new InvalidParams(err.message);
     throw err;
   }
-}
-
-// Each screenshot as an image block, after a line saying which it is. A load
-// that produced none is said too, rather than silently missing.
-function images(screenshots) {
-  if (!screenshots) return [];
-  return Object.entries(screenshots).flatMap(([formFactor, uri]) => {
-    const image = /^data:(image\/[\w+.-]+);base64,(.+)$/.exec(uri ?? '');
-    if (!image) return [{ type: 'text', text: `No ${formFactor} screenshot: that load produced none.` }];
-    return [
-      { type: 'text', text: `The page on ${formFactor}, as its load ended:` },
-      { type: 'image', data: image[2], mimeType: image[1] },
-    ];
-  });
 }
 
 // A record directory resolves against the project, as a directory to serve

@@ -2,16 +2,14 @@ import { inPage } from '../../probes/dom.js';
 
 // Interaction to Next Paint: how long the page takes to show that it heard a
 // click — from the press, through the handlers it runs, to the frame that
-// paints their result. The one Core Web Vital Lighthouse does not measure on a
-// page load, for want of anyone clicking during one: its report stands TBT in
-// for it.
+// paints their result. The one Core Web Vital no page load measures, for want
+// of anyone clicking during one.
 //
 // Kanso clicks. The interactions are the states the project declares
 // (src/config/states.js) — the menu opened, the dialog shown — reached as axe
 // reaches them, down each branch, in a page of the probe's own; the clicks
 // made again to get back to where a branch starts are not timed twice. The
-// CPU is
-// slowed as Lighthouse slows it (src/probes/index.js): a click timed on the
+// CPU is slowed as a phone's (src/probes/screens.js): a click timed on the
 // machine running the audit would say nothing of a phone. With no state
 // declared there is nothing to time, and the probe does not run: INP is then
 // not measured, which a report says, rather than 0 ms, which it would read as

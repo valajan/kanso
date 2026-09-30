@@ -31,9 +31,9 @@ const OUT_FORMATS = {
 // (src/probes/journal.js), the result beside them as audit.json, and the page
 // that shows them, index.html (src/core/record.js).
 //
-// `runLighthouse` and `now` are injected for the tests; everything else the
+// `runLoads` and `now` are injected for the tests; everything else the
 // command needs, it resolves itself.
-export async function runAuditCommand({ target = null, baseline = null, runs = null, configPath = null, failOn = 'fail', json = false, out = [], record = null, cwd, io, runLighthouse, now = Date.now }) {
+export async function runAuditCommand({ target = null, baseline = null, runs = null, configPath = null, failOn = 'fail', json = false, out = [], record = null, cwd, io, runLoads, now = Date.now }) {
   // No URL guard here, unlike the server: see src/core/target.js.
   const named = target == null ? null : usage(() => siteFromArgument(target, 'target', cwd));
   const reference = baseline == null ? null : usage(() => siteFromArgument(baseline, 'baseline', cwd));
@@ -66,7 +66,7 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
       // A baseline typed on the command line is always audited: the comparison
       // is what the developer asked for, even when the budgets alone settle the
       // verdict.
-      const result = await audit({ url, baseline: against, config, runLighthouse, alwaysCompare: true, record: recordDir });
+      const result = await audit({ url, baseline: against, config, runLoads, alwaysCompare: true, record: recordDir });
       return { url, baseline: against, served, result, config };
     });
   } finally {
