@@ -36,6 +36,12 @@ import { impactOf } from './rules.js';
 // menu closes as focus leaves it — so each state is read in a page loaded for
 // it (`disturbs`).
 //
+// A stop hidden behind something is pictured as Tab reaches it, when the load
+// keeps evidence (src/probes/evidence.js): the screen as it is then, focus on
+// the element and what covers it over it. Once the walk is over the element
+// has no focus, the menu over it may have closed, and a picture taken then
+// shows it in the open.
+//
 // A walk goes no further than MAX_STOPS, in each state as on the page.
 const MAX_STOPS = 150;
 
@@ -45,7 +51,7 @@ export const keyboard = {
   states: true,
   disturbs: true,
 
-  async run(page, { at, log }) {
+  async run(page, { at, log, picture }) {
     const inState = at != null;
     // Focus the page placed itself as it loaded — an autofocus, a dialog
     // opening — is where a keyboard user starts, and the first stop. In a
@@ -55,6 +61,9 @@ export const keyboard = {
     for (let i = 0; i < MAX_STOPS; i++) {
       await page.keyboard.press('Tab');
       if (await inPage(page, recordStop)) break;
+      if (!picture) continue;
+      const covered = await inPage(page, coveredStop);
+      if (covered) await picture(page, 'focus-obscured', covered);
     }
     const walk = await inPage(page, endWalk);
     // Every stop, in the order Tab reached it: the walk as a keyboard user
@@ -188,7 +197,7 @@ function startWalk(dom, inState) {
 // Records where one Tab press left focus. Resolves to true when the walk is
 // over: focus left the page — or the dialog it is held to —, came back
 // round, or stopped moving.
-function recordStop() {
+function recordStop(dom) {
   const walk = window[Symbol.for('kanso.keyboard')];
 
   let element = document.activeElement;
@@ -228,7 +237,7 @@ function recordStop() {
 
   walk.repeats = 0;
   walk.settle();
-  walk.stops.push({ element, focused: walk.signs(element), hidden: hiddenReason(element), coveredBy: coverOf(element) });
+  walk.stops.push({ element, focused: walk.signs(element), hidden: hiddenReason(element), coveredBy: dom.coveredBy(element) });
   return false;
 
   // Why an element with focus cannot be seen, or null when it can.
@@ -249,32 +258,22 @@ function recordStop() {
     }
     return null;
   }
+}
 
-  // What entirely hides a focused element, as a short selector, or null.
-  // Sampled at its centre and near its corners, inside the screen: hidden at
-  // every point is hidden.
-  function coverOf(node) {
-    const rect = node.getBoundingClientRect();
-    const inset = Math.min(2, rect.width / 4, rect.height / 4);
-    const points = [
-      [rect.left + rect.width / 2, rect.top + rect.height / 2],
-      [rect.left + inset, rect.top + inset], [rect.right - inset, rect.top + inset],
-      [rect.left + inset, rect.bottom - inset], [rect.right - inset, rect.bottom - inset],
-    ].filter(([x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight);
-    if (points.length === 0) return null;
-
-    let cover = null;
-    for (const [x, y] of points) {
-      const top = document.elementFromPoint(x, y);
-      if (!top || top === node || node.contains(top) || top.contains(node)) return null;
-      cover ??= top;
-    }
-    // Named by the outermost element that covers it: the header, not its logo.
-    let outer = cover;
-    while (outer.parentElement && outer.parentElement !== document.body && !outer.parentElement.contains(node)) outer = outer.parentElement;
-    const id = outer.id ? `#${outer.id}` : outer.classList.length > 0 ? `.${outer.classList[0]}` : '';
-    return outer.localName + id;
-  }
+// The stop Tab just made, when it is hidden behind something: what it is,
+// where it is on the screen and what covers it — null for any other stop, and
+// for one already asked about.
+function coveredStop(dom) {
+  const stop = window[Symbol.for('kanso.keyboard')].stops.at(-1);
+  if (!stop || stop.asked) return null;
+  stop.asked = true;
+  if (stop.hidden || !stop.coveredBy) return null;
+  const rect = stop.element.getBoundingClientRect();
+  return {
+    ...dom.describe(stop.element),
+    rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+    coveredBy: stop.coveredBy,
+  };
 }
 
 // Ends the walk: takes focus away, reads every stop again without it, and

@@ -1,6 +1,7 @@
 import { moduleConfig } from '../config/module-config.js';
 import { parseStates, pathTo, statesOn, walkOrder } from '../config/states.js';
 import { networkIdle, newPage } from './browser.js';
+import { evidenceFor } from './evidence.js';
 import { findingEvent, NO_JOURNAL } from './journal.js';
 import { SCREENS } from './screens.js';
 import { applyState, reach } from './states.js';
@@ -87,7 +88,12 @@ const SETTLE_MS = 5_000;
 // is handed a `log` of its own for the rest. The page as it loaded and as each
 // state showed is logged with a frame of it; not for a probe that measures,
 // whose timing a screenshot would skew, nor for one that says `frames: false`
-// — one that goes through the same moment again and again.
+// — one that goes through the same moment again and again. And what a probe
+// finds is pictured where it found it (./evidence.js): the part of the page
+// its failing elements are in, each one boxed, taken right after the reading,
+// in the state it was made in — or by the probe itself, through the `picture`
+// it is handed, when what it found only shows at the moment it found it. A
+// measure has no element to show, and no picture.
 //
 // With `measuresOnly`, only the probes that measure run: the others check
 // what does not vary from one load to the next and ran on the first
@@ -123,23 +129,28 @@ export async function runProbes({ browser, url, formFactor, modules, config = {}
     for (const { name } of statesOf(probe)) fail(mod, probe, config, message(err), name);
   };
 
+  const evidence = evidenceFor(browser);
   // One at a time: a probe presses keys and reads focus, which only the page
   // in front has.
-  for (const { mod, probe, config } of wanted) {
-    const log = probe.measures || probe.frames === false ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
-    const started = Date.now();
-    log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
-    try {
-      const run = probe.transitions ? runTransitions : runProbe;
-      const { findings, unchecked } = await run(browser, probe, { url, formFactor, config, states: statesOf(probe), timeoutMs, log });
-      results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
-      if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
-      log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
-      for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
-    } catch (err) {
-      log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
-      failEverywhere(mod, probe, config, err);
+  try {
+    for (const { mod, probe, config } of wanted) {
+      const log = probe.measures || probe.frames === false ? journal.with({ probe: probe.id }).withoutFrames() : journal.with({ probe: probe.id });
+      const started = Date.now();
+      log.log('probe-start', { module: mod.id, states: statesOf(probe).map(({ name }) => name) });
+      try {
+        const run = probe.transitions ? runTransitions : runProbe;
+        const { findings, unchecked } = await run(browser, probe, { url, formFactor, config, states: statesOf(probe), timeoutMs, log, evidence });
+        results[mod.id][probe.measures ? 'measures' : 'findings'].push(...findings);
+        if (!probe.measures) for (const finding of findings) log.log('finding', findingEvent(finding));
+        log.log('probe-end', { ms: Date.now() - started, findings: findings.length, ...(unchecked.length ? { unreached: unchecked.map(({ at }) => at) } : {}) });
+        for (const { at, error } of unchecked) fail(mod, probe, config, message(error), at);
+      } catch (err) {
+        log.log('probe-failed', { ms: Date.now() - started, error: message(err) });
+        failEverywhere(mod, probe, config, err);
+      }
     }
+  } finally {
+    await evidence.close();
   }
   return results;
 }
@@ -154,7 +165,7 @@ export async function runProbes({ browser, url, formFactor, modules, config = {}
 // its own. Resolves to the findings, and to `unchecked` — [{ at, error }] —
 // for each state that could not be reached, and each reached through one.
 // Rejects when the page could not be read as it loaded.
-async function runProbe(browser, probe, { url, formFactor, config, states = [], timeoutMs, log = NO_JOURNAL }) {
+async function runProbe(browser, probe, { url, formFactor, config, states = [], timeoutMs, log = NO_JOURNAL, evidence = NO_EVIDENCE }) {
   const contexts = [];
   const open = async (at) => {
     // The page a branch leaves behind is not gone back to.
@@ -163,13 +174,15 @@ async function runProbe(browser, probe, { url, formFactor, config, states = [], 
   };
   const step = (work) => withTimeout(work, timeoutMs);
   try {
+    const reading = evidence.reading(log);
     let { page, found } = await step(async () => {
       const page = await open(log);
-      return { page, found: await probe.run(page, { url, formFactor, config, log }) };
+      return { page, found: await probe.run(page, { url, formFactor, config, log, picture: reading.picture }) };
     });
     const findings = [...found];
     const unchecked = [];
     const seen = probe.measures ? null : new Seen(found);
+    if (!probe.measures) await reading.collect(page, found);
     // Where the page stands: the state it is in, null as it loaded, undefined
     // once a state failed on it, or a reading that disturbs moved it, and
     // nobody knows.
@@ -178,6 +191,7 @@ async function runProbe(browser, probe, { url, formFactor, config, states = [], 
 
     for (const state of walkOrder(states)) {
       const at = log.with({ at: state.name });
+      const reading = evidence.reading(at);
       const path = pathTo(states, state);
       const beyond = path.find(({ name }) => missed.has(name));
       if (beyond) {
@@ -206,10 +220,12 @@ async function runProbe(browser, probe, { url, formFactor, config, states = [], 
             ms: Date.now() - started,
             ...(animationsMs ? { animationsMs } : {}),
           });
-          return probe.run(page, { url, formFactor, config, at: state.name, log: at });
+          return probe.run(page, { url, formFactor, config, at: state.name, log: at, picture: reading.picture });
         });
         here = probe.disturbs ? undefined : state.name;
-        findings.push(...(seen ? seen.added(found) : found).map((finding) => ({ ...finding, at: state.name })));
+        const added = seen ? seen.added(found) : found;
+        if (!probe.measures) await reading.collect(page, added);
+        findings.push(...added.map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
         here = undefined;
         missed.add(state.name);
@@ -234,7 +250,7 @@ async function runProbe(browser, probe, { url, formFactor, config, states = [], 
 // to the findings, each carrying its state, and to `unchecked` — [{ at, error
 // }] — for each state whose check failed, or that is reached through one the
 // way could not get past.
-async function runTransitions(browser, probe, { url, formFactor, config, states, timeoutMs, log = NO_JOURNAL }) {
+async function runTransitions(browser, probe, { url, formFactor, config, states, timeoutMs, log = NO_JOURNAL, evidence = NO_EVIDENCE }) {
   const findings = [];
   const unchecked = [];
   // The states the way could not get past, by name, with why.
@@ -264,6 +280,7 @@ async function runTransitions(browser, probe, { url, formFactor, config, states,
       try {
         const tools = transitionTools(page, state, { waitMs: timeoutMs / 3, log: at });
         const found = await withTimeout(() => probe.transition(page, state, { url, formFactor, config, log: at, ...tools }), timeoutMs);
+        await evidence.reading(at).collect(page, found);
         findings.push(...found.map((finding) => ({ ...finding, at: state.name })));
       } catch (error) {
         at.log('transition-failed', { error: message(error) });
@@ -331,6 +348,8 @@ class Seen {
     }
   }
 }
+
+const NO_EVIDENCE = { reading: () => ({ picture: null, async collect() {} }) };
 
 function nodeKey({ path, selector, snippet }) {
   return path || `${selector}\n${snippet}`;

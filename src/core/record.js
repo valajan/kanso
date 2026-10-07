@@ -1,13 +1,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { digest } from './digest.js';
 import { renderViewer, viewerData } from './viewer.js';
 
 // What a record holds: one journal per load, named by src/probes/journal.js
 // and written by the worker that ran it, with its frames under `frames/`; the
-// result; and the page that shows them all, `index.html`, which opens from the
-// disk with nothing beside it (src/core/viewer.js). The CLI and the MCP server
-// keep one the same way.
+// result; the same read finding by finding, `findings.json`, each with the
+// pictures of what failed (src/core/digest.js) — what an agent opens; and the
+// page that shows them all, `index.html`, which opens from the disk with
+// nothing beside it (src/core/viewer.js) — what a person opens. The CLI and
+// the MCP server keep one the same way.
 export const RECORD_RESULT = 'audit.json';
+export const RECORD_FINDINGS = 'findings.json';
 const RECORD_VIEWER = 'index.html';
 const RECORD_FRAMES = 'frames';
 const RECORD_JOURNAL = /^(current|baseline)\.(mobile|desktop)\.(\d+)\.jsonl$/;
@@ -18,18 +22,20 @@ const RECORD_JOURNAL = /^(current|baseline)\.(mobile|desktop)\.(\d+)\.jsonl$/;
 export function clearRecord(dir) {
   mkdirSync(dir, { recursive: true });
   for (const name of readdirSync(dir)) {
-    if (name === RECORD_RESULT || name === RECORD_VIEWER || RECORD_JOURNAL.test(name)) rmSync(join(dir, name));
+    if (name === RECORD_RESULT || name === RECORD_FINDINGS || name === RECORD_VIEWER || RECORD_JOURNAL.test(name)) rmSync(join(dir, name));
     if (name === RECORD_FRAMES) rmSync(join(dir, name), { recursive: true, force: true });
   }
 }
 
-// Writes the result beside the journals the loads left, then the page that
-// shows them. Returns the page's path.
+// Writes the result beside the journals the loads left, then the findings
+// read from both and the page that shows them. Returns the page's path.
 export function writeRecord(dir, result) {
   writeFileSync(join(dir, RECORD_RESULT), JSON.stringify(result, null, 2) + '\n');
   const { loads, frames } = readJournals(dir);
+  const found = digest({ result, loads });
+  writeFileSync(join(dir, RECORD_FINDINGS), JSON.stringify(found, null, 2) + '\n');
   const page = join(dir, RECORD_VIEWER);
-  writeFileSync(page, renderViewer(viewerData({ result, loads, frames })));
+  writeFileSync(page, renderViewer(viewerData({ result, loads, frames, digest: found })));
   return page;
 }
 

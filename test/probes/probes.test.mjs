@@ -124,6 +124,25 @@ test('a rule axe cannot settle is reported as a doubt, and cannot fail an audit 
   assert.match(result.findings[0].nodes[0].explanation, /background color could not be determined due to a background image/);
 });
 
+// A menu open over the page lies over what is behind it, and axe cannot read
+// the contrast of what something lies over. Reported in each state, that is a
+// doubt about text nobody reads there, which was read as the page loaded. The
+// same doubt as the page loads stands — nothing ever read that text —, and so
+// does any other the state brings.
+test('text an open state lies over is not a contrast to review again, and what it brings still is', async () => {
+  const menu = { name: 'menu', click: '#open', wait_for: 'details[open]' };
+  const { accessibility: result } = await probe('axe-covered.html', { modules: only(axeProbe), config: { states: [menu] } });
+
+  assert.deepEqual(result.failures, []);
+  const doubts = result.findings.filter((finding) => finding.needsReview)
+    .map(({ rule, at, nodes }) => [rule, at ?? null, nodes.map((node) => `${node.selector} — ${node.explanation.split('\n').at(-1).trim()}`)]);
+  assert.deepEqual(doubts, [
+    ['color-contrast', null, ["body > main > div.card > p.stamped — Element's background color could not be determined because it is overlapped by another element"]],
+    // Not the heading, not the paragraph the menu dropped over.
+    ['color-contrast', 'menu', ["header > details > nav#panel > p.photo — Element's background color could not be determined due to a background image"]],
+  ]);
+});
+
 // What a probe covers can now be a matter of configuration, and so can what
 // goes unchecked when it fails: both are read from the same tags.
 test('the rules the probe answers for follow the tags the project asked for', async () => {
@@ -220,7 +239,7 @@ test('the journal follows a probe through its states, and keeps what it found wh
 
   // The ghost starts from the page, not from the menu: the page is loaded
   // again for it.
-  assert.deepEqual(journal.events.filter((e) => e.kind !== 'finding').map((e) => [e.kind, e.probe, e.at ?? null]), [
+  assert.deepEqual(journal.events.filter((e) => !['finding', 'evidence'].includes(e.kind)).map((e) => [e.kind, e.probe, e.at ?? null]), [
     ['probe-start', 'axe', null],
     ['loaded', 'axe', null],
     ['state-reached', 'axe', 'menu'],
@@ -231,6 +250,77 @@ test('the journal follows a probe through its states, and keeps what it found wh
   const found = journal.events.filter((e) => e.kind === 'finding' && !e.needsReview).map((e) => [e.rule, e.at ?? null, e.nodes.length]);
   assert.deepEqual(found, [['image-alt', null, 1], ['button-name', 'menu', 1]]);
   assert.deepEqual(journal.events.at(-1).unreached, ['ghost']);
+});
+
+// The evidence: what a finding looks like, where it was found.
+test('a finding is pictured where it was made, its elements boxed in a picture of that part of the page', async () => {
+  const journal = new Journal();
+  await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU] }, journal });
+
+  const evidence = journal.events.filter((e) => e.kind === 'evidence');
+  const alt = evidence.find((e) => e.rule === 'image-alt');
+  const name = evidence.find((e) => e.rule === 'button-name');
+  // Each in the state it was found in, before the finding itself is logged.
+  assert.equal(alt.at ?? null, null);
+  assert.equal(name.at, 'menu');
+  assert.ok(name.seq < journal.events.find((e) => e.kind === 'finding' && e.rule === 'button-name').seq);
+
+  for (const event of [alt, name]) {
+    const [box] = event.boxes;
+    assert.equal(event.boxes.length, 1);
+    assert.equal(box.n, 1);
+    assert.ok(box.path && box.selector);
+    // The box is inside the picture, which is a JPEG a screen wide at most.
+    const { width, height, file } = event.frame;
+    assert.equal(width, 412);
+    assert.ok(box.rect.x >= 0 && box.rect.y >= 0 && box.rect.x + box.rect.width <= width && box.rect.y < height, JSON.stringify(event));
+    const jpeg = journal.frames.get(file);
+    assert.deepEqual([jpeg[0], jpeg[1]], [0xff, 0xd8]);
+  }
+});
+
+// A box drawn where a covered element is frames what covers it: it is dashed,
+// and says what is over the element.
+test('an element behind something else is boxed as such, with what covers it', async () => {
+  const journal = new Journal();
+  await probe('axe-covered.html', { modules: only(axeProbe), journal });
+
+  const boxes = journal.events.filter((e) => e.kind === 'evidence' && e.rule === 'image-alt').flatMap((e) => e.boxes);
+  assert.deepEqual(boxes.map(({ n, selector, coveredBy }) => [n, selector, coveredBy ?? null]), [
+    [1, 'body > main > img.seen', null],
+    [2, 'body > main > img.under', 'div.banner'],
+  ]);
+});
+
+// What hides a focused element is over it while it has focus, and may be gone
+// once the walk is over: the picture is the screen as Tab reached it, once,
+// with the element behind what covers it.
+test('focus behind a banner is pictured as Tab reaches it, on the screen as it is then', async () => {
+  const journal = new Journal();
+  const { accessibility: result } = await probe('keyboard-obscured.html', { modules: only(keyboard), journal });
+
+  const evidence = journal.events.filter((e) => e.kind === 'evidence');
+  assert.deepEqual(evidence.map((e) => [e.rule, e.boxes.map(({ n, selector, coveredBy }) => [n, selector, coveredBy])]), [
+    ['focus-obscured', [[1, 'body > main > section > a.low', 'div.cookie-banner']]],
+  ]);
+  const [{ frame, boxes: [{ rect, path }] }] = evidence;
+  assert.equal(path, result.findings[0].nodes[0].path);
+  // The screen, not the page: the link is where the banner is, at its foot.
+  assert.deepEqual([frame.width, frame.height], [412, 823]);
+  assert.ok(rect.y >= 823 - 200 && rect.y + rect.height <= 823, JSON.stringify(rect));
+  // Taken while Tab was there: before the walk went on.
+  const stops = journal.events.filter((e) => e.kind === 'tab-stop');
+  assert.ok(stops.length > 0 && evidence[0].seq < journal.events.find((e) => e.kind === 'finding').seq);
+
+  const plain = await probe('keyboard-obscured.html', { modules: only(keyboard) });
+  assert.deepEqual(plain.accessibility, result);
+});
+
+test('a load nobody records takes no picture, and finds the same', async () => {
+  const journal = new Journal();
+  const recorded = await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU] }, journal });
+  const plain = await probe('states-menu.html', { modules: only(axeProbe), config: { states: [MENU] } });
+  assert.deepEqual(plain, recorded);
 });
 
 test('a page that never loads reached none of its states either', async () => {
@@ -414,11 +504,12 @@ test('a transition probe goes into and out of each state, in a page brought to t
   assert.deepEqual(result.findings.map(({ rule, at }) => [rule, at]), [['recorded', 'menu'], ['recorded', 'settings']]);
 
   // The journal shows each transition as it went: the settings' page loaded,
-  // the menu reached on the way, then in and out of the dialog.
+  // the menu reached on the way, then in and out of the dialog, and a picture
+  // of what was found there.
   const lastPage = journal.events.slice(journal.events.findLastIndex((e) => e.kind === 'loaded'));
   assert.deepEqual(lastPage.map((e) => [e.kind === 'focus' ? `focus ${e.why}` : e.kind, e.at]), [
     ['loaded', 'settings'], ['state-reached', 'menu'], ['open', 'settings'], ['focus opened', 'settings'],
-    ['close', 'settings'], ['focus closed', 'settings'], ['close', 'settings'], ['finding', 'menu'], ['finding', 'settings'], ['probe-end', undefined],
+    ['close', 'settings'], ['focus closed', 'settings'], ['close', 'settings'], ['evidence', 'settings'], ['finding', 'menu'], ['finding', 'settings'], ['probe-end', undefined],
   ]);
 });
 
@@ -431,8 +522,8 @@ test('a recorded transition carries frames of the page loaded, opened and closed
   await probe('transitions.html', { modules: only(recorder), config: { states: [MENU_T, SETTINGS_T] }, journal });
 
   assert.deepEqual(journal.events.filter((e) => e.frame).map((e) => [e.kind, e.at]), [
-    ['loaded', 'menu'], ['open', 'menu'], ['close', 'menu'],
-    ['loaded', 'settings'], ['open', 'settings'], ['close', 'settings'],
+    ['loaded', 'menu'], ['open', 'menu'], ['close', 'menu'], ['evidence', 'menu'],
+    ['loaded', 'settings'], ['open', 'settings'], ['close', 'settings'], ['evidence', 'settings'],
   ]);
   for (const { frame } of journal.events.filter((e) => e.frame)) {
     assert.deepEqual({ width: frame.width, height: frame.height, scale: frame.scale }, { width: 412, height: 823, scale: 1.75 });

@@ -136,7 +136,8 @@ run where the code is.
   could not check costs that state; one beyond a state the way could not get
   past costs it too. `dom.js` is what a probe runs inside the page with: the call
   goes as one DevTools expression, which no page CSP can refuse, and the
-  element helper describes a node the way Lighthouse does. `browser.js` is
+  element helper describes a node the way Lighthouse does, and `coveredBy`
+  names what entirely hides one on the screen. `browser.js` is
   what everything that drives a page shares, on top of Playwright: a page on
   one of the screens, in a context of its own (`newPage`), the network gone
   quiet for 500 ms counted from the call (`networkIdle`), and a state's
@@ -155,7 +156,25 @@ run where the code is.
   60, forty a load at most) and its size in CSS pixels — kept in memory, then
   written under `frames/<journal>/`: the page loaded, each state reached, a
   transition's open and close. Never for a probe that measures
-  (`withoutFrames()`), never with NO_JOURNAL
+  (`withoutFrames()`), never with NO_JOURNAL. `evidence.js` pictures what a
+  probe found, where it found it: right after each reading — the page as it
+  loaded, each state, each transition — the part of the page a finding's
+  failing elements are in (found again by their `path`), taken beyond the
+  viewport so that the page is neither scrolled nor touched, the elements
+  boxed in red and numbered on a canvas in a blank page of its own, and kept
+  through the journal's `keep` as an `evidence` event (`rule`, `boxes`, the
+  frame). Elements close to one another share a picture (`pictures`, pure and
+  unit-tested); six pictures a finding and sixty a load at most; an element
+  that takes no room has no box. One on the screen behind something else
+  (`dom.coveredBy`, the reading the keyboard walk makes of a stop) has a
+  dashed box and `coveredBy`: what the picture shows there is what covers
+  it. A probe that knows the moment a finding shows takes the picture itself,
+  through the `picture(page, rule, element)` it is handed (null when nothing
+  is recorded): the keyboard walk, of a stop hidden behind something as Tab
+  reaches it — the screen as it is then. Those are kept for the elements the
+  reading reports, one for each thing that covers, and that finding is not
+  pictured again afterwards. Only for a load that records
+  (`log.recording`), never for a probe that measures
 - `discover/` — what finds the states of a page, so that nobody has to write
   `states:` by hand: `kanso discover`. Outside the audit, and never called by
   it. `explore.js` clicks every element the guards allow (`guards.js`:
@@ -265,11 +284,18 @@ run where the code is.
   worst-of; `runs.js` holds how many loads a measure is worth; `target.js` is
   what every surface accepts as a page to audit; `record.js` is what a record
   directory holds, clears an earlier audit's files from it before a new one,
-  and writes the result and `index.html` into it once the audit is done —
-  `viewer.js`, one self-contained page (no request: it opens from file://,
-  journals, result and frames inlined) listing the findings and, for the one
-  selected, the moments that produced it — joined on form factor, probe,
-  state, rule and element — frames with the focus boxes drawn over them.
+  and writes the result, `findings.json` and `index.html` into it once the
+  audit is done. `digest.js` is `findings.json`, what an agent reads: the
+  record finding by finding, worst first — rule, level, `inState` and the
+  click that reaches it, every element with what is wrong with it, and the
+  `pictures` the probes took of it (joined on rule, state and form factor),
+  each with the boxes drawn in it, and `coveredBy` on one behind something
+  else — then `notChecked`, `measures`, and the
+  other files. `viewer.js` is what a person opens: one self-contained page (no
+  request: it opens from file://, journals, result and frames inlined) showing
+  every finding with those pictures and, under each, why its elements fail;
+  then, on demand, the moments that produced it — joined on form factor,
+  probe, state, rule and element — frames with the focus boxes drawn over them.
   The CLI and the MCP server are its two callers — and the
   Action is the CLI.
 - `modules/` — one folder per audit concern, registered in `index.js`, which
@@ -294,7 +320,9 @@ run where the code is.
   is averaged and one load settles it. `axe.js` injects axe-core into the page before its own scripts (so it
   reaches every frame, and no CSP can refuse it) and runs the hundred WCAG A/AA
   and best-practice rules; `accessibility: { tags: [...] }` widens or narrows
-  the set. What axe could not settle is reported too, marked `needsReview` and
+  the set. In a state, a contrast axe cannot read because something lies over
+  the text (`bgOverlap`) is left out: what lies over it is what the state
+  opened, and the text was read as the page loaded. What axe could not settle is reported too, marked `needsReview` and
   capped at `moderate`, so a contrast nobody can compute no longer reads as one
   that passed. The other four probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —
@@ -348,7 +376,7 @@ run where the code is.
   makes it usable in a pre-commit hook or a CI job. `--json` prints the audit
   result and nothing else. `--record <dir>` keeps the probes' journals there,
   their frames, the result beside them as `audit.json`, and `index.html` to
-  see it all
+  see it all, with `findings.json` for an agent
 - `mcp/` — the agent surface. `index.js` wires the server and keeps stdout for
   the protocol alone, `protocol.js` is the JSON-RPC stdio transport (written out
   rather than depended on: the reference SDK drags express, hono, jose and ajv

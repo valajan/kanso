@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, extname, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { loadLocalConfig } from '../config/local-config.js';
 import { audit } from '../core/audit.js';
-import { clearRecord, writeRecord } from '../core/record.js';
+import { clearRecord, RECORD_FINDINGS, writeRecord } from '../core/record.js';
 import { clampRuns, MAX_RUNS } from '../core/runs.js';
 import { InvalidTarget } from '../core/target.js';
 import { siteFromArgument, siteFromConfig, siteName, withSites } from '../serve/index.js';
@@ -28,8 +28,9 @@ const OUT_FORMATS = {
 // .kanso.yml says how to serve it — see src/serve/index.js.
 //
 // `record` is a directory where each load's journal goes
-// (src/probes/journal.js), the result beside them as audit.json, and the page
-// that shows them, index.html (src/core/record.js).
+// (src/probes/journal.js), the result beside them as audit.json, the findings
+// with their pictures as findings.json, and the page that shows them,
+// index.html (src/core/record.js).
 //
 // `runLoads` and `now` are injected for the tests; everything else the
 // command needs, it resolves itself.
@@ -91,7 +92,7 @@ export async function runAuditCommand({ target = null, baseline = null, runs = n
   }
   if (recordDir) {
     const page = writeRecord(recordDir, jsonResult(report));
-    if (!json) io.stderr.write(`journal kept in ${recordDir} — open ${page}\n`);
+    if (!json) io.stderr.write(`journal kept in ${recordDir} — open ${page}, or hand an agent ${join(recordDir, RECORD_FINDINGS)}\n`);
   }
 
   const { result } = report;
