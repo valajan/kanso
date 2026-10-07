@@ -124,6 +124,25 @@ test('a rule axe cannot settle is reported as a doubt, and cannot fail an audit 
   assert.match(result.findings[0].nodes[0].explanation, /background color could not be determined due to a background image/);
 });
 
+// A menu open over the page lies over what is behind it, and axe cannot read
+// the contrast of what something lies over. Reported in each state, that is a
+// doubt about text nobody reads there, which was read as the page loaded. The
+// same doubt as the page loads stands — nothing ever read that text —, and so
+// does any other the state brings.
+test('text an open state lies over is not a contrast to review again, and what it brings still is', async () => {
+  const menu = { name: 'menu', click: '#open', wait_for: 'details[open]' };
+  const { accessibility: result } = await probe('axe-covered.html', { modules: only(axeProbe), config: { states: [menu] } });
+
+  assert.deepEqual(result.failures, []);
+  const doubts = result.findings.filter((finding) => finding.needsReview)
+    .map(({ rule, at, nodes }) => [rule, at ?? null, nodes.map((node) => `${node.selector} — ${node.explanation.split('\n').at(-1).trim()}`)]);
+  assert.deepEqual(doubts, [
+    ['color-contrast', null, ["body > main > div.card > p.stamped — Element's background color could not be determined because it is overlapped by another element"]],
+    // Not the heading, not the paragraph the menu dropped over.
+    ['color-contrast', 'menu', ["header > details > nav#panel > p.photo — Element's background color could not be determined due to a background image"]],
+  ]);
+});
+
 // What a probe covers can now be a matter of configuration, and so can what
 // goes unchecked when it fails: both are read from the same tags.
 test('the rules the probe answers for follow the tags the project asked for', async () => {

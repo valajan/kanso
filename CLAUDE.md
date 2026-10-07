@@ -320,7 +320,9 @@ run where the code is.
   is averaged and one load settles it. `axe.js` injects axe-core into the page before its own scripts (so it
   reaches every frame, and no CSP can refuse it) and runs the hundred WCAG A/AA
   and best-practice rules; `accessibility: { tags: [...] }` widens or narrows
-  the set. What axe could not settle is reported too, marked `needsReview` and
+  the set. In a state, a contrast axe cannot read because something lies over
+  the text (`bgOverlap`) is left out: what lies over it is what the state
+  opened, and the text was read as the page loaded. What axe could not settle is reported too, marked `needsReview` and
   capped at `moderate`, so a contrast nobody can compute no longer reads as one
   that passed. The other four probes check what one reading of one DOM cannot:
   `reflow.js` lays the page out 320 CSS pixels wide (WCAG 1.4.10) —

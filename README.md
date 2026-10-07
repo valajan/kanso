@@ -142,7 +142,9 @@ Some rules axe cannot settle on its own: text over a photograph has a contrast
 no machine can compute. Those are reported too, marked **needs review**, with
 their impact capped at `moderate` — worth telling you about, never enough to
 fail a build by itself. A page nobody could check must not read as a page that
-passed.
+passed. One doubt is left out, in a declared state: text whose contrast axe
+cannot read because something lies over it. A menu open over a heading makes
+one of every line behind it, and that text was read as the page loaded.
 
 Which rules run is yours to choose:
 

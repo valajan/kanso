@@ -40,6 +40,16 @@ const ALSO = ['identical-links-same-purpose'];
 // threshold.
 const REVIEW_CEILING = 'moderate';
 
+// The one doubt a state makes up. axe cannot read the contrast of text with
+// something lying over it, and says so — which is worth a look as the page
+// loads, and is what a state is: the menu it opens lies over the heading
+// behind it, the dialog's backdrop over the whole page. That text was read as
+// the page loaded, with nothing over it, and whatever is wrong with it was
+// said there; under the menu nobody reads it. Raised again in every state, it
+// would be a finding about nothing, on elements the picture shows the menu in
+// place of.
+const OVERLAPPED = 'bgOverlap';
+
 // `elementRef` is what makes the translation possible: axe hands back the
 // element it failed on, not just a selector for it. `resultTypes` says which
 // results are worth the expensive work of identifying elements — the ones
@@ -64,8 +74,8 @@ export const axeProbe = {
   // first script runs.
   beforeLoad: axeCore.source,
 
-  async run(page, { config } = {}) {
-    return axeFindings(await inPage(page, runAxe, optionsFor(tagsOf(config)), MAX_NODES));
+  async run(page, { config, at } = {}) {
+    return axeFindings(await inPage(page, runAxe, optionsFor(tagsOf(config)), MAX_NODES, at != null ? OVERLAPPED : null));
   },
 };
 
@@ -161,20 +171,26 @@ function levelOf(tags) {
 
 // axe on the document as it stands, translated on the spot. Only what survives
 // JSON comes back, so the elements are described here, and the list is cut to
-// what Kanso keeps before it is sent — the count stays whole.
-async function runAxe(dom, options, maxNodes) {
+// what Kanso keeps before it is sent — the count stays whole. With `moot`,
+// what axe could not settle for that reason alone is left out, and a rule
+// with nothing else unsettled with it.
+async function runAxe(dom, options, maxNodes, moot) {
   const results = await window.axe.run(document, options);
 
-  return { violations: results.violations.map(rule), incomplete: results.incomplete.map(rule) };
+  const unsettled = (node) => !moot || !(node.any ?? []).some((check) => check.data?.messageKey === moot);
+  return {
+    violations: results.violations.map((result) => rule(result, result.nodes)),
+    incomplete: results.incomplete.map((result) => rule(result, result.nodes.filter(unsettled))).filter(({ count }) => count > 0),
+  };
 
-  function rule(result) {
+  function rule(result, nodes) {
     return {
       id: result.id,
       help: result.help,
       impact: result.impact,
       tags: result.tags,
-      count: result.nodes.length,
-      nodes: result.nodes.slice(0, maxNodes).map((node) => ({
+      count: nodes.length,
+      nodes: nodes.slice(0, maxNodes).map((node) => ({
         ...(node.element ? dom.describe(node.element) : inFrame(node)),
         // What axe could not settle has no failure summary, but says what it
         // could not do: "Element's background color could not be determined".
