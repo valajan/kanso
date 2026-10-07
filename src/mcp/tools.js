@@ -80,11 +80,12 @@ function auditPage({ cwd, runLoads, now }) {
       + 'Name a baseline to judge what a change did rather than what the page has always been: without one, '
       + 'every pre-existing finding counts against the page; with one, the ones the baseline already had are '
       + 'reported and not held against it. '
-      + 'Name a record directory to keep a journal of what the checks did on each load — the page loaded, '
-      + 'each state reached or not, each Tab stop, each finding with the path of its elements — one JSON '
-      + 'Lines file per load, with frames of the page at the moments that explain a finding, beside the result '
-      + 'as audit.json and an index.html that shows them all offline: for when a finding needs retracing to '
-      + 'the moment that produced it. '
+      + 'Name a record directory to see what was found: findings.json there lists each finding with its '
+      + 'elements, what is wrong with each, and pictures — JPEG files of part of the page, the failing '
+      + 'elements outlined in red and numbered — to open when a selector is not enough to tell which element '
+      + 'it is. Beside it, a journal of what the checks did on each load — the page loaded, each state '
+      + 'reached or not, each Tab stop, each finding with the path of its elements — one JSON Lines file per '
+      + 'load, the result as audit.json, and an index.html that shows it all to a person, offline. '
       + 'Takes 10 to 60 seconds per run, and reports progress while it works.',
     inputSchema: {
       type: 'object',
@@ -104,9 +105,10 @@ function auditPage({ cwd, runLoads, now }) {
         record: {
           type: 'string',
           description:
-            'A directory to keep the journal in, relative to the project: one file per page load, '
-            + '<side>.<formFactor>.<run>.jsonl, its frames under frames/, the result as audit.json, and '
-            + 'index.html, a page a person opens to see it all. What an earlier audit recorded '
+            'A directory to keep the record in, relative to the project: findings.json, each finding with '
+            + 'the pictures of its failing elements; one journal per page load, '
+            + '<side>.<formFactor>.<run>.jsonl, its frames and those pictures under frames/; the result as '
+            + 'audit.json; and index.html, a page a person opens to see it all. What an earlier audit recorded '
             + 'there is replaced; nothing else in it is touched. The result says where it went, under record. '
             + 'Defaults to no journal.',
         },

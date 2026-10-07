@@ -1,9 +1,12 @@
 // The page a record opens in: `index.html`, beside the journals and audit.json
-// in the directory a record is kept in (src/core/record.js). The findings of the
-// audit; for the one selected, the moments of the journals that produced it —
-// the page loaded, the state reached, the way in and out — with their frames
-// and the boxes the events name drawn over them; and each load's events, in
-// order.
+// in the directory a record is kept in (src/core/record.js). The findings of
+// the audit, worst first, each shown as what whoever fixes it looks for: the
+// pictures of the page with the failing elements boxed in red
+// (src/probes/evidence.js), and under each picture why they fail. Then, for
+// whoever asks how a finding was come by, the moments of the journals that
+// produced it — the page loaded, the state reached, the way in and out — with
+// their frames and the boxes the events name drawn over them; and each load's
+// events, in order.
 //
 // One file, and nothing else: no request, no CDN, no server. It is opened from
 // the disk, where a page may not fetch the files beside it, so everything it
@@ -14,18 +17,23 @@
 // sent into the page as source (as src/probes/dom.js sends what runs in a page
 // under audit), and run by the tests in Node as they are.
 
+import { explanationLine } from '../modules/findings.js';
+import { digest } from './digest.js';
+
 // The data a page shows: the findings of the result, one list for every
-// module; the probes that failed, and the ones left out for want of a state;
-// each load's journal; the frames by the path the events name them with.
+// module, each with the pictures the digest joined to it (./digest.js); the
+// probes that failed, and the ones left out for want of a state; each load's
+// journal; the frames by the path the events name them with.
 //
 //   { url, baseline, conclusion,
-//     findings: [{ key, module, ...finding }], failures: [{ module, probe, at?, error }],
+//     findings: [{ key, module, ...finding, pictures }], failures: [{ module, probe, at?, error }],
 //     skipped: [{ module, probe, rules, reason }],
 //     loads: [{ name, side, formFactor, run, events }], frames: { [file]: dataUri } }
-export function viewerData({ result, loads = [], frames = {} }) {
+export function viewerData({ result, loads = [], frames = {}, digest: found = digest({ result, loads }) }) {
   const modules = Object.entries(result?.modules ?? {});
+  const pictures = new Map(found.findings.map((finding) => [`${finding.module}\n${finding.id}`, finding.pictures]));
   const findings = modules.flatMap(([module, { findings }]) => (findings ?? []).map((finding) => ({ module, ...finding })))
-    .map((finding, i) => ({ key: `f${i}`, ...finding }));
+    .map((finding, i) => ({ key: `f${i}`, ...finding, pictures: pictures.get(`${finding.module}\n${finding.at ? `${finding.rule}@${finding.at}` : finding.rule}`) ?? [] }));
   const failures = modules.flatMap(([module, { probeFailures }]) => (probeFailures ?? []).map((failure) => ({ module, ...failure })));
   const skipped = modules.flatMap(([module, { skipped }]) => (skipped ?? []).map((skip) => ({ module, ...skip })));
   return {
@@ -76,7 +84,7 @@ function pageHtml({ css, script, data }) {
 
 // --- sent into the page ---------------------------------------------------------
 //
-// Everything below the CSS travels as source, into the page, and is run there
+// Everything below travels as source, into the page, and is run there
 // as it is here: nothing it uses may come from this module but the other
 // functions sent with it.
 
@@ -108,6 +116,8 @@ export function momentsOf(finding, load) {
     if (!probes.has(event.probe)) return false;
     if (event.kind === 'finding') return isIt(event);
     if (event.kind === 'tab-stop') return same(event) && ours(event);
+    // A finding's pictures are shown with it, not among its moments.
+    if (event.kind === 'evidence') return false;
     if (['probe-start', 'probe-end', 'probe-failed'].includes(event.kind)) return false;
     return same(event) || (event.kind === 'loaded' && event.at == null);
   });
@@ -128,6 +138,7 @@ export function describeEvent(event) {
     case 'focus': return `focus ${event.why ?? ''}: ${event.lost ? 'lost — on the body' : where(event)}`;
     case 'tab-stop': return `Tab stop ${event.index}: ${event.selector}${event.indicator ? ` — ${typeof event.indicator === 'string' ? event.indicator : JSON.stringify(event.indicator)}` : ''}${event.hidden ? ` — hidden: ${event.hidden}` : ''}${event.coveredBy ? ` — covered by ${event.coveredBy}` : ''}`;
     case 'tab-end': return `Tab walk ends: ${event.end} after ${event.stops} stops`;
+    case 'evidence': return `evidence of ${event.rule} — ${(event.boxes ?? []).map((box) => box.selector).join(', ')}`;
     case 'finding': return `${event.rule}${event.impact ? ` (${event.impact})` : ''} on ${event.count} — ${(event.nodes ?? []).map((node) => node.selector).join(', ')}`;
     case 'probe-end': return `probe done in ${event.ms} ms — ${event.findings} finding${event.findings === 1 ? '' : 's'}${event.unreached ? `, not reached: ${event.unreached.join(', ')}` : ''}`;
     case 'probe-failed': return `probe failed — ${event.error}`;
@@ -209,52 +220,91 @@ function main(data) {
   };
 
   const LEVELS = { fail: 0, warn: 1, pass: 2 };
-  let selected = null;
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+  const findings = [...data.findings].sort((a, b) => (LEVELS[a.level] ?? 3) - (LEVELS[b.level] ?? 3));
+  const counts = ['fail', 'warn', 'pass'].map((level) => [level, findings.filter((finding) => finding.level === level).length]).filter(([, n]) => n > 0);
 
   const header = h('header', {},
     h('h1', {}, 'Kanso record'),
     h('p', { class: 'target' }, h('span', { class: 'muted' }, 'page '), h('code', {}, data.url ?? '?'),
       data.baseline ? [h('span', { class: 'muted' }, ' against '), h('code', {}, data.baseline)] : null,
-      data.conclusion ? [' ', chip(data.conclusion, data.conclusion)] : null));
+      data.conclusion ? [' ', chip(data.conclusion, data.conclusion)] : null),
+    h('p', { class: 'muted counts' }, counts.length ? counts.map(([level, n]) => `${n} ${level}`).join(' · ') : 'No findings.'));
+
+  // What is wrong with an element, on one line; and the one thing wrong with
+  // all of them, when it is the same thing — said once, over the list.
+  const why = (item) => explanationLine(item.explanation);
+  const shared = (items) => {
+    const lines = new Set(items.map(why));
+    return lines.size === 1 ? [...lines][0] : '';
+  };
+  // An element behind something else says so, unless why it fails already
+  // does: the dashed box around it is over what covers it.
+  const behind = (item) => (item.coveredBy && !why(item).includes(item.coveredBy) ? h('div', { class: 'why' }, 'behind ', h('code', {}, item.coveredBy), ' in this picture') : null);
+  const element = (item, common) => [
+    h('code', {}, item.selector ?? item.url ?? '?'),
+    item.label ? h('span', { class: 'muted' }, ` “${item.label}”`) : null,
+    !common && why(item) ? h('div', { class: 'why' }, why(item)) : null,
+    behind(item),
+  ];
+
+  // A picture of the page with the failing elements boxed in it — the boxes
+  // are in the image — and under it what they are and why they fail.
+  const picture = (shot) => {
+    const src = data.frames[shot.image];
+    const common = shared(shot.boxes);
+    const several = shot.boxes.length > 1;
+    return h('figure', { class: 'evidence', style: `width: min(100%, ${Math.max(shot.width, 280)}px)` },
+      h('div', { class: 'shot', style: `aspect-ratio: ${shot.width} / ${shot.height}` },
+        src ? h('img', { src, alt: `The page on ${shot.screen}, ${plural(shot.boxes.length, 'failing element')} outlined in red${shot.boxes.some((box) => box.coveredBy) ? ', dashed where something covers it' : ''}`, loading: 'lazy' }) : h('p', { class: 'muted missing' }, 'picture missing')),
+      h('figcaption', {},
+        h('div', { class: 'meta' }, shot.screen),
+        common ? h('p', { class: 'reason' }, common) : null,
+        h(several ? 'ol' : 'ul', { class: `boxes ${several ? 'numbered' : ''}` }, shot.boxes.map((box) => h('li', {},
+          several ? h('span', { class: 'n' }, String(box.n)) : null, h('span', {}, element(box, common)))))));
+  };
+
+  const where = (finding) => (finding.at ? [' in state ', h('code', {}, finding.at)] : ' as the page loads');
+  const anchor = (finding) => `finding-${finding.key}`;
+
+  const card = (finding) => {
+    const nodes = finding.nodes ?? [];
+    const pictures = finding.pictures ?? [];
+    const pictured = pictures.reduce((n, shot) => n + shot.boxes.length, 0);
+    const common = shared(nodes);
+    const how = h('details', { class: 'how' }, h('summary', {}, 'How it was found'));
+    how.addEventListener('toggle', () => {
+      if (!how.open || how.drawn) return;
+      how.drawn = true;
+      const hits = new Set(nodes.map((node) => node.selector));
+      const loads = data.loads.map((load) => ({ load, moments: momentsOf(finding, load) })).filter(({ moments }) => moments.length > 0);
+      if (loads.length === 0) how.append(h('p', { class: 'muted' }, 'No journal moment for it: the load that found it kept none.'));
+      for (const { load, moments } of loads) how.append(h('h4', {}, loadName(load)), sequence(moments, load, hits));
+    });
+    const list = () => h('ul', { class: 'nodes' }, nodes.map((node) => h('li', {}, element(node, common))));
+    return h('article', { class: `card ${finding.level ?? ''}`, id: anchor(finding), tabindex: '-1' },
+      h('h2', {}, chip(finding.level ?? '—', finding.level), finding.title ?? finding.rule),
+      h('p', { class: 'facts' }, h('code', {}, finding.rule), where(finding),
+        [finding.impact, finding.needsReview ? 'needs review' : null, finding.count > 0 ? plural(finding.count, 'element') : null, (finding.formFactors ?? []).join(' + '), finding.state, finding.detail].filter(Boolean).map((fact) => ` · ${fact}`)),
+      pictures.length > 0
+        ? h('div', { class: 'pictures' }, pictures.map(picture))
+        : [h('p', { class: 'muted' }, nodes.length > 0 ? 'No picture: none of these took any room on the page when it was read.' : 'No picture: this is not about an element.'),
+          common ? h('p', { class: 'reason' }, common) : null, list()],
+      pictures.length > 0 && nodes.length > 0
+        ? h('details', {}, h('summary', {}, pictured < nodes.length ? `Every element (${nodes.length}; ${pictured} pictured)` : `Every element (${nodes.length})`), common ? h('p', { class: 'reason' }, common) : null, list())
+        : null,
+      how);
+  };
 
   const list = h('ol', { class: 'findings' });
-  const detail = h('section', { class: 'detail', 'aria-live': 'polite' });
-
-  const findings = [...data.findings].sort((a, b) => (LEVELS[a.level] ?? 3) - (LEVELS[b.level] ?? 3));
   for (const finding of findings) {
-    const button = h('button', { type: 'button', class: 'finding', 'aria-pressed': 'false', onclick: () => select(finding, button) },
+    list.append(h('li', {}, h('a', { class: 'finding', href: `#${anchor(finding)}` },
       h('span', { class: 'row' }, chip(finding.level ?? '—', finding.level), h('strong', {}, finding.rule), finding.at ? chip('@' + finding.at, 'state') : null),
-      h('span', { class: 'sub' }, [finding.impact, finding.needsReview ? 'needs review' : null, finding.count > 0 ? `${finding.count} element${finding.count === 1 ? '' : 's'}` : null, (finding.formFactors ?? []).join(' + '), finding.module, finding.state].filter(Boolean).join(' · ')));
-    list.append(h('li', {}, button));
+      h('span', { class: 'sub' }, [finding.impact, finding.needsReview ? 'needs review' : null, finding.count > 0 ? plural(finding.count, 'element') : null, (finding.formFactors ?? []).join(' + ')].filter(Boolean).join(' · ')))));
   }
   if (findings.length === 0) list.append(h('li', { class: 'muted' }, 'No findings.'));
 
-  function select(finding, button) {
-    selected = finding;
-    for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button));
-    detail.replaceChildren(...findingDetail(finding));
-    if (window.matchMedia('(max-width: 899px)').matches) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  function findingDetail(finding) {
-    const hits = new Set((finding.nodes ?? []).map((node) => node.selector));
-    const parts = [
-      h('h2', {}, finding.title ?? finding.rule),
-      h('p', {}, chip(finding.level ?? '—', finding.level), ' ', h('code', {}, finding.rule), finding.at ? [' in state ', h('code', {}, finding.at)] : ' as the page loads',
-        finding.impact ? ` · ${finding.impact}` : '', finding.state ? ` · ${finding.state}` : ''),
-      finding.detail ? h('p', { class: 'muted' }, finding.detail) : null,
-      h('ul', { class: 'nodes' }, (finding.nodes ?? []).map((node) => h('li', {}, h('code', {}, node.selector ?? node.url ?? '?'), node.label ? h('span', { class: 'muted' }, ` “${node.label}”`) : null, node.explanation ? h('div', {}, node.explanation) : null))),
-    ];
-    const loads = data.loads.map((load) => ({ load, moments: momentsOf(finding, load) })).filter(({ moments }) => moments.length > 0);
-    parts.push(h('h3', {}, 'How it was found'));
-    if (loads.length === 0) {
-      parts.push(h('p', { class: 'muted' }, 'No journal moment for it: the load that found it kept none.'));
-    }
-    for (const { load, moments } of loads) {
-      parts.push(h('h4', {}, loadName(load)), sequence(moments, load, hits));
-    }
-    return parts;
-  }
+  const detail = h('section', { class: 'detail' }, findings.map(card));
 
   // Each load's events, in order — drawn when opened, the frames with them.
   const timeline = h('section', { class: 'timeline' }, h('h2', {}, 'Every load, event by event'));
@@ -284,13 +334,11 @@ function main(data) {
       h('nav', { 'aria-label': 'Findings' }, h('h2', {}, `Findings (${findings.length})`), list),
       detail),
     ...(failures ? [failures] : []), timeline);
-
-  if (findings.length > 0) select(findings[0], list.querySelector('button'));
 }
 
 const CSS = `
 :root { color-scheme: light dark; --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --card: #fff;
-  --fail: #b3261e; --warn: #8a5a00; --pass: #1f6f43; --accent: #2456a6; --box: #2456a6; --hit: #d0342c; }
+  --fail: #b3261e; --warn: #8a5a00; --pass: #1f6f43; --accent: #2456a6; --box: #2456a6; --hit: #d0342c; --mark: #e5001c; }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #161615; --fg: #ecebe6; --muted: #a09f98; --line: #34332f; --card: #1f1f1d;
     --fail: #f28b82; --warn: #f2c46d; --pass: #81c995; --accent: #8ab4f8; --box: #8ab4f8; --hit: #ff7a70; }
@@ -317,12 +365,31 @@ code { font: .85em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-
   .layout > nav { position: sticky; top: 0; max-height: 100vh; overflow: auto; }
 }
 .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.finding { width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; }
-.finding[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.finding { text-decoration: none; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 2px; }
+.finding:hover { border-color: var(--accent); }
 .finding:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.counts { margin: .25rem 0 0; font-size: .85rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; scroll-margin-top: 12px; }
+.card.fail { border-left-color: var(--fail); }
+.card.warn { border-left-color: var(--warn); }
+.card.pass { border-left-color: var(--pass); }
+.card:focus { outline: none; }
+.card:target { box-shadow: 0 0 0 2px var(--accent); }
+.card > h2 { margin: 0 0 .25rem; font-size: 1.1rem; }
+.facts { margin: 0 0 .75rem; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
+.pictures { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.evidence { margin: 0; flex: 0 1 auto; }
+.evidence .shot { border: 1px solid var(--line); }
+.evidence figcaption { margin-top: 8px; font-size: .9rem; overflow-wrap: anywhere; }
+.reason, .why { color: var(--fail); }
+.reason { margin: .25rem 0; font-weight: 600; }
+.why { font-size: .85rem; }
+.boxes { list-style: none; margin: .25rem 0 0; padding: 0; display: grid; gap: 6px; }
+.boxes li { display: flex; gap: 8px; align-items: baseline; }
+.n { flex: none; min-width: 1.5em; padding: 0 .35em; text-align: center; background: var(--mark); color: #fff; font: 700 .8rem/1.5 system-ui, sans-serif; border-radius: 2px; }
+.card > details { border-top: 1px solid var(--line); margin-top: 12px; padding: 8px 0 0; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; overflow-wrap: anywhere; }
 .detail { min-width: 0; }
-.detail > h2 { margin-top: 0; }
 .nodes { padding-left: 1.2rem; }
 .nodes li { margin-bottom: .35rem; }
 .sequence { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
@@ -346,6 +413,7 @@ details > .sequence { margin-top: 8px; }
 `;
 
 const SCRIPT = [
+  `const explanationLine = ${explanationLine};`,
   `const describeEvent = ${describeEvent};`,
   `const momentsOf = ${momentsOf};`,
   `(${main})(JSON.parse(document.getElementById('kanso-data').textContent));`,

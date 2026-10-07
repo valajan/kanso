@@ -103,6 +103,23 @@ test('a load takes forty frames at most; the moments after are logged without on
   assert.equal(journal.events.length, 45);
 });
 
+// The evidence of a finding is a picture made elsewhere, handed over as it is.
+test('a picture made elsewhere is kept with its event, beyond the frames a load may take, through any view', async () => {
+  const journal = new Journal({ now: () => 0 });
+  const page = fakePage();
+  for (let i = 0; i < 40; i++) await journal.shot(page, 'open');
+  const size = { width: 412, height: 600, scale: 2 };
+
+  journal.with({ probe: 'leaks', at: 'menu' }).withoutFrames().keep('evidence', { rule: 'dom-leak' }, { jpeg: Buffer.from([1, 2]), size });
+  NO_JOURNAL.keep('evidence', { rule: 'dom-leak' }, { jpeg: Buffer.from([1]), size });
+
+  assert.deepEqual(journal.events.at(-1), { seq: 40, t: 0, kind: 'evidence', probe: 'leaks', at: 'menu', rule: 'dom-leak', frame: { file: '40.jpg', ...size } });
+  assert.deepEqual([...journal.frames.get('40.jpg')], [1, 2]);
+  assert.equal(journal.recording, true);
+  assert.equal(journal.with({ probe: 'x' }).withoutFrames().recording, true);
+  assert.equal(NO_JOURNAL.recording, false);
+});
+
 // A probe that measures is handed a view without frames: a screenshot in the
 // middle of its clicks would be timed with them.
 test('a view without frames, and NO_JOURNAL, take no screenshot', async () => {

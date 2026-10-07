@@ -85,4 +85,33 @@ function modal(element) {
   return behind.some((el) => shows(el) && hidden(el)) && behind.every((el) => hidden(el) || !shows(el));
 }
 
-const DOM = `({ describe: ${describe}, modal: ${modal} })`;
+// What entirely hides `element` from whoever looks at the screen, as a short
+// selector — `header.sticky`, `div#cookies` —, or null: nothing does, or
+// nobody can tell, the element being off the screen. Sampled at its centre and
+// near its corners, inside the screen: hidden at every point is hidden. What
+// answers there and is the element's own, inside it or around it, hides
+// nothing.
+function coveredBy(element) {
+  const rect = element.getBoundingClientRect();
+  const inset = Math.min(2, rect.width / 4, rect.height / 4);
+  const points = [
+    [rect.left + rect.width / 2, rect.top + rect.height / 2],
+    [rect.left + inset, rect.top + inset], [rect.right - inset, rect.top + inset],
+    [rect.left + inset, rect.bottom - inset], [rect.right - inset, rect.bottom - inset],
+  ].filter(([x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight);
+  if (points.length === 0) return null;
+
+  let cover = null;
+  for (const [x, y] of points) {
+    const top = document.elementFromPoint(x, y);
+    if (!top || top === element || element.contains(top) || top.contains(element)) return null;
+    cover ??= top;
+  }
+  // Named by the outermost element that covers it: the header, not its logo.
+  let outer = cover;
+  while (outer.parentElement && outer.parentElement !== document.body && !outer.parentElement.contains(element)) outer = outer.parentElement;
+  const id = outer.id ? `#${outer.id}` : outer.classList.length > 0 ? `.${outer.classList[0]}` : '';
+  return outer.localName + id;
+}
+
+const DOM = `({ describe: ${describe}, modal: ${modal}, coveredBy: ${coveredBy} })`;

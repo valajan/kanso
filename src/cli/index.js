@@ -73,9 +73,11 @@ Options
       --json            print the whole result as JSON, and nothing else
   -o, --out <file>      also write the result to a file: the Markdown report
                         for a .md, the JSON for a .json. Repeatable
-      --record <dir>    keep a journal of what the probes did on each load —
-                        one JSON Lines file per load, beside the result as
-                        audit.json — to look at, share or analyse
+      --record <dir>    keep what the probes did and found: index.html, the
+                        findings with a picture of each failing element
+                        outlined in red, to open; findings.json, the same for
+                        an agent to read; and a journal of each load, one
+                        JSON Lines file each, beside the result as audit.json
 
 Options for discover
   -w, --write           write the states found to .kanso/states.yml, beside

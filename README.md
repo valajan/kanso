@@ -470,14 +470,33 @@ through on each load:
 kanso audit dist --record kanso-record
 ```
 
-The directory holds one JSON Lines journal per load — the page loaded, each
-state reached or not, each finding, every stop of the Tab walk — with
-screenshots of the page loaded, each state reached and each opening and
-closing; the result as `audit.json`; and `index.html`, one self-contained page
-that opens from the disk: the findings and, for the one you select, the moments
-that produced it, focus boxes drawn over the frames. What an earlier audit
-wrote there is cleared first. The Action (`record: true`) and the MCP server
-(`record: <dir>`) keep the same directory.
+Every finding is pictured where it was found — as the page loads, or in the
+state that shows it: a screenshot of that part of the page with the failing
+elements outlined in red, numbered when there are several. An element behind
+something else — a heading under an open menu — is outlined in dashes, with
+what covers it: the picture shows the menu there, not the heading. Focus hidden
+behind a sticky header is pictured as Tab reaches it, once for each thing that
+hides. The directory
+holds the same record twice, for its two readers:
+
+- **`index.html`, for you.** One self-contained page that opens from the disk:
+  every finding, worst first, with its pictures and, under each, which element
+  is which and why it fails. *How it was found* unfolds the moments behind it —
+  the page loaded, the state reached, the way in and out, focus boxes drawn
+  over the frames.
+- **`findings.json`, for your agent.** One entry per finding: its rule, its
+  level, the state it was found in and the click that opens it, every failing
+  element with what is wrong with it, and the paths of the pictures — images
+  an agent can open, the boxes already in them — with where each numbered
+  element is. Then what no probe could check, and what was timed.
+
+Beside them: one JSON Lines journal per load — the page loaded, each state
+reached or not, each finding, every stop of the Tab walk —, the frames under
+`frames/`, and the whole result as `audit.json`. An element that takes no room
+on the page when it is read — a link in a menu since closed — has no picture,
+and the record says so. What an earlier audit wrote there is cleared first. The
+Action (`record: true`) and the MCP server (`record: <dir>`) keep the same
+directory.
 
 ### On GitHub Actions
 
@@ -553,7 +572,7 @@ Two tools:
 
 | Tool | Arguments | What comes back |
 |---|---|---|
-| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `record` | the whole verdict, as JSON — and with `record: <dir>`, a journal of what the checks did on each load kept in that directory, whose path the result gives |
+| `audit_page` | `url` (a URL or a build directory; defaults to `serve:`), optional `baseline`, `runs` and `record` | the whole verdict, as JSON — and with `record: <dir>`, `findings.json` with a picture of each failing element, and a journal of what the checks did on each load, kept in that directory, whose path the result gives |
 | `check_states` | optional `states` (else the declared ones) and `url` | for each state, whether it was reached and what it changed, revealed or duplicated — see section 3 |
 
 The server reads `.kanso.yml` from the directory the host started it in — your
@@ -632,7 +651,7 @@ kanso audit <url> --runs 3               # INP timed 3 times, median kept
 kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
-kanso audit <url> --record <dir>         # keep the probes' journals, frames and index.html
+kanso audit <url> --record <dir>         # keep index.html, findings.json and pictures of what failed
 kanso audit <url> --config other.yml     # another configuration file
 kanso discover dist --check              # replay the declared states, explore nothing
 kanso discover dist --write              # find a first draft of the states, write .kanso/states.yml

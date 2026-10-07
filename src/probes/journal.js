@@ -29,6 +29,14 @@ import { basename, dirname, join } from 'node:path';
 // reads in a text editor. A frame is taken through a view's `shot`, never on
 // its own; NO_JOURNAL's takes none, so a load nobody records pays nothing for
 // them.
+//
+// A picture somebody else made goes in through `keep` — the evidence of a
+// finding (./evidence.js), a part of the page with the failing elements boxed
+// in it. It is no moment of the probe's way, and does not count against the
+// frames a load may take, nor is it held back from a view made
+// `withoutFrames`; whoever makes them bounds them. `recording` says whether
+// anything handed to this journal is kept at all, so that nobody makes a
+// picture for nothing.
 export const SCHEMA = 1;
 
 // A frame is a screenshot, some tens of kilobytes: enough to see what a
@@ -42,6 +50,7 @@ const SHOT_TIMEOUT_MS = 5_000;
 export class Journal {
   #events = [];
   #frames = new Map();
+  #shots = 0;
   #start;
   #now;
 
@@ -60,11 +69,24 @@ export class Journal {
   // visitor sees it. A frame that cannot be taken, or one past MAX_FRAMES,
   // leaves the event without one.
   async shot(page, kind, data = {}) {
-    const frame = this.#frames.size < MAX_FRAMES ? await takeFrame(page).catch(() => null) : null;
+    const frame = this.#shots < MAX_FRAMES ? await takeFrame(page).catch(() => null) : null;
     if (!frame) return this.log(kind, data);
+    this.#shots += 1;
     const file = `${this.#events.length}.jpg`;
     this.#frames.set(file, frame.jpeg);
     this.log(kind, { ...data, frame: { file, ...frame.size } });
+  }
+
+  // Logs the event with a picture made elsewhere: `jpeg` its bytes, `size`
+  // what its frame says of it — { width, height, scale }.
+  keep(kind, data, { jpeg, size }) {
+    const file = `${this.#events.length}.jpg`;
+    this.#frames.set(file, jpeg);
+    this.log(kind, { ...data, frame: { file, ...size } });
+  }
+
+  get recording() {
+    return true;
   }
 
   // The same journal, every event it takes carrying `context` too.
@@ -101,14 +123,18 @@ function view(journal, context, frames = true) {
   return {
     log: (kind, data = {}) => journal.log(kind, { ...context, ...data }),
     shot: async (page, kind, data = {}) => (frames ? journal.shot(page, kind, { ...context, ...data }) : journal.log(kind, { ...context, ...data })),
+    keep: (kind, data, picture) => journal.keep(kind, { ...context, ...data }, picture),
+    recording: true,
     with: (more) => view(journal, { ...context, ...more }, frames),
     withoutFrames: () => view(journal, context, false),
   };
 }
 
 export const NO_JOURNAL = {
+  recording: false,
   log() {},
   async shot() {},
+  keep() {},
   with() {
     return NO_JOURNAL;
   },

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What lies under something else</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 0 1rem 1rem; color: #111; background: #fff; }
+  a { color: #0b5cad; }
+  /* A menu that drops from a sticky header over the top of the page, as a
+     phone's does: the heading and the paragraph under it are still there,
+     and nobody reads them through it. */
+  header { position: sticky; top: 0; z-index: 50; height: 40px; background: #fff; }
+  summary { line-height: 40px; }
+  #panel { position: absolute; left: 0; right: 0; top: 100%; background: #eee; padding: 0 1rem 1rem; }
+  #panel a { display: block; padding: .5rem 0; }
+  /* A doubt of the menu's own: text over a photograph. */
+  .photo {
+    background-image: url("data:image/gif;base64,R0lGODlhBAAEAIAAAP///wAAACH5BAEKAAEALAAAAAAEAAQAAAIFjI+pWQUAOw==");
+    background-size: cover;
+    color: #8a8a8a;
+    margin: 0;
+  }
+  /* A sticker laid over a card as the page loads: nobody ever read the
+     contrast of what is under it. */
+  .card { position: relative; margin-top: 60px; }
+  .sticker { position: absolute; inset: 0; z-index: 1; background: #ffe45c; }
+  .sticker a { display: block; padding: .5rem 0; }
+  /* A banner fixed to the bottom of the screen, and an image under it. */
+  .banner { position: fixed; left: 0; right: 0; bottom: 0; height: 200px; background: #222; z-index: 10; }
+  img.under { position: absolute; left: 1rem; top: 660px; }
+</style>
+</head>
+<body>
+<header>
+  <details>
+    <summary id="open">Menu</summary>
+    <nav id="panel" aria-label="Main">
+      <a href="#one">One</a>
+      <a href="#two">Two</a>
+      <a href="#three">Three</a>
+      <p class="photo">Grey text laid over a photograph.</p>
+    </nav>
+  </details>
+</header>
+<main>
+  <h1>What lies under something else</h1>
+  <p class="lead">A paragraph the open menu covers, whose contrast was read as the page loaded.</p>
+  <!-- No alt, in plain sight. -->
+  <img class="seen" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="40" height="40">
+  <div class="card">
+    <p class="stamped">Text a sticker lies over, there as the page loads, which nothing ever read.</p>
+    <div class="sticker"><a href="#new">New</a><a href="#more">And more</a></div>
+  </div>
+  <!-- No alt either, under the banner: what a picture shows there is the
+       banner. -->
+  <img class="under" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="40" height="40">
+</main>
+<div class="banner"></div>
+</body>
+</html>

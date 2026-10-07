@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Script } from 'node:vm';
 
 import { clearRecord, readJournals, writeRecord } from '../record.js';
+import { digest } from '../digest.js';
 import { momentsOf, renderViewer, viewerData } from '../viewer.js';
 
 // A record as a focus probe and axe leave one: a finding of the probe on the
@@ -52,6 +53,8 @@ const MOBILE = [
   { seq: 10, t: 50, kind: 'close', probe: 'focus', at: 'drawer', by: 'escape', closed: false, frame: { file: 'frames/current.mobile.1/10.jpg', width: 412, height: 823, scale: 1.75 } },
   { seq: 11, t: 51, kind: 'finding', probe: 'focus', at: 'drawer', rule: 'focus-not-moved', count: 1, nodes: [DRAWER] },
   { seq: 12, t: 52, kind: 'probe-end', probe: 'focus', findings: 1 },
+  // Logged before its finding when a probe runs; its place does not matter.
+  { seq: 13, t: 53, kind: 'evidence', probe: 'focus', at: 'drawer', rule: 'focus-not-moved', boxes: [{ n: 1, ...DRAWER, explanation: 'Fix any of the following:\n  focus went nowhere', coveredBy: 'div.backdrop', rect: { x: 0, y: 40, width: 300, height: 500 } }], frame: { file: 'frames/current.mobile.1/13.jpg', width: 412, height: 823, scale: 1.75 } },
 ];
 
 const LOADS = [
@@ -82,6 +85,40 @@ test('the findings of every module make one list, each with a key and its module
   assert.deepEqual(failures.map(({ module, probe, at }) => [module, probe, at]), [['accessibility', 'keyboard', 'drawer']]);
   assert.deepEqual(skipped.map(({ module, probe }) => [module, probe]), [['interactions', 'leaks']]);
   assert.equal(conclusion, 'fail');
+});
+
+// What an agent opens: the same findings, worst first, each with the pictures
+// of what failed — joined by rule and state, on the screens it was found on.
+test('the digest lists each finding with its elements, its pictures and the way to its state', () => {
+  const found = digest({ result: RESULT, loads: LOADS });
+
+  assert.deepEqual(found.counts, { fail: 3, warn: 0, pass: 0 });
+  assert.deepEqual(found.findings.map(({ id, module, inState, reach, foundBy }) => [id, module, inState, reach, foundBy]), [
+    ['focus-not-moved@drawer', 'accessibility', 'drawer', { click: '#drawer-open' }, ['focus']],
+    ['image-alt', 'accessibility', null, null, ['axe']],
+    ['overlay-left@drawer', 'interactions', 'drawer', { click: '#drawer-open' }, []],
+  ]);
+  const [focus, logo] = found.findings;
+  // One picture: the desktop load is not where it was found.
+  assert.deepEqual(focus.pictures, [{
+    image: 'frames/current.mobile.1/13.jpg', screen: 'mobile', width: 412, height: 823, scale: 1.75,
+    // Behind something else in that picture, which the box says.
+    boxes: [{ n: 1, selector: DRAWER.selector, explanation: 'focus went nowhere', coveredBy: 'div.backdrop', x: 0, y: 40, width: 300, height: 500 }],
+  }]);
+  assert.deepEqual(logo.pictures, []);
+  assert.deepEqual(logo.elements, [{ selector: LOGO.selector }]);
+  assert.deepEqual(found.notChecked.map(({ module, probe, inState, reason }) => [module, probe, inState, reason]), [
+    ['accessibility', 'keyboard', 'drawer', 'timed out after 30s'],
+    ['interactions', 'leaks', null, 'no state is declared, and this probe checks nothing without one'],
+  ]);
+  assert.deepEqual(found.files, { result: 'audit.json', page: 'index.html', journals: ['current.mobile.1.jsonl', 'current.desktop.1.jsonl'] });
+});
+
+test('the page is handed each finding’s pictures, and they are no moment of how it was found', () => {
+  const [focus, logo] = data().findings;
+  assert.deepEqual(focus.pictures.map(({ image }) => image), ['frames/current.mobile.1/13.jpg']);
+  assert.deepEqual(logo.pictures, []);
+  assert.ok(momentsOf(focus, LOADS[0]).every((event) => event.kind !== 'evidence'));
 });
 
 // The join: rule, state and element find the finding event; its probe's way
@@ -134,6 +171,7 @@ test('a record is written with its page, which inlines the journals and the fram
   // The frame on disk is inlined; the ones that are not there are left out.
   assert.deepEqual(shown.frames, { 'frames/current.mobile.1/8.jpg': 'data:image/jpeg;base64,/9j/' });
   assert.equal(JSON.parse(readFileSync(join(dir, 'audit.json'), 'utf8')).url, RESULT.url);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'findings.json'), 'utf8')), digest({ result: RESULT, loads: readJournals(dir).loads }));
   assert.equal(readJournals(dir).loads.length, 2);
 });
 
@@ -142,11 +180,13 @@ test('a record directory loses what an earlier audit wrote there, frames and pag
   mkdirSync(join(dir, 'frames', 'current.mobile.1'), { recursive: true });
   writeFileSync(join(dir, 'frames', 'current.mobile.1', '1.jpg'), 'x');
   writeFileSync(join(dir, 'index.html'), 'x');
+  writeFileSync(join(dir, 'findings.json'), 'x');
   writeFileSync(join(dir, 'notes.txt'), 'mine');
 
   clearRecord(dir);
 
   assert.throws(() => readFileSync(join(dir, 'index.html')));
+  assert.throws(() => readFileSync(join(dir, 'findings.json')));
   assert.throws(() => readFileSync(join(dir, 'frames', 'current.mobile.1', '1.jpg')));
   assert.equal(readFileSync(join(dir, 'notes.txt'), 'utf8'), 'mine');
 });
