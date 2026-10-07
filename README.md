@@ -166,6 +166,16 @@ same scale:
 | `focus-obscured` | a focused element is entirely behind something else: a cookie banner, a sticky bar (WCAG 2.4.11) | `moderate` |
 | `reduced-motion` | with `prefers-reduced-motion: reduce` set, something still moves — on load, as the page is scrolled through, or forever: a transform, a position, a size, or smooth scrolling. Fades and colour changes are left alone | `moderate` |
 
+Each names the element to fix: the box too wide for the screen, the code block
+that neither wraps nor scrolls, the card that hides the end of its lines, the
+button whose focus style was removed, the menu link that takes focus while the
+menu is closed. What
+WCAG lets need two dimensions — images, video, maps, data tables — is left out,
+and so is anything that scrolls on its own or is truncated on purpose with an
+ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next
+slide looks the same to it. If a check cannot run on a page, the report says so
+and lists the rules it left unchecked, rather than showing a clean section.
+
 **What only a click shows is checked too, if you say how to get there.** A menu
 that opens, a dialog, a form behind a button: declare them at the root of
 `.kanso.yml` and axe reads the page again in each — in the page it already
@@ -197,6 +207,23 @@ cannot be reached — the button renamed, the menu that never opens — is repor
 as unchecked, with every state listed under it, and never reads as a clean
 one. A state only one screen has — the drawer behind a phone's menu button —
 says `form_factor: mobile`, and is not looked for on desktop.
+
+**The way into a state and out of it is checked from the keyboard.** Kanso
+opens each declared state as a keyboard user would — focus on its trigger,
+Enter, then Space — reads where focus went, closes it with Escape, and reads
+again. What opened is read from the page: a modal dialog, a menu or listbox, or
+what the trigger's `aria-controls` names. These are reported under
+accessibility too:
+
+| Rule | What it means | Impact |
+|---|---|---|
+| `keyboard-inoperable` | the trigger takes no focus, or neither Enter nor Space opens what a click opens (WCAG 2.1.1) | `moderate` |
+| `focus-lost` | focus was on the page, and the state opening or closing left it nowhere (WCAG 2.4.3) | `serious` |
+| `focus-not-moved` | a modal dialog opened, and focus stayed behind it (WCAG 2.4.3) | `serious` |
+| `focus-escapes-modal` | Tab, inside an open modal dialog, reaches the page behind it (WCAG 2.4.3) | `serious` |
+| `escape-not-closing` | Escape leaves a modal dialog or a menu open (ARIA Authoring Practices) | `moderate` |
+| `focus-not-returned` | a modal dialog or a menu closed, and focus did not go back to what opened it (WCAG 2.4.3) | `moderate` |
+| `revealed-unreachable` | a disclosure opened, and the next Tab from its trigger does not go into what it revealed — content put at the end of the page, a portal (WCAG 2.4.3) | `moderate` |
 
 **Let your coding agent find them.** The agent that wrote the page has its
 source, and knows what opens what better than a click-through guessing from
@@ -230,6 +257,18 @@ kanso discover dist            # print the states found
 kanso discover dist --write    # write them to .kanso/states.yml
 ```
 
+| Option | |
+|---|---|
+| `--depth <n>` | clicks deep, 1 to 3 (default: 2) |
+| `--max-clicks <n>` | clicks per screen before stopping (default: 60) |
+| `--max-states <n>` | states kept at most, top-level ones first (default: 20) |
+| `--form-factor <mobile \| desktop>` | explore one screen only (default: both) |
+| `--json` | print what was found as JSON |
+
+Twenty states are kept at most, a state never without the one it is reached
+from, and the summary names the ones left out: an audit goes through every
+state, at about 15 s each, and the summary says about how long that will take.
+
 An audit reads both files. Keep in `.kanso.yml` only the states no
 click-through can find — one behind a form to fill in, say — or one you want to
 tell how to close another way: where both reach the same state, yours wins, and
@@ -254,22 +293,23 @@ would make every other audit unchecked. Read what it found before you commit
 it: it names each state after what was clicked, and every state costs the
 checks that go through it a few seconds more.
 
-Each names the element to fix: the box too wide for the screen, the code block
-that neither wraps nor scrolls, the card that hides the end of its lines, the
-button whose focus style was removed, the menu link that takes focus while the
-menu is closed. What
-WCAG lets need two dimensions — images, video, maps, data tables — is left out,
-and so is anything that scrolls on its own or is truncated on purpose with an
-ellipsis. `reflow-clip` warns rather than fails: a carousel peeking at its next
-slide looks the same to it. If a check cannot run on a page, the report says so
-and lists the rules it left unchecked, rather than showing a clean section.
+**Interactions** opens each declared state with a click and closes it however
+it closes — Escape, its `close:`, a click away — then compares the page with
+what it was before; and opens and closes each eight times, to see what keeps
+growing. Nothing is checked there without a declared state.
 
-**Interactions** opens and closes each declared state and reports what it
-leaves behind — a page left locked, covered, or hidden from a screen reader; a
-scroll position or an address lost; a trigger still saying it is expanded; an
-error thrown on closing; a page that scrolls behind a modal dialog — and,
-opening and closing each eight times, DOM nodes or listeners that keep growing.
-Nothing is checked there without a declared state.
+| Rule | What it means | Impact |
+|---|---|---|
+| `page-locked` | the page no longer scrolls, or takes no click: the `overflow: hidden`, `position: fixed` or `pointer-events: none` a dialog puts on `<html>` or `<body>` is still there | `serious` |
+| `overlay-left` | something still covers the middle of the page and takes its clicks — a backdrop that stayed | `serious` |
+| `page-hidden-left` | what a modal dialog hid from assistive technology, or made inert, stays hidden | `serious` |
+| `scroll-position-lost` | the page is no longer where it was scrolled to | `moderate` |
+| `expanded-left` | the trigger still says `aria-expanded="true"` | `moderate` |
+| `close-error` | an error, logged or thrown, as the state closed | `moderate` |
+| `url-left` | the address is not the one the page had | `minor` |
+| `scroll-not-locked` | while a modal dialog is open, the page behind it scrolls under the wheel | `minor` |
+| `dom-leak` | DOM nodes, or documents, grow with every open and close, the first cycles left out as warm-up | `moderate` |
+| `listener-leak` | event listeners grow with every open and close | `moderate` |
 
 Not every failure is an element: an error thrown as a state closes is printed
 with the script and line that threw it.
@@ -420,6 +460,24 @@ nothing else:
 ```bash
 kanso audit dist --json > audit.json
 ```
+
+### See what the probes did
+
+When a finding surprises you, `--record <dir>` keeps what each probe went
+through on each load:
+
+```bash
+kanso audit dist --record kanso-record
+```
+
+The directory holds one JSON Lines journal per load — the page loaded, each
+state reached or not, each finding, every stop of the Tab walk — with
+screenshots of the page loaded, each state reached and each opening and
+closing; the result as `audit.json`; and `index.html`, one self-contained page
+that opens from the disk: the findings and, for the one you select, the moments
+that produced it, focus boxes drawn over the frames. What an earlier audit
+wrote there is cleared first. The Action (`record: true`) and the MCP server
+(`record: <dir>`) keep the same directory.
 
 ### On GitHub Actions
 
@@ -574,9 +632,11 @@ kanso audit <url> --runs 3               # INP timed 3 times, median kept
 kanso audit <url> --fail-on warn         # fail on amber
 kanso audit <url> --json                 # machine-readable output
 kanso audit <url> --out report.md        # also write the Markdown report
+kanso audit <url> --record <dir>         # keep the probes' journals, frames and index.html
 kanso audit <url> --config other.yml     # another configuration file
 kanso discover dist --check              # replay the declared states, explore nothing
 kanso discover dist --write              # find a first draft of the states, write .kanso/states.yml
+kanso discover dist --max-states 10      # keep fewer states than the default 20
 kanso mcp                                # serve the audit to a coding agent
 kanso --help
 ```
